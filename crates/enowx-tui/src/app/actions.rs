@@ -37,7 +37,9 @@ impl App {
             "model" if !args.trim().is_empty() => {
                 anyhow::ensure!(self.config.provider_active(), "Set a provider with /provider first.");
                 let mut next = self.config.clone();
-                next.model.default = args.trim().into();
+                // Typed by hand, so nothing is known about it upstream; take
+                // the window, pricing and capabilities from the catalogue.
+                next.adopt_model(args.trim(), enowx_core::UpstreamModel::default());
                 next.save()?;
                 self.adopt(next);
                 self.status = "model saved".into();
@@ -145,10 +147,17 @@ impl App {
                         self.settings.base_url.trim().trim_end_matches('/').into();
                     next.provider.api_key = self.settings.api_key.trim().into();
                     next.provider.models_url = self.settings.models_url.trim().into();
-                    next.model.default = model.id;
-                    if let Some(context) = model.context_window {
-                        next.model.context_window = context;
-                    }
+                    // Upstream wins where it reported something; the rest —
+                    // pricing, reasoning, vision, and the window when the
+                    // gateway omits it — comes from models.dev. Without this
+                    // the previous model's numbers were carried over and then
+                    // displayed as if they described the new one.
+                    next.adopt_model(
+                        &model.id,
+                        enowx_core::UpstreamModel {
+                            context_window: model.context_window,
+                        },
+                    );
                     next.save()?;
                     self.adopt(next);
                     self.model_events = None;

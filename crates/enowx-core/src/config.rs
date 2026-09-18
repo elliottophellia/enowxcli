@@ -177,6 +177,16 @@ impl Default for AgentConfig {
     }
 }
 
+/// Window used when neither the provider nor the catalogue states one.
+pub const DEFAULT_CONTEXT_WINDOW: u32 = 128_000;
+
+/// What the provider itself reported about a model. `None` means the provider
+/// did not say, which is the common case for OpenAI-compatible gateways.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct UpstreamModel {
+    pub context_window: Option<u32>,
+}
+
 impl Config {
     /// Load `~/.enx/config.toml`, falling back to defaults when it is absent,
     /// then apply environment overrides.
@@ -234,6 +244,42 @@ impl Config {
         // `tool_call` defaults to true; only set false when catalog says so
         // and user has not explicitly enabled it (we cannot distinguish, so
         // leave alone).
+    }
+
+    /// Adopt `model_id` and take its metadata from the catalog.
+    ///
+    /// Unlike `fill_from_catalog`, which only fills gaps, this REPLACES the
+    /// per-model fields, because they describe the previous model and would
+    /// otherwise be carried over silently: a 128k window on a model that
+    /// takes 1M, or pricing 30x off, both of which then look like real
+    /// readouts rather than leftovers.
+    ///
+    /// `upstream` is whatever the provider reported for this model, and wins
+    /// where it is present — it describes how the model is actually being
+    /// served, which the public catalogue cannot know. Fields the provider
+    /// leaves out fall back to the catalogue, and fields neither knows are
+    /// reset to a neutral default rather than kept from the old model.
+    pub fn adopt_model(&mut self, model_id: &str, upstream: UpstreamModel) {
+        self.model.default = model_id.trim().to_owned();
+        let catalog = crate::catalog::Catalog::load_cached();
+        let entry = catalog.lookup(&self.model.default);
+
+        self.model.context_window = upstream
+            .context_window
+            .or_else(|| entry.map(|e| e.limit.context).filter(|c| *c > 0))
+            .unwrap_or(DEFAULT_CONTEXT_WINDOW);
+
+        let cost = entry.map(|e| &e.cost);
+        self.model.price_input = cost.map(|c| c.input).unwrap_or(0.0);
+        self.model.price_output = cost.map(|c| c.output).unwrap_or(0.0);
+        self.model.price_cache_read = cost.and_then(|c| c.cache_read).unwrap_or(0.0);
+
+        self.model.vision = entry.is_some_and(|e| e.modalities.supports_vision());
+        self.model.reasoning = entry.is_some_and(|e| e.reasoning);
+        // Tool calling stays on when the catalogue does not say otherwise:
+        // an unlisted model is far more often capable than not, and turning
+        // it off would silently disable every tool.
+        self.model.tool_call = entry.map(|e| e.tool_call).unwrap_or(true);
     }
 
     fn validate(&self) -> Result<()> {
@@ -345,6 +391,14 @@ impl Config {
     /// Write a dotted key. Numbers and booleans are parsed so `server.port=9000`
     /// stays an integer in the file.
     pub fn set(&mut self, key: &str, raw: &str) -> Result<()> {
+        // Changing the model changes everything scoped to it. Route through
+        // `adopt_model` so `enx config set` lands the same window, pricing
+        // and capabilities the interface would, instead of leaving the
+        // previous model's numbers in place.
+        if key == "model.default" {
+            self.adopt_model(raw, UpstreamModel::default());
+            return Ok(());
+        }
         let mut value = serde_json::to_value(&*self)?;
         let parts: Vec<&str> = key.split('.').collect();
         let mut cursor = &mut value;
@@ -503,5 +557,90 @@ mod tests {
         assert!(resolve_in_workspace(&root, "src/main.rs").is_ok());
         assert!(resolve_in_workspace(&root, "../etc/passwd").is_err());
         assert!(resolve_in_workspace(&root, "/etc/passwd").is_err());
+    }
+}
+
+#[cfg(test)]
+mod adopt_model_tests {
+    use super::*;
+
+    /// A gateway that reports nothing but an id is the common case; the
+    /// catalogue has to supply the rest or the UI shows placeholder numbers
+    /// as if they were real.
+    #[test]
+    fn upstream_silence_falls_back_to_the_catalogue() {
+        let catalog = crate::catalog::Catalog::load_cached();
+        // Skip when no catalogue is cached (offline CI); the fallback rules
+        // are covered by the tests below that do not need one.
+        let Some((id, entry)) = catalog
+            .providers
+            .values()
+            .flat_map(|p| p.models.iter())
+            .find(|(_, m)| m.limit.context > 0 && m.cost.input > 0.0)
+            .map(|(id, m)| (id.clone(), m.clone()))
+        else {
+            return;
+        };
+        let mut config = Config::default();
+        config.adopt_model(&id, UpstreamModel::default());
+        assert_eq!(
+            config.model.context_window, entry.limit.context,
+            "the window should come from the catalogue"
+        );
+        assert_eq!(config.model.price_input, entry.cost.input);
+        assert_eq!(config.model.reasoning, entry.reasoning);
+    }
+
+    /// The provider knows how it is actually serving the model; a public
+    /// catalogue cannot. Where they disagree, the provider wins.
+    #[test]
+    fn upstream_wins_over_the_catalogue() {
+        let mut config = Config::default();
+        config.adopt_model(
+            "gpt-4o",
+            UpstreamModel {
+                context_window: Some(42_000),
+            },
+        );
+        assert_eq!(config.model.context_window, 42_000);
+    }
+
+    /// Switching models must not carry the old one's numbers across — that is
+    /// how a 128k window ended up displayed for a 1M-context model.
+    #[test]
+    fn switching_models_replaces_rather_than_keeps() {
+        let mut config = Config::default();
+        config.model.context_window = 999_999;
+        config.model.price_input = 12.5;
+        config.model.price_output = 99.0;
+        config.model.reasoning = true;
+        config.model.vision = true;
+
+        config.adopt_model("definitely-not-a-real-model-xyz", UpstreamModel::default());
+
+        assert_eq!(
+            config.model.context_window, DEFAULT_CONTEXT_WINDOW,
+            "an unknown model falls back to the default window, not the previous model's"
+        );
+        assert_eq!(config.model.price_input, 0.0, "stale pricing must be dropped");
+        assert_eq!(config.model.price_output, 0.0);
+        assert!(!config.model.reasoning, "capabilities describe the old model");
+        assert!(!config.model.vision);
+    }
+
+    /// An unlisted model is far more often tool-capable than not, and turning
+    /// tools off silently would disable the agent's whole toolset.
+    #[test]
+    fn an_unknown_model_keeps_tool_calling_enabled() {
+        let mut config = Config::default();
+        config.adopt_model("definitely-not-a-real-model-xyz", UpstreamModel::default());
+        assert!(config.model.tool_call);
+    }
+
+    #[test]
+    fn the_model_id_is_trimmed() {
+        let mut config = Config::default();
+        config.adopt_model("  spaced-model  ", UpstreamModel::default());
+        assert_eq!(config.model.default, "spaced-model");
     }
 }

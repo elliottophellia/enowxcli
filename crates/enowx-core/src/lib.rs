@@ -17,7 +17,7 @@ pub mod session;
 pub mod tools;
 
 pub use agent::{Agent, RunRequest};
-pub use config::Config;
+pub use config::{Config, UpstreamModel};
 pub use discovery::{Discovery, InstructionFile, McpServer, McpTransport, SkillEntry, SkillScope};
 pub use event::Event;
 pub use mcp::{McpClient, McpTool};

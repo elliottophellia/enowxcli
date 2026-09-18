@@ -107,7 +107,9 @@ impl App {
             .trim_end_matches('/')
             .to_owned();
         next.provider.models_url = self.settings.models_url.trim().to_owned();
-        next.model.default = self.settings.model.trim().to_owned();
+        let chosen_model = self.settings.model.trim().to_owned();
+        let model_changed = chosen_model != self.config.model.default;
+        next.model.default = chosen_model.clone();
         next.provider.api_key = self.settings.api_key.trim().to_owned();
         next.ui.theme = self.settings.theme.clone();
         anyhow::ensure!(
@@ -122,6 +124,18 @@ impl App {
                 .parse()
                 .map_err(|_| anyhow::anyhow!("Context window must be a whole number of tokens."))?
         };
+        // A newly chosen model brings its own window, pricing and
+        // capabilities; keeping the previous model's would misreport both the
+        // context gauge and the cost readout.
+        if model_changed && !chosen_model.is_empty() {
+            let typed_window = self.settings.context_window.trim().parse::<u32>().ok();
+            next.adopt_model(
+                &chosen_model,
+                enowx_core::UpstreamModel {
+                    context_window: typed_window,
+                },
+            );
+        }
         next.save()?;
         let needs_model = next.model.default.is_empty();
         let ready = next.is_ready();

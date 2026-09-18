@@ -145,14 +145,25 @@ pub(super) fn draw_transcript(frame: &mut Frame, app: &mut App, area: Rect) {
         let mut budget = width.saturating_sub(1);
         let mut out_spans: Vec<Span<'static>> = Vec::new();
         for span in line.spans.into_iter() {
-            let span_w = span.content.chars().count();
+            // `line.width()` above is a display width, so the budget has to be
+            // spent in the same unit or a row of wide glyphs gets cut short.
+            let span_w = unicode_width_of(&span.content);
             if span_w <= budget {
                 budget -= span_w;
                 out_spans.push(span);
                 continue;
             }
-            // Partial span: take `budget` chars, then stop.
-            let taken: String = span.content.chars().take(budget).collect();
+            // Partial span: take as many chars as fit the remaining columns.
+            let mut taken = String::new();
+            let mut used = 0usize;
+            for c in span.content.chars() {
+                let w = unicode_width_of_char(c).max(1);
+                if used + w > budget {
+                    break;
+                }
+                used += w;
+                taken.push(c);
+            }
             out_spans.push(Span::styled(taken, span.style));
             break;
         }
@@ -548,7 +559,7 @@ fn render_table(rows: &[Vec<String>], width: usize, lines: &mut Vec<Line<'static
     let mut widths = vec![0usize; cols];
     for row in rows {
         for (c, cell) in row.iter().enumerate() {
-            widths[c] = widths[c].max(cell.chars().count());
+            widths[c] = widths[c].max(unicode_width_of(cell));
         }
     }
     let budget = width.saturating_sub(cols + 1).max(cols); // 1 pipe per col + trailing
@@ -586,7 +597,7 @@ fn render_table(rows: &[Vec<String>], width: usize, lines: &mut Vec<Line<'static
             // for width; styling is span-based.
             let parsed = markdown_spans(cell, theme);
             let plain_text: String = parsed.iter().map(|(s, _)| s.as_str()).collect();
-            let plain_w = plain_text.chars().count();
+            let plain_w = unicode_width_of(&plain_text);
             // Clip to the column width, replacing overflow with `…`. Since we
             // clip on chars we may cut mid-style; acceptable for tables.
             let (rendered, pad) = if plain_w > *w {
@@ -764,7 +775,7 @@ fn emit_wrapped(
     width: usize,
     _theme: &Theme,
 ) {
-    let usable = width.saturating_sub(prefix.chars().count()).max(1);
+    let usable = width.saturating_sub(unicode_width_of(prefix)).max(1);
 
     if spans.iter().all(|(s, _)| s.is_empty()) {
         lines.push(Line::styled(prefix.to_string(), base));
@@ -785,10 +796,29 @@ fn emit_wrapped(
     let mut first_row = true;
     let mut i = 0;
     while i < chars.len() {
-        // Advance up to `usable` chars.
-        let mut end = (row_start + usable).min(chars.len());
+        // Advance until the row is full, measuring DISPLAY WIDTH rather than
+        // char count: CJK and emoji occupy two columns each, so counting
+        // characters let a line of them overrun the panel by up to 2x.
+        let mut end = row_start;
+        let mut used = 0usize;
+        while end < chars.len() {
+            let w = unicode_width_of_char(chars[end].0).max(1);
+            if used + w > usable {
+                break;
+            }
+            used += w;
+            end += 1;
+        }
+        if end == row_start {
+            // One character wider than the whole row: emit it alone rather
+            // than looping forever on a zero-width advance.
+            end = row_start + 1;
+        }
         // If we would cut in the middle of a word, back up to the last space
-        // in the current window so wrap happens at whitespace.
+        // in the current window so wrap happens at whitespace. Scripts that do
+        // not use spaces (Chinese, Japanese) have no break to find, so the
+        // width-based cut above stands — without this guard such a paragraph
+        // collapsed into one unwrappable row.
         if end < chars.len() && chars[end].0 != ' ' {
             let mut back = end;
             while back > row_start && chars[back - 1].0 != ' ' {
@@ -835,7 +865,9 @@ fn push_row(
     let indent = if first_row {
         prefix.to_string()
     } else {
-        " ".repeat(prefix.chars().count())
+        // Pad by display width so a continuation row lines up under the first
+        // even when the prefix contains wide glyphs.
+        " ".repeat(unicode_width_of(prefix))
     };
     let mut spans: Vec<Span<'static>> = Vec::new();
     if !indent.is_empty() {

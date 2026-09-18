@@ -136,13 +136,23 @@ impl TestApp {
         let mut term = Terminal::new(TestBackend::new(width, height)).unwrap();
         term.draw(|f| crate::ui::draw(f, &mut self.inner)).unwrap();
         let buffer = term.backend().buffer().clone();
+        // A double-width glyph occupies two cells: the first carries the
+        // symbol, the second is left empty by ratatui. Skipping those empty
+        // continuation cells reproduces what the terminal actually shows —
+        // joining every cell would insert a phantom space after each wide
+        // character and overstate the row's width.
         (0..height)
             .map(|y| {
-                (0..width)
-                    .map(|x| buffer[(x, y)].symbol().to_string())
-                    .collect::<String>()
-                    .trim_end()
-                    .to_string()
+                let mut row = String::new();
+                let mut x = 0u16;
+                while x < width {
+                    let cell = &buffer[(x, y)];
+                    let symbol = cell.symbol();
+                    row.push_str(symbol);
+                    let w = unicode_width::UnicodeWidthStr::width(symbol).max(1) as u16;
+                    x += w;
+                }
+                row.trim_end().to_string()
             })
             .collect()
     }

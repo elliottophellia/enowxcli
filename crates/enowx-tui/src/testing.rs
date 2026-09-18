@@ -713,3 +713,46 @@ impl TestApp {
         self.press(code, false)
     }
 }
+
+impl TestApp {
+    /// The open window's title, or "" when nothing is open. Lets a test say
+    /// which window a palette row opened without naming a private variant.
+    pub fn modal_title(&self) -> &'static str {
+        self.inner.modal.title()
+    }
+
+    pub fn any_modal_open(&self) -> bool {
+        self.inner.modal != Modal::None
+    }
+
+    /// Move the palette's highlight onto a named command.
+    pub fn select_palette(&mut self, name: &str) -> bool {
+        match self
+            .inner
+            .palette_rows()
+            .iter()
+            .position(|(n, _)| *n == name)
+        {
+            Some(index) => {
+                self.inner.modal_cursor = index;
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+impl TestApp {
+    /// The id of the highlighted row in whichever picker is open.
+    pub fn modal_selection(&self) -> Option<String> {
+        self.inner
+            .modal_items
+            .get(self.inner.modal_cursor)
+            .map(|(id, _)| id.clone())
+    }
+
+    /// Every command the palette and the inline list offer.
+    pub fn command_names() -> Vec<(&'static str, &'static str)> {
+        crate::commands::COMMANDS.to_vec()
+    }
+}

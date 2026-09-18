@@ -28,13 +28,10 @@ impl App {
         self.modal = Modal::None;
         self.modal_search.clear();
         self.modal_cursor = 0;
-        // Commands taking an argument need one typed, so those land in the
-        // composer rather than running with nothing.
-        if matches!(name, "model" | "agent" | "role" | "resume" | "attach") {
-            self.input = format!("/{name} ");
-            self.cursor = self.input.len();
-            return Ok(());
-        }
+        // Picking a command runs it, and a command whose job is to choose
+        // something opens its own window to choose in. Staging `/name ` in
+        // the composer instead would make the palette a way of typing, which
+        // is what `/` already is.
         self.run_command(&format!("/{name}"))
     }
 
@@ -86,26 +83,7 @@ impl App {
             }
             "role" => self.open_roles(),
             "agent" if !args.trim().is_empty() => self.force_agent(args.trim())?,
-            "agent" => {
-                let active = self.active_agent().to_owned();
-                let roster: Vec<String> = self
-                    .discovery
-                    .agents
-                    .iter()
-                    .filter(|a| a.name != "compactor")
-                    .map(|a| {
-                        let mark = if a.name == active { "▸" } else { " " };
-                        format!("{mark} `{}` — {}", a.name, a.description)
-                    })
-                    .collect();
-                self.push(
-                    TranscriptKind::Notice,
-                    format!(
-                        "Active: `{active}`\n\n{}\n\n`/agent <name>` switches.",
-                        roster.join("\n")
-                    ),
-                );
-            }
+            "agent" => self.open_agents(),
             "model" if !args.trim().is_empty() => {
                 anyhow::ensure!(self.config.provider_active(), "Set a provider with /provider first.");
                 let mut next = self.config.clone();
@@ -132,6 +110,7 @@ impl App {
                 }
             }
             "attach" => self.open_attach()?,
+            "theme" => self.open_themes(),
             "skills" => self.open_skills(),
             "mcp" => self.open_mcp(),
             "compact" => self.start_compact()?,
@@ -168,6 +147,25 @@ impl App {
             .iter()
             .map(|t| (t.label.into(), format!("Palette id: {}", t.name)))
             .collect();
+    }
+
+    /// The roster as a picker. `compactor` is left out: it is machinery the
+    /// session runs on its own, not something to hand a request to.
+    pub(crate) fn open_agents(&mut self) {
+        let active = self.active_agent().to_owned();
+        self.modal_items = self
+            .discovery
+            .agents
+            .iter()
+            .filter(|a| a.name != "compactor")
+            .map(|a| (a.name.clone(), a.description.clone()))
+            .collect();
+        self.modal_cursor = self
+            .modal_items
+            .iter()
+            .position(|(name, _)| *name == active)
+            .unwrap_or(0);
+        self.modal = Modal::Agents;
     }
 
     pub(crate) fn open_roles(&mut self) {
@@ -254,6 +252,13 @@ impl App {
                 }
             }
             Modal::Skills => return self.read_selected_skill(),
+            Modal::Agents => {
+                if let Some((name, _)) = self.modal_items.get(self.modal_cursor).cloned() {
+                    self.modal = Modal::None;
+                    return self.force_agent(&name);
+                }
+                self.modal = Modal::None;
+            }
             Modal::Commands => return self.accept_palette_row(),
             Modal::Mcp => return self.accept_mcp_row(),
             Modal::McpForm => return self.submit_mcp_form(),

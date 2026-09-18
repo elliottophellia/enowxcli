@@ -7,6 +7,8 @@ use enowx_core::Config;
 pub enum Modal {
     None,
     Roles,
+    /// The agent roster as a picker.
+    Agents,
     Sessions,
     Providers,
     ProviderKey,
@@ -33,6 +35,7 @@ impl Modal {
         match self {
             Modal::Commands => " COMMANDS ",
             Modal::Roles => " AGENT ROLE ",
+            Modal::Agents => " AGENT ",
             Modal::Sessions => " RESUME SESSION ",
             Modal::Providers => " PROVIDER ",
             Modal::ModelSource => " ADD MODEL ",

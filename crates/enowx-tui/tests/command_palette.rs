@@ -99,18 +99,91 @@ fn enter_runs_the_highlighted_command() {
     assert_eq!(app.block_count(), 0, "/clear should have run");
 }
 
-/// A command needing an argument lands in the composer instead of running
-/// with nothing.
+/// Picking a command that chooses something opens the window to choose in.
+/// Typing its name into the composer would make the palette a slower way of
+/// doing what `/` already does.
 #[test]
-fn a_command_taking_an_argument_is_staged_not_run() {
+fn choosing_commands_open_their_own_window() {
+    for (command, title) in [
+        ("agent", " AGENT "),
+        ("role", " AGENT ROLE "),
+        ("theme", " THEME "),
+        ("provider", " PROVIDER "),
+        ("skills", " SKILLS "),
+        ("mcp", " MCP SERVERS "),
+        // `/resume` is not here: with no saved session in the workspace it
+        // correctly reports that rather than opening an empty picker, and a
+        // fresh TestApp never has one.
+    ] {
+        let mut app = TestApp::new();
+        open(&mut app);
+        assert!(app.select_palette(command), "`{command}` should be listed");
+        app.press_key(KeyCode::Enter).expect("enter");
+        assert!(!app.palette_open(), "the palette itself should close");
+        assert_eq!(
+            app.modal_title(),
+            title,
+            "`/{command}` should have opened its own window"
+        );
+        assert_eq!(
+            app.input_text(),
+            "",
+            "`/{command}` should not fall back to typing into the composer"
+        );
+    }
+}
+
+/// The window a command opens has to be usable once it is there: the generic
+/// picker keys must reach a newly added one.
+#[test]
+fn the_window_a_command_opens_takes_keys() {
     let mut app = TestApp::new();
     open(&mut app);
-    for c in "agent".chars() {
-        app.press_key(KeyCode::Char(c)).expect("type");
-    }
+    assert!(app.select_palette("agent"));
     app.press_key(KeyCode::Enter).expect("enter");
-    assert!(!app.palette_open());
-    assert_eq!(app.input_text(), "/agent ", "ready for the name");
+    assert_eq!(app.modal_title(), " AGENT ");
+
+    let first = app.modal_selection();
+    app.press_key(KeyCode::Down).expect("down");
+    assert_ne!(app.modal_selection(), first, "Down should move");
+    app.press_key(KeyCode::Esc).expect("esc");
+    assert!(!app.any_modal_open(), "Esc should close it");
+}
+
+/// Picking an agent switches to it, rather than printing a list to read.
+#[test]
+fn the_agent_window_switches_agent() {
+    let mut app = TestApp::new();
+    let before = app.active_agent();
+    open(&mut app);
+    assert!(app.select_palette("agent"));
+    app.press_key(KeyCode::Enter).expect("enter");
+    app.press_key(KeyCode::Down).expect("down");
+    let picked = app.modal_selection().expect("something highlighted");
+    app.press_key(KeyCode::Enter).expect("enter");
+    assert!(!app.any_modal_open());
+    assert_eq!(app.active_agent(), picked, "picking should switch");
+    assert_ne!(app.active_agent(), before);
+}
+
+/// `/theme` was listed in the palette long before anything handled it, so
+/// choosing it answered "Unknown command".
+#[test]
+fn no_listed_command_is_unhandled() {
+    for (name, _) in TestApp::command_names() {
+        let mut app = TestApp::new();
+        if matches!(name, "quit" | "exit") {
+            continue;
+        }
+        open(&mut app);
+        assert!(app.select_palette(name), "`{name}` should be listed");
+        app.press_key(KeyCode::Enter).expect("enter");
+        let text = app.render_to_text(110, 40).join("\n");
+        assert!(
+            !text.contains("Unknown command"),
+            "`/{name}` is listed but not handled: {text}"
+        );
+    }
 }
 
 #[test]

@@ -1209,10 +1209,10 @@ fn render_block(
 
         match &block.kind {
             TranscriptKind::User => {
-                user_card(lines, &block.text, width, &theme);
+                user_card(lines, &block.text, width, theme);
             }
             TranscriptKind::Assistant => {
-                render_markdown(&block.text, width, lines, &theme);
+                render_markdown(&block.text, width, lines, theme);
             }
             TranscriptKind::Reasoning if show_reasoning => {
                 card(
@@ -1221,7 +1221,7 @@ fn render_block(
                     &block.text,
                     width,
                     theme.accent2,
-                    &theme,
+                    theme,
                 );
             }
             TranscriptKind::Reasoning => return,
@@ -1381,13 +1381,13 @@ fn render_block(
                                         start_line,
                                         width,
                                         lines,
-                                        &theme,
+                                        theme,
                                         file_links,
                                     );
                                 }
                                 ToolBody::Preview { content, total } => {
                                     crate::ui::tool::render_preview(
-                                        &content, total, width, lines, &theme,
+                                        &content, total, width, lines, theme,
                                     );
                                 }
                                 ToolBody::Tree { items } => {
@@ -1395,12 +1395,12 @@ fn render_block(
                                         &items,
                                         width,
                                         lines,
-                                        &theme,
+                                        theme,
                                         file_links,
                                     );
                                 }
                                 ToolBody::Todo { items } => {
-                                    crate::ui::tool::render_todo(&items, width, lines, &theme);
+                                    crate::ui::tool::render_todo(&items, width, lines, theme);
                                 }
                             }
                         }
@@ -1409,7 +1409,7 @@ fn render_block(
             }
             TranscriptKind::Notice => {
                 let mut inner: Vec<Line<'static>> = Vec::new();
-                render_markdown(&block.text, width, &mut inner, &theme);
+                render_markdown(&block.text, width, &mut inner, theme);
                 for line in inner {
                     lines.push(line);
                 }

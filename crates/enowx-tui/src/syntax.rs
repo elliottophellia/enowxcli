@@ -144,7 +144,7 @@ pub fn lookup(lang: &str) -> Option<Syntax> {
     let lang = lang.trim().to_ascii_lowercase();
     // A fence can carry more than the language (```rust,no_run or ```js title=x).
     let lang = lang
-        .split(|c: char| c == ',' || c == ' ' || c == ':')
+        .split([',', ' ', ':'])
         .next()
         .unwrap_or("");
     Some(match lang {
@@ -229,11 +229,11 @@ pub fn highlight(line: &str, syntax: &Syntax, state: &mut State) -> Vec<(String,
 
         // Block comment opens.
         if let Some((open, close)) = syntax.block_comment {
-            if rest.starts_with(open) {
+            if let Some(after_open) = rest.strip_prefix(open) {
                 flush!();
-                if let Some(pos) = rest[open.len()..].find(close) {
+                if let Some(pos) = after_open.find(close) {
                     let take = open.chars().count()
-                        + rest[open.len()..][..pos].chars().count()
+                        + after_open[..pos].chars().count()
                         + close.chars().count();
                     let body: String = chars[i..i + take].iter().collect();
                     out.push((body, Tok::Comment));

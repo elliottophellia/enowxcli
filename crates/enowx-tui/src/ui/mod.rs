@@ -49,3 +49,72 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
         draw_modal(frame, app);
     }
 }
+
+/// See `crate::preview_markdown`.
+pub(crate) fn preview_markdown(
+    text: &str,
+    width: usize,
+    theme: &crate::theme::Theme,
+) -> Vec<String> {
+    let mut lines: Vec<ratatui::text::Line<'static>> = Vec::new();
+    transcript::render_markdown(text, width, &mut lines, theme);
+    lines_to_ansi(lines)
+}
+
+/// Render one `edit` tool diff to ANSI strings. Companion to
+/// `preview_markdown` for inspecting the diff gutter outside a session.
+pub(crate) fn preview_diff(
+    path: &str,
+    old: &str,
+    new: &str,
+    start_line: usize,
+    width: usize,
+    theme: &crate::theme::Theme,
+) -> Vec<String> {
+    let mut lines: Vec<ratatui::text::Line<'static>> = Vec::new();
+    let mut markers: Vec<(usize, String)> = Vec::new();
+    tool::render_diff(
+        path,
+        old,
+        new,
+        start_line,
+        width,
+        &mut lines,
+        theme,
+        &mut markers,
+    );
+    lines_to_ansi(lines)
+}
+
+fn lines_to_ansi(lines: Vec<ratatui::text::Line<'static>>) -> Vec<String> {
+    use ratatui::style::Color;
+    fn sgr(color: Color, layer: u8) -> String {
+        match color {
+            Color::Rgb(r, g, b) => format!("\x1b[{layer};2;{r};{g};{b}m"),
+            _ => String::new(),
+        }
+    }
+    lines
+        .into_iter()
+        .map(|line| {
+            let mut out = String::new();
+            for span in line.spans {
+                if let Some(bg) = span.style.bg {
+                    out.push_str(&sgr(bg, 48));
+                }
+                if let Some(fg) = span.style.fg {
+                    out.push_str(&sgr(fg, 38));
+                }
+                if span.style.add_modifier.contains(ratatui::style::Modifier::BOLD) {
+                    out.push_str("\x1b[1m");
+                }
+                if span.style.add_modifier.contains(ratatui::style::Modifier::ITALIC) {
+                    out.push_str("\x1b[3m");
+                }
+                out.push_str(&span.content);
+                out.push_str("\x1b[0m");
+            }
+            out
+        })
+        .collect()
+}

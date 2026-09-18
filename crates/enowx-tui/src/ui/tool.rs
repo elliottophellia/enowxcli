@@ -512,25 +512,52 @@ pub(super) fn render_diff(
         };
         let (indent_viz, rest) = visualize_indent(&content);
         let indent_w = indent_viz.chars().count();
-        let body_budget = text_w.saturating_sub(indent_w);
-        let (body_shown, _) = truncate(&rest, body_budget);
-        // Marker/content styles are the plain fg from the match; wrap them
-        // in the subtle bg so the diff row reads as one continuous strip.
-        let marker_style = marker_st.bg(bg);
-        let num_style = dim.bg(bg);
-        let indent_style = dim.bg(bg);
-        let body_style = content_st.bg(bg);
-        let used = 2 + 1 + num_w + 1 + indent_viz.chars().count() + body_shown.chars().count();
-        let pad = width.saturating_sub(used);
-        lines.push(Line::from(vec![
-            Span::styled("│ ", border),
-            Span::styled(marker.to_string(), marker_style),
-            Span::styled(format!("{n_str:>num_w$}"), num_style),
-            Span::styled("│", num_style),
-            Span::styled(indent_viz, indent_style),
-            Span::styled(body_shown, body_style),
-            Span::styled(" ".repeat(pad), Style::default().bg(bg)),
-        ]));
+        let body_budget = text_w.saturating_sub(indent_w).max(1);
+        // Tint the whole row, not just the glyph: a changed line should be
+        // identifiable from the row's background alone, without tracking back
+        // to the `+`/`-` in the gutter. Kept rows stay on the neutral panel
+        // background so the eye lands on what actually changed.
+        let row_bg = match op {
+            DiffOp::Add(_) => blend(bg, theme.green),
+            DiffOp::Del(_) => blend(bg, theme.red),
+            DiffOp::Keep(_) => bg,
+        };
+        let num_style = dim.bg(row_bg);
+        let indent_style = dim.bg(row_bg);
+        let body_style = content_st.bg(row_bg);
+
+        // A long edited line WRAPS instead of being cut with an ellipsis.
+        // Truncating hid the tail of exactly the lines worth reading — a long
+        // signature, a deep path — and a terminal cannot scroll a diff row
+        // sideways, so those characters were unrecoverable. Continuation rows
+        // repeat the gutter with a blank number so the row still reads as one
+        // logical line.
+        let chunks = wrap_chars(&rest, body_budget);
+        for (ci, chunk) in chunks.iter().enumerate() {
+            let first = ci == 0;
+            let indent_here = if first {
+                indent_viz.clone()
+            } else {
+                " ".repeat(indent_w)
+            };
+            let num_cell = if first {
+                format!("{n_str:>num_w$}")
+            } else {
+                " ".repeat(num_w)
+            };
+            let marker_cell = if first { marker } else { " " };
+            let used = 2 + 1 + num_w + 1 + indent_w + chunk.chars().count();
+            let pad = width.saturating_sub(used);
+            lines.push(Line::from(vec![
+                Span::styled("│ ", border),
+                Span::styled(marker_cell.to_string(), marker_st.bg(row_bg)),
+                Span::styled(num_cell, num_style),
+                Span::styled("│", num_style),
+                Span::styled(indent_here, indent_style),
+                Span::styled(chunk.clone(), body_style),
+                Span::styled(" ".repeat(pad), Style::default().bg(row_bg)),
+            ]));
+        }
         rendered += 1;
     }
     let _ = rendered;
@@ -623,4 +650,49 @@ fn lcs_diff(a: &[&str], b: &[&str]) -> Vec<DiffOp> {
     }
     ops.reverse();
     ops
+}
+
+/// Mix `accent` into `base` at low strength for a diff row's background.
+///
+/// A solid green/red fill is unreadable behind source text in a dark theme,
+/// and the terminal has no alpha channel — so the blend is computed here and
+/// emitted as one opaque colour. Non-RGB themes (256-colour terminals) fall
+/// through to the unmodified background rather than guessing a mix.
+fn blend(base: ratatui::style::Color, accent: ratatui::style::Color) -> ratatui::style::Color {
+    const STRENGTH: u16 = 22; // percent of `accent` in the result
+    match (base, accent) {
+        (
+            ratatui::style::Color::Rgb(br, bg_, bb),
+            ratatui::style::Color::Rgb(ar, ag, ab),
+        ) => {
+            let mix = |b: u8, a: u8| -> u8 {
+                ((b as u16 * (100 - STRENGTH) + a as u16 * STRENGTH) / 100) as u8
+            };
+            ratatui::style::Color::Rgb(mix(br, ar), mix(bg_, ag), mix(bb, ab))
+        }
+        _ => base,
+    }
+}
+
+/// Split `text` into chunks that each fit `budget` display columns.
+///
+/// Measured by display width rather than char count so CJK and emoji (two
+/// columns each) cannot overflow the row. Always yields at least one chunk so
+/// an empty line still emits its gutter.
+fn wrap_chars(text: &str, budget: usize) -> Vec<String> {
+    use unicode_width::UnicodeWidthChar;
+    let mut out: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let mut w = 0usize;
+    for c in text.chars() {
+        let cw = c.width().unwrap_or(0).max(1);
+        if w + cw > budget && !cur.is_empty() {
+            out.push(std::mem::take(&mut cur));
+            w = 0;
+        }
+        cur.push(c);
+        w += cw;
+    }
+    out.push(cur);
+    out
 }

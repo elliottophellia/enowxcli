@@ -470,13 +470,17 @@ fn card(
     }
 }
 
-pub(super) fn render_markdown(
+pub(crate) fn render_markdown(
     text: &str,
     width: usize,
     lines: &mut Vec<Line<'static>>,
     theme: &Theme,
 ) {
     let mut in_code = false;
+    // Set when the opening fence names a language we can highlight; cleared at
+    // the closing fence. `code_state` carries a block comment across lines.
+    let mut code_syntax: Option<crate::syntax::Syntax> = None;
+    let mut code_state = crate::syntax::State::default();
     let mut ordered_counter: Option<usize> = None;
     let raw_lines: Vec<&str> = text.lines().collect();
     let mut i = 0;
@@ -487,15 +491,18 @@ pub(super) fn render_markdown(
             in_code = !in_code;
             let bar = if in_code {
                 let lang = rest.trim();
+                code_syntax = crate::syntax::lookup(lang);
+                code_state = crate::syntax::State::default();
                 if lang.is_empty() {
                     "┌ code".to_string()
                 } else {
                     format!("┌ {lang}")
                 }
             } else {
+                code_syntax = None;
                 "└".into()
             };
-            let pad = width.saturating_sub(bar.chars().count());
+            let pad = width.saturating_sub(unicode_width_of(&bar));
             lines.push(Line::from(vec![
                 Span::styled(bar, Style::default().fg(theme.muted).bg(theme.subtle)),
                 Span::styled(" ".repeat(pad), Style::default().bg(theme.subtle)),
@@ -504,20 +511,7 @@ pub(super) fn render_markdown(
             continue;
         }
         if in_code {
-            let body = if raw.chars().count() > width.saturating_sub(2) {
-                let mut cut: String = raw.chars().take(width.saturating_sub(3)).collect();
-                cut.push('…');
-                cut
-            } else {
-                raw.to_string()
-            };
-            let used = body.chars().count() + 2;
-            let pad = width.saturating_sub(used);
-            lines.push(Line::from(vec![
-                Span::styled("│ ", Style::default().fg(theme.muted).bg(theme.subtle)),
-                Span::styled(body, Style::default().fg(theme.text).bg(theme.subtle)),
-                Span::styled(" ".repeat(pad), Style::default().bg(theme.subtle)),
-            ]));
+            emit_code_line(lines, raw, width, code_syntax.as_ref(), &mut code_state, theme);
             i += 1;
             continue;
         }
@@ -1117,6 +1111,111 @@ fn user_card(lines: &mut Vec<Line<'static>>, text: &str, width: usize, theme: &T
 fn unicode_width_of(text: &str) -> usize {
     use unicode_width::UnicodeWidthStr;
     text.width()
+}
+
+fn unicode_width_of_char(c: char) -> usize {
+    use unicode_width::UnicodeWidthChar;
+    c.width().unwrap_or(0)
+}
+
+/// Draw one source line inside a fenced block: gutter, highlighted body,
+/// background padding out to `width`.
+///
+/// Long lines SOFT-WRAP rather than being cut with an ellipsis. Truncating
+/// loses the tail of exactly the lines that need reading most (a long
+/// signature, a deep path), and the terminal cannot scroll a block
+/// horizontally, so the characters were simply unrecoverable. Continuation
+/// rows use a dimmer gutter so a wrap is never mistaken for a real newline.
+fn emit_code_line(
+    lines: &mut Vec<Line<'static>>,
+    raw: &str,
+    width: usize,
+    syntax: Option<&crate::syntax::Syntax>,
+    state: &mut crate::syntax::State,
+    theme: &Theme,
+) {
+    const GUTTER: &str = "│ ";
+    // A wrap continuation must not look like a new source line. `↳` reads as
+    // "this is the same line, continued" at a glance, where a dimmer vertical
+    // bar was too easily mistaken for the real gutter.
+    const CONT: &str = "│↳";
+    let gutter_w = unicode_width_of(GUTTER);
+    let usable = width.saturating_sub(gutter_w).max(1);
+
+    // Tokenize once per source line; an unknown language yields a single plain
+    // run so the block still renders, just without colour.
+    let runs: Vec<(String, crate::syntax::Tok)> = match syntax {
+        Some(s) => crate::syntax::highlight(raw, s, state),
+        None => vec![(raw.to_string(), crate::syntax::Tok::Plain)],
+    };
+
+    // Flatten to (char, token) so a wrap can fall mid-run without having to
+    // split the run list by hand.
+    let mut cells: Vec<(char, crate::syntax::Tok)> = Vec::new();
+    for (text, tok) in &runs {
+        for ch in text.chars() {
+            cells.push((ch, *tok));
+        }
+    }
+    if cells.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled(GUTTER, Style::default().fg(theme.muted).bg(theme.subtle)),
+            Span::styled(" ".repeat(usable), Style::default().bg(theme.subtle)),
+        ]));
+        return;
+    }
+
+    let mut idx = 0;
+    let mut first = true;
+    while idx < cells.len() {
+        // Take as many cells as fit, measuring by display width so CJK and
+        // emoji (width 2) do not overflow the block.
+        let mut used = 0usize;
+        let mut end = idx;
+        while end < cells.len() {
+            let w = unicode_width_of_char(cells[end].0).max(1);
+            if used + w > usable {
+                break;
+            }
+            used += w;
+            end += 1;
+        }
+        // A single cell wider than the whole block would loop forever.
+        if end == idx {
+            end = idx + 1;
+            used = usable;
+        }
+
+        let mut spans: Vec<Span<'static>> = Vec::with_capacity(4);
+        spans.push(Span::styled(
+            if first { GUTTER } else { CONT },
+            Style::default()
+                .fg(if first { theme.muted } else { theme.faint })
+                .bg(theme.subtle),
+        ));
+        // Regroup consecutive same-token cells into spans.
+        let mut run_start = idx;
+        while run_start < end {
+            let tok = cells[run_start].1;
+            let mut run_end = run_start;
+            while run_end < end && cells[run_end].1 == tok {
+                run_end += 1;
+            }
+            let body: String = cells[run_start..run_end].iter().map(|(c, _)| *c).collect();
+            spans.push(Span::styled(
+                body,
+                tok.style(theme).bg(theme.subtle),
+            ));
+            run_start = run_end;
+        }
+        spans.push(Span::styled(
+            " ".repeat(usable.saturating_sub(used)),
+            Style::default().bg(theme.subtle),
+        ));
+        lines.push(Line::from(spans));
+        idx = end;
+        first = false;
+    }
 }
 
 fn args_path(args: &str) -> Option<String> {

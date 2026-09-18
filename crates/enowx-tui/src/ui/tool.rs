@@ -1077,13 +1077,11 @@ mod tests {
 
     #[test]
     fn pairing_matches_deletions_to_their_replacements() {
-        let ops = vec![
-            DiffOp::Keep("ctx".into()),
+        let ops = [DiffOp::Keep("ctx".into()),
             DiffOp::Del("old one".into()),
             DiffOp::Del("old two".into()),
             DiffOp::Add("new one".into()),
-            DiffOp::Add("new two".into()),
-        ];
+            DiffOp::Add("new two".into())];
         let refs: Vec<&DiffOp> = ops.iter().collect();
         let pairs = pair_replacements(&refs);
         assert_eq!(pairs[0], None, "kept lines have no counterpart");
@@ -1095,11 +1093,9 @@ mod tests {
 
     #[test]
     fn unbalanced_hunk_leaves_extras_unpaired() {
-        let ops = vec![
-            DiffOp::Del("a".into()),
+        let ops = [DiffOp::Del("a".into()),
             DiffOp::Del("b".into()),
-            DiffOp::Add("c".into()),
-        ];
+            DiffOp::Add("c".into())];
         let refs: Vec<&DiffOp> = ops.iter().collect();
         let pairs = pair_replacements(&refs);
         assert_eq!(pairs[0], Some("c".to_string()));

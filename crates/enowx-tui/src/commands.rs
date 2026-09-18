@@ -1,7 +1,8 @@
-pub(crate) const COMMANDS: [(&str, &str); 18] = [
+pub(crate) const COMMANDS: [(&str, &str); 19] = [
     ("help", "Show every command"),
     ("new", "Start a fresh session"),
     ("resume", "Reopen a saved session in this workspace"),
+    ("agent", "Show the roster or switch agent"),
     ("role", "Choose Orchestrator, Writer, or Researcher"),
     ("model", "Discover or enter a model"),
     ("provider", "Edit provider settings"),

@@ -501,14 +501,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "252afb9ae5eaa683babdc6a068b3f5726eb19e05070c731f9b2a23a7c3e8ed34"
 
 [[package]]
-name = "enxapi-cli"
+name = "enowx-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "enxapi-core",
- "enxapi-server",
- "enxapi-tui",
+ "enowx-core",
+ "enowx-server",
+ "enowx-tui",
  "serde_json",
  "tokio",
  "tracing",
@@ -516,7 +516,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "enxapi-core"
+name = "enowx-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -541,13 +541,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "enxapi-server"
+name = "enowx-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
  "chrono",
- "enxapi-core",
+ "enowx-core",
  "futures",
  "mime_guess",
  "reqwest",
@@ -562,12 +562,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "enxapi-tui"
+name = "enowx-tui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "crossterm",
- "enxapi-core",
+ "enowx-core",
  "ignore",
  "ratatui",
  "serde_json",

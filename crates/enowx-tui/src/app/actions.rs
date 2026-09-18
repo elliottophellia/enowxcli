@@ -15,7 +15,9 @@ impl App {
     pub(crate) fn run_command(&mut self, line: &str) -> Result<()> {
         let command = line.trim_start_matches('/');
         let (name, args) = command.split_once(' ').unwrap_or((command, ""));
-        if self.busy && matches!(name, "new" | "resume" | "provider" | "role" | "model") {
+        // A running turn belongs to the agent that started it; swapping
+        // underneath it would attribute its results to the wrong one.
+        if self.busy && matches!(name, "new" | "resume" | "provider" | "role" | "model" | "agent") {
             self.status = "Stop the current turn before changing session or configuration".into();
             return Ok(());
         }
@@ -34,6 +36,27 @@ impl App {
                 self.status = format!("role: {}", self.role.label());
             }
             "role" => self.open_roles(),
+            "agent" if !args.trim().is_empty() => self.force_agent(args.trim())?,
+            "agent" => {
+                let active = self.active_agent().to_owned();
+                let roster: Vec<String> = self
+                    .discovery
+                    .agents
+                    .iter()
+                    .filter(|a| a.name != "compactor")
+                    .map(|a| {
+                        let mark = if a.name == active { "▸" } else { " " };
+                        format!("{mark} `{}` — {}", a.name, a.description)
+                    })
+                    .collect();
+                self.push(
+                    TranscriptKind::Notice,
+                    format!(
+                        "Active: `{active}`\n\n{}\n\n`/agent <name>` switches.",
+                        roster.join("\n")
+                    ),
+                );
+            }
             "model" if !args.trim().is_empty() => {
                 anyhow::ensure!(self.config.provider_active(), "Set a provider with /provider first.");
                 let mut next = self.config.clone();

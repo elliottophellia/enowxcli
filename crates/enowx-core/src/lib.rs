@@ -26,7 +26,10 @@ pub use discovery::{Discovery, InstructionFile, McpServer, McpTransport, SkillEn
 pub use event::Event;
 pub use mcp::{McpClient, McpTool};
 pub use message::{Message, Role as MessageRole, ToolCall};
-pub use provider::{provider_preset, ProviderPreset, PROVIDER_PRESETS};
+pub use provider::{
+    classify, provider_preset, retry_budget_for_error, tier_drop, FailureKind, LadderStep,
+    ModelLadder, ProviderPreset, TierDrop, TierNoticeSink, PROVIDER_PRESETS,
+};
 pub use role::{Role, ROLES};
 pub use session::{Session, SessionStore, StoredTurn};
 pub use tools::{Tool, ToolCtx, ToolOutput, ToolRegistry};

@@ -270,8 +270,11 @@ fn a_marker_does_not_freeze_the_render_cache() {
         "no marker yet"
     );
 
+    // Switch WITHOUT pushing a block. The marker lands on a block that has
+    // already been rendered and whose text has not changed, so nothing but
+    // the marker itself can invalidate its cache entry — which is exactly the
+    // case a key that forgot the marker would serve stale.
     app.switch_agent("fe", "handing over");
-    app.push_assistant("second");
     let warm = screen(&mut app);
     assert!(
         warm.iter().any(|row| row.contains("→ fe")),
@@ -283,6 +286,15 @@ fn a_marker_does_not_freeze_the_render_cache() {
     assert_eq!(
         warm, cold,
         "a frame carrying a marker must match what a cold render produces"
+    );
+
+    // And the same the other way: a second handover on the same block must
+    // replace what is shown, not sit under the first one's cached rows.
+    app.switch_agent("be", "and again");
+    let again = screen(&mut app);
+    assert!(
+        again.iter().any(|row| row.contains("→ be")),
+        "a second handover on an unchanged block must re-render it"
     );
 }
 

@@ -629,3 +629,9 @@ impl TestApp {
         self.inner.blocks.len()
     }
 }
+
+impl TestApp {
+    pub fn run_command(&mut self, line: &str) -> anyhow::Result<()> {
+        self.inner.run_command(line)
+    }
+}

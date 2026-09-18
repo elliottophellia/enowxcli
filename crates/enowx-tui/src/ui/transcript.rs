@@ -1640,7 +1640,7 @@ fn refresh_render_cache(app: &mut App, width: usize) {
         let mut lines: Vec<Line<'static>> = Vec::new();
         let mut tool_headers: Vec<(String, usize)> = Vec::new();
         let mut file_links: Vec<(usize, String)> = Vec::new();
-        for text in before.iter().take(0) {
+        for text in &before {
             switch_marker(&mut lines, text, width, &theme);
         }
         // Markers occupy rows above the block, so the click offsets the

@@ -315,6 +315,46 @@ impl App {
         &self.agent_name
     }
 
+    /// Switch agents on the user's say-so.
+    ///
+    /// A forced switch overrides whatever the router decided: the user asking
+    /// for a specialist by name is a stronger signal than the model's
+    /// classification, and `auto_switch` does not gate it — it governs the
+    /// router's own switches, not the user's.
+    pub(crate) fn force_agent(&mut self, name: &str) -> anyhow::Result<()> {
+        let name = name.trim().to_ascii_lowercase();
+        if !self.discovery.agents.iter().any(|a| a.name == name) {
+            let known: Vec<&str> = self
+                .discovery
+                .agents
+                .iter()
+                .filter(|a| a.name != "compactor")
+                .map(|a| a.name.as_str())
+                .collect();
+            anyhow::bail!("no agent named `{name}`. Available: {}", known.join(", "));
+        }
+        if name == self.agent_name {
+            self.status = format!("already {name}");
+            return Ok(());
+        }
+        // Persist when there is a session to persist to; before the first
+        // message there is none, and the choice still has to hold for when
+        // the session is created.
+        if let Some(id) = self.session_id.clone() {
+            if let Ok(mut session) = self.store.load(&id) {
+                session.switch_agent(&name, "switched by the user");
+                let _ = self.store.save(&session);
+            }
+        }
+        self.push(
+            crate::session::TranscriptKind::Notice,
+            format!("→ {name} · switched by the user"),
+        );
+        self.agent_name = name.clone();
+        self.status = format!("agent: {name}");
+        Ok(())
+    }
+
     /// Adopt a session's agent and handover history.
     ///
     /// The resolution from the legacy `role` stays in core so there is one

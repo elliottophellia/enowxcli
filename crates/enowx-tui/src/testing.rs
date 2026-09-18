@@ -782,3 +782,35 @@ impl TestApp {
         });
     }
 }
+
+impl TestApp {
+    /// The on-screen rows a click would treat as a user message.
+    pub fn user_block_rects(&self) -> Vec<(ratatui::layout::Rect, usize)> {
+        self.inner.user_block_rects.clone()
+    }
+
+    pub fn message_menu_open(&self) -> bool {
+        self.inner.modal == Modal::Message
+    }
+
+    pub fn message_editor_open(&self) -> bool {
+        self.inner.modal == Modal::MessageEdit
+    }
+
+    pub fn message_draft(&self) -> String {
+        self.inner.message_draft.clone()
+    }
+
+    /// The text of each block, so a test can say what the transcript holds.
+    pub fn block_texts(&self) -> Vec<String> {
+        self.inner.blocks.iter().map(|b| b.text.clone()).collect()
+    }
+}
+
+impl TestApp {
+    /// The destructive half of edit/resend, without the send. `start_turn`
+    /// spawns onto a tokio runtime the test harness does not have.
+    pub fn rewind_to(&mut self, index: usize) -> anyhow::Result<bool> {
+        self.inner.rewind_to(index)
+    }
+}

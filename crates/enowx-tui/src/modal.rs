@@ -9,6 +9,10 @@ pub enum Modal {
     Roles,
     /// The agent roster as a picker.
     Agents,
+    /// Actions on a sent message: edit, resend, copy.
+    Message,
+    /// Editing a sent message before resending it.
+    MessageEdit,
     Sessions,
     Providers,
     ProviderKey,
@@ -36,6 +40,8 @@ impl Modal {
             Modal::Commands => " COMMANDS ",
             Modal::Roles => " AGENT ROLE ",
             Modal::Agents => " AGENT ",
+            Modal::Message => " MESSAGE ",
+            Modal::MessageEdit => " EDIT PROMPT ",
             Modal::Sessions => " RESUME SESSION ",
             Modal::Providers => " PROVIDER ",
             Modal::ModelSource => " ADD MODEL ",

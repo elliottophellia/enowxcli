@@ -142,6 +142,16 @@ pub(crate) struct App {
     /// (rect, path) markers for file paths in the transcript. Populated by
     /// tool renderers each frame; a click on `rect` opens `path` with the
     /// OS default app.
+    /// (transcript row, block index) for each user message, so a click can
+    /// find which one was hit. Filled while the transcript renders.
+    pub(crate) user_block_markers: Vec<(usize, usize)>,
+    /// The same, resolved to on-screen rects for the rows actually visible.
+    pub(crate) user_block_rects: Vec<(Rect, usize)>,
+    /// The user message a message menu is acting on: its index in `blocks`.
+    pub(crate) message_target: Option<usize>,
+    /// Draft text while a message is being edited.
+    pub(crate) message_draft: String,
+    pub(crate) message_draft_cursor: usize,
     pub(crate) file_link_markers: Vec<(usize, String)>,
     pub(crate) file_link_rects: Vec<(Rect, String)>,
     /// Rendered lines per transcript block, so a frame only re-parses the
@@ -241,6 +251,11 @@ impl App {
             last_wheel: None,
             quit_confirm_yes: false,
             quit_confirm_rects: [(Rect::default(), false), (Rect::default(), false)],
+            user_block_markers: Vec::new(),
+            user_block_rects: Vec::new(),
+            message_target: None,
+            message_draft: String::new(),
+            message_draft_cursor: 0,
             file_link_markers: Vec::new(),
             render_cache: Vec::new(),
             retry_attempt: 0,

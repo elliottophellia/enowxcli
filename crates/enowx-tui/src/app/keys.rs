@@ -208,6 +208,57 @@ impl App {
             if self.modal == Modal::McpForm {
                 return self.mcp_form_key(key);
             }
+            if self.modal == Modal::MessageEdit {
+                match key.code {
+                    KeyCode::Esc => {
+                        self.modal = Modal::None;
+                        self.message_target = None;
+                        self.message_draft.clear();
+                    }
+                    KeyCode::Enter => return self.accept_modal(),
+                    KeyCode::Backspace => {
+                        if self.message_draft_cursor > 0 {
+                            // Step a whole character, not a byte: a draft can
+                            // hold anything the composer can.
+                            let prev = self.message_draft[..self.message_draft_cursor]
+                                .chars()
+                                .next_back()
+                                .map(char::len_utf8)
+                                .unwrap_or(0);
+                            self.message_draft_cursor -= prev;
+                            self.message_draft.remove(self.message_draft_cursor);
+                        }
+                    }
+                    KeyCode::Left => {
+                        if self.message_draft_cursor > 0 {
+                            let prev = self.message_draft[..self.message_draft_cursor]
+                                .chars()
+                                .next_back()
+                                .map(char::len_utf8)
+                                .unwrap_or(0);
+                            self.message_draft_cursor -= prev;
+                        }
+                    }
+                    KeyCode::Right => {
+                        if self.message_draft_cursor < self.message_draft.len() {
+                            let next = self.message_draft[self.message_draft_cursor..]
+                                .chars()
+                                .next()
+                                .map(char::len_utf8)
+                                .unwrap_or(0);
+                            self.message_draft_cursor += next;
+                        }
+                    }
+                    KeyCode::Home => self.message_draft_cursor = 0,
+                    KeyCode::End => self.message_draft_cursor = self.message_draft.len(),
+                    KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.message_draft.insert(self.message_draft_cursor, c);
+                        self.message_draft_cursor += c.len_utf8();
+                    }
+                    _ => {}
+                }
+                return Ok(());
+            }
             match key.code {
                 KeyCode::Esc => self.modal = Modal::None,
                 KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -237,6 +288,19 @@ impl App {
                     } else {
                         // Empty composer: open the confirm popup.
                         self.modal = Modal::QuitConfirm;
+                    }
+                }
+                KeyCode::Up => {
+                    // No mouse needed: this is a TUI, and plenty of sessions
+                    // run over ssh or inside tmux without one.
+                    if let Some(index) = self
+                        .blocks
+                        .iter()
+                        .rposition(|b| matches!(b.kind, TranscriptKind::User))
+                    {
+                        self.open_message_menu(index);
+                    } else {
+                        self.status = "no message to act on".into();
                     }
                 }
                 KeyCode::Char('d') => self.should_quit = true,

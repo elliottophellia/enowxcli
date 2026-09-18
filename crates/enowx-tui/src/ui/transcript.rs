@@ -45,6 +45,8 @@ pub(super) fn draw_transcript(frame: &mut Frame, app: &mut App, area: Rect) {
     app.tool_header_rects.clear();
     app.file_link_markers.clear();
     app.file_link_rects.clear();
+    app.user_block_markers.clear();
+    app.user_block_rects.clear();
     app.transcript_area = Some(area);
     // Re-render only the blocks whose key changed, then stitch the cached
     // pieces together. Streaming mutates just the last block, so a token
@@ -125,6 +127,13 @@ pub(super) fn draw_transcript(frame: &mut Frame, app: &mut App, area: Rect) {
         compact_tools = cached.is_tool;
         app.tool_header_markers.extend(headers);
         app.file_link_markers.extend(links);
+        // A user message is a point the conversation can be rewound to, so
+        // every row it occupies is clickable — not just its first line.
+        if matches!(app.blocks[idx].kind, TranscriptKind::User) {
+            for row in base..block_end {
+                app.user_block_markers.push((row, idx));
+            }
+        }
     }
     // `lines` now holds only the visible window, so everything downstream
     // indexes from the top of the viewport rather than the transcript.
@@ -192,6 +201,15 @@ pub(super) fn draw_transcript(frame: &mut Frame, app: &mut App, area: Rect) {
         let y = area.y + screen_y as u16;
         app.tool_header_rects
             .push((Rect::new(area.x, y, width as u16, 1), id));
+    }
+    for (marker, idx) in std::mem::take(&mut app.user_block_markers) {
+        let screen_y = marker as i32 - view_offset as i32;
+        if screen_y < 0 || screen_y >= area.height as i32 {
+            continue;
+        }
+        let y = area.y + screen_y as u16;
+        app.user_block_rects
+            .push((Rect::new(area.x, y, width as u16, 1), idx));
     }
     // Convert file link markers to on-screen rects so a click can open the
     // file with the OS default app.

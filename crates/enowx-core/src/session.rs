@@ -200,6 +200,46 @@ impl Session {
         });
     }
 
+    /// Index of the `n`th user turn, counting from zero. The transcript shows
+    /// user messages as the points a conversation can be rewound to, so this
+    /// is how the interface names one.
+    pub fn user_turn_index(&self, nth: usize) -> Option<usize> {
+        self.turns
+            .iter()
+            .enumerate()
+            .filter(|(_, turn)| turn.message.role == MessageRole::User)
+            .map(|(index, _)| index)
+            .nth(nth)
+    }
+
+    /// Drop the turn at `index` and everything after it, returning what was
+    /// removed. Editing or resending a message from the middle of a session
+    /// makes every later reply an answer to a question that is no longer
+    /// there, so the tail goes with it.
+    ///
+    /// The caller pushes the replacement message afterwards; this only
+    /// rewinds. Returns an empty vector when `index` is past the end.
+    pub fn truncate_from(&mut self, index: usize) -> Vec<StoredTurn> {
+        if index >= self.turns.len() {
+            return Vec::new();
+        }
+        let removed = self.turns.split_off(index);
+        self.updated_at = Utc::now();
+        // Switches recorded against a turn that no longer exists would place
+        // handover markers past the end of the transcript.
+        self.switches.retain(|switch| switch.at_turn <= index);
+        // The title comes from the first user message. Rewinding past it
+        // means the next one names the session instead.
+        if !self
+            .turns
+            .iter()
+            .any(|turn| turn.message.role == MessageRole::User)
+        {
+            self.title.clear();
+        }
+        removed
+    }
+
     /// Repair calls left without results by a process exit. Never rerun a
     /// possibly completed side effect automatically when resuming.
     pub fn replay(&self) -> Vec<Message> {
@@ -751,5 +791,86 @@ mod agent_tests {
         assert_eq!(loaded.agent_or_default(), "docs", "resolved from the role");
         assert!(loaded.switches.is_empty());
         assert!(loaded.parent.is_none());
+    }
+}
+
+#[cfg(test)]
+mod truncate_tests {
+    use super::*;
+
+    fn conversation() -> Session {
+        let mut session = Session::new(Role::Orchestrator);
+        session.push(Message::user("write the parser"));
+        session.push(Message::assistant("here it is"));
+        session.push(Message::user("now add tests"));
+        session.push(Message::assistant("here are the tests"));
+        session
+    }
+
+    #[test]
+    fn it_drops_the_turn_and_everything_after_it() {
+        let mut session = conversation();
+        let removed = session.truncate_from(2);
+        assert_eq!(removed.len(), 2, "the turn and the reply after it");
+        assert_eq!(session.turns.len(), 2);
+        assert_eq!(session.turns[1].message.content, "here it is");
+    }
+
+    /// The point of rewinding is that the model no longer sees what was cut.
+    #[test]
+    fn the_replay_no_longer_carries_the_removed_turns() {
+        let mut session = conversation();
+        session.truncate_from(2);
+        let replayed = session.replay();
+        assert!(
+            !replayed.iter().any(|m| m.content.contains("add tests")),
+            "the cut message should not reach the model: {replayed:?}"
+        );
+        assert_eq!(replayed.len(), 2);
+    }
+
+    #[test]
+    fn it_finds_the_nth_user_turn() {
+        let session = conversation();
+        assert_eq!(session.user_turn_index(0), Some(0));
+        assert_eq!(session.user_turn_index(1), Some(2));
+        assert_eq!(session.user_turn_index(2), None);
+    }
+
+    /// A handover recorded against a cut turn would put a marker past the end
+    /// of the transcript.
+    #[test]
+    fn switches_past_the_cut_are_dropped() {
+        let mut session = conversation();
+        session.switch_agent("fe", "this is a UI question");
+        assert_eq!(session.switches.len(), 1);
+        session.truncate_from(2);
+        assert!(
+            session.switches.iter().all(|s| s.at_turn <= 2),
+            "a switch recorded at turn 4 should not survive a cut to 2: {:?}",
+            session.switches
+        );
+    }
+
+    /// Rewinding past the first message means the session has no question in
+    /// it any more, so the next one should name it.
+    #[test]
+    fn cutting_everything_clears_the_title() {
+        let mut session = conversation();
+        assert!(!session.title.is_empty());
+        session.truncate_from(0);
+        assert!(session.turns.is_empty());
+        assert!(
+            session.title.is_empty(),
+            "the next message should retitle it"
+        );
+    }
+
+    #[test]
+    fn an_index_past_the_end_changes_nothing() {
+        let mut session = conversation();
+        let removed = session.truncate_from(99);
+        assert!(removed.is_empty());
+        assert_eq!(session.turns.len(), 4);
     }
 }

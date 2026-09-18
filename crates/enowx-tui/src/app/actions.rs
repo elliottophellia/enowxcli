@@ -35,6 +35,126 @@ impl App {
         self.run_command(&format!("/{name}"))
     }
 
+    /// The three things that can be done with a message already sent.
+    pub(crate) const MESSAGE_ACTIONS: [(&'static str, &'static str); 3] = [
+        ("Edit prompt", "Change it and send again from here"),
+        ("Resend", "Send it again unchanged from here"),
+        ("Copy", "Copy the text to the clipboard"),
+    ];
+
+    /// Open the action menu for the user message rendered as block `index`.
+    pub(crate) fn open_message_menu(&mut self, index: usize) {
+        if !self
+            .blocks
+            .get(index)
+            .is_some_and(|b| matches!(b.kind, TranscriptKind::User))
+        {
+            return;
+        }
+        self.message_target = Some(index);
+        self.modal_items = Self::MESSAGE_ACTIONS
+            .iter()
+            .map(|(label, hint)| ((*label).to_owned(), (*hint).to_owned()))
+            .collect();
+        self.modal_cursor = 0;
+        self.modal = Modal::Message;
+    }
+
+    fn accept_message_action(&mut self) -> Result<()> {
+        let Some(index) = self.message_target else {
+            self.modal = Modal::None;
+            return Ok(());
+        };
+        let text = self
+            .blocks
+            .get(index)
+            .map(|b| b.text.clone())
+            .unwrap_or_default();
+        match self.modal_cursor {
+            0 => {
+                self.message_draft = text;
+                self.message_draft_cursor = self.message_draft.len();
+                self.modal = Modal::MessageEdit;
+            }
+            1 => {
+                self.modal = Modal::None;
+                return self.rewind_and_send(index, text);
+            }
+            2 => {
+                self.modal = Modal::None;
+                self.message_target = None;
+                if crate::attachments::copy_to_clipboard(&text) {
+                    self.status = format!("copied {} chars", text.len());
+                } else {
+                    self.status = "could not reach the clipboard".into();
+                }
+            }
+            _ => self.modal = Modal::None,
+        }
+        Ok(())
+    }
+
+    fn submit_message_edit(&mut self) -> Result<()> {
+        let Some(index) = self.message_target else {
+            self.modal = Modal::None;
+            return Ok(());
+        };
+        let text = self.message_draft.trim().to_owned();
+        self.modal = Modal::None;
+        if text.is_empty() {
+            self.message_target = None;
+            self.status = "empty prompt; nothing sent".into();
+            return Ok(());
+        }
+        self.rewind_and_send(index, text)
+    }
+
+    /// Cut the conversation back to the message at `index` and send `text` in
+    /// its place. Everything after it answered a question that is being
+    /// replaced, so it goes too — on screen and in what the model is sent.
+    fn rewind_and_send(&mut self, index: usize, text: String) -> Result<()> {
+        if !self.rewind_to(index)? {
+            return Ok(());
+        }
+        self.start_turn(text);
+        Ok(())
+    }
+
+    /// Cut back to the message at `index`, on screen and in the stored
+    /// session. Returns whether the cut happened; a running turn refuses,
+    /// because its reply would attach to a message that is being removed.
+    ///
+    /// Separate from sending so the destructive half can be tested without a
+    /// tokio runtime — `start_turn` spawns.
+    pub(crate) fn rewind_to(&mut self, index: usize) -> Result<bool> {
+        self.message_target = None;
+        if self.busy {
+            self.status = "Stop the current turn first".into();
+            return Ok(false);
+        }
+        // Which user message this is, counted among user messages only: the
+        // stored session has one turn per message, while the transcript has
+        // extra blocks for tools and notices.
+        let nth = self
+            .blocks
+            .iter()
+            .take(index)
+            .filter(|b| matches!(b.kind, TranscriptKind::User))
+            .count();
+        if let Some(id) = self.session_id.clone() {
+            let mut session = self.store.load(&id)?;
+            if let Some(turn) = session.user_turn_index(nth) {
+                let removed = session.truncate_from(turn);
+                self.store.save(&session)?;
+                self.status = format!("rewound {} message(s)", removed.len());
+            }
+        }
+        self.blocks.truncate(index);
+        self.render_cache.truncate(index);
+        self.auto_scroll = true;
+        Ok(true)
+    }
+
     pub(crate) fn open_palette(&mut self) {
         self.modal = Modal::Commands;
         self.modal_cursor = 0;
@@ -72,7 +192,7 @@ impl App {
                 let mut text = String::from("Commands");
                 for (name, summary) in COMMANDS { text.push_str(&format!("\n  /{name:<10} {summary}")); }
                 text.push_str("\n\nKeys\n  Enter      Send message\n  Ctrl+J     Newline\n  Ctrl+R     Toggle reasoning\n  Ctrl+O     Toggle tool output\n  PgUp/PgDn  Scroll transcript\n  Esc        Close picker / stop turn / clear input\n  Ctrl+C     Stop turn / quit");
-                text.push_str("\n  F1–F5      Sidebar tabs\n  Alt+←/→    Sidebar pages\n  Ctrl+B     Toggle sidebar\n  Ctrl+P     Command palette\n  /theme     Choose palette");
+                text.push_str("\n  F1–F5      Sidebar tabs\n  Alt+←/→    Sidebar pages\n  Ctrl+B     Toggle sidebar\n  Ctrl+P     Command palette\n  Ctrl+↑     Edit, resend or copy your last message\n  /theme     Choose palette");
                 self.push(TranscriptKind::System, text);
             }
             "new" => self.new_session(),
@@ -259,6 +379,8 @@ impl App {
                 }
                 self.modal = Modal::None;
             }
+            Modal::Message => return self.accept_message_action(),
+            Modal::MessageEdit => return self.submit_message_edit(),
             Modal::Commands => return self.accept_palette_row(),
             Modal::Mcp => return self.accept_mcp_row(),
             Modal::McpForm => return self.submit_mcp_form(),

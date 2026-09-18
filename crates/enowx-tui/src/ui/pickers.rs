@@ -8,16 +8,27 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
         draw_settings(frame, app, area);
         return;
     }
+    if app.modal == Modal::MessageEdit {
+        draw_message_edit(frame, app, area);
+        return;
+    }
     let width = area.width.saturating_sub(4).min(
         if app.modal == Modal::Sessions || app.modal == Modal::Attach {
             96
+        } else if app.modal == Modal::Message {
+            52
         } else {
             72
         },
     );
     let per_row = if matches!(
         app.modal,
-        Modal::Roles | Modal::Agents | Modal::ModelSource | Modal::Providers | Modal::Themes
+        Modal::Roles
+            | Modal::Agents
+            | Modal::Message
+            | Modal::ModelSource
+            | Modal::Providers
+            | Modal::Themes
     ) {
         2
     } else {
@@ -141,4 +152,52 @@ pub(super) fn draw_model_list(frame: &mut Frame, app: &App, area: Rect) {
         .collect();
     let mut state = ListState::default().with_selected(Some(app.modal_cursor));
     frame.render_stateful_widget(List::new(items), area, &mut state);
+}
+
+/// The prompt being edited before it is sent again. A plain field rather than
+/// the settings form: there is one value, and Enter sends it.
+fn draw_message_edit(frame: &mut Frame, app: &App, area: Rect) {
+    let t = app.theme;
+    let width = area.width.saturating_sub(4).min(80);
+    // Room for the draft as it grows, without swallowing the screen.
+    let text_rows = (app.message_draft.len() / width.max(1) as usize + 1).clamp(1, 8) as u16;
+    let height = (text_rows + 4).min(area.height.saturating_sub(2));
+    let modal = Rect {
+        x: area.x + area.width.saturating_sub(width) / 2,
+        y: area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    };
+    frame.render_widget(Clear, modal);
+    let block = Block::default()
+        .title(app.modal.title())
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(t.accent));
+    let inner = block.inner(modal);
+    frame.render_widget(block, modal);
+
+    let inner = inner.inner(Margin {
+        horizontal: 1,
+        vertical: 0,
+    });
+    let rows = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
+    frame.render_widget(
+        Paragraph::new(app.message_draft.clone())
+            .wrap(ratatui::widgets::Wrap { trim: false })
+            .style(Style::default().fg(t.text)),
+        rows[0],
+    );
+    frame.render_widget(
+        Paragraph::new("Enter sends from here  ·  Esc cancels").style(Style::default().fg(t.faint)),
+        rows[1],
+    );
+    // Put the caret where typing will land.
+    let before = &app.message_draft[..app.message_draft_cursor];
+    let w = rows[0].width.max(1);
+    let col = (before.chars().count() as u16) % w;
+    let row = (before.chars().count() as u16) / w;
+    if row < rows[0].height {
+        frame.set_cursor_position((rows[0].x + col, rows[0].y + row));
+    }
 }

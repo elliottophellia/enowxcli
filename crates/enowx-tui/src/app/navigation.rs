@@ -153,6 +153,13 @@ impl App {
                     .filter(|rect| rect.contains(position))
                 {
                     self.page_sidebar(event.column >= rect.x + rect.width / 2);
+                } else if let Some((_, index)) = self
+                    .user_block_rects
+                    .iter()
+                    .find(|(rect, _)| rect.contains(position))
+                    .map(|(rect, index)| (*rect, *index))
+                {
+                    self.open_message_menu(index);
                 } else if self.transcript_area.is_some_and(|r| r.contains(position)) {
                     // Start a drag selection anchored at the click point.
                     self.selection = Some(crate::app::TextSelection {

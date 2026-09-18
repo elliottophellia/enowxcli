@@ -116,6 +116,46 @@ impl ToolRegistry {
             .map(|t| (t.name().to_string(), t.description().to_string()))
     }
 
+    /// Schemas for an agent's declared tool surface.
+    ///
+    /// Agent-shaped counterpart to `schemas`. Keeping the surface tied to the
+    /// active agent is what stops a specialist's ten-tool schema reaching the
+    /// router, which only needs to read enough to classify.
+    pub fn schemas_for_agent(
+        &self,
+        allowed_tools: &[String],
+        discovery: Option<&Discovery>,
+    ) -> Vec<Value> {
+        let mut allowed: Vec<String> = allowed_tools.to_vec();
+        // Discovered MCP tools are namespaced and reachable from any agent;
+        // the declared surface still gates the built-ins.
+        allowed.extend(
+            self.tools
+                .keys()
+                .filter(|name| name.starts_with("mcp__"))
+                .cloned(),
+        );
+        if discovery.is_some_and(|d| !d.skills.is_empty()) {
+            allowed.push("skill_read".to_owned());
+        }
+        allowed
+            .iter()
+            .filter_map(|name| self.tools.get(name))
+            .map(|tool| tool.wire_schema())
+            .collect()
+    }
+
+    /// Whether `name` is reachable from an agent declaring `allowed_tools`.
+    ///
+    /// The second of the two filters: the first never advertises the tool, and
+    /// this refuses it if the model calls it anyway. Both are needed — a model
+    /// can name a tool it was never shown.
+    pub fn agent_allows(allowed_tools: &[String], name: &str) -> bool {
+        name == "skill_read"
+            || name.starts_with("mcp__")
+            || allowed_tools.iter().any(|t| t == name)
+    }
+
     pub fn schemas(&self, role: Role, discovery: Option<&Discovery>) -> Vec<Value> {
         let mut allowed: Vec<String> = role
             .allowed_tools()

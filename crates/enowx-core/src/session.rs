@@ -43,7 +43,37 @@ pub struct Session {
     /// zeros next to a transcript that plainly used tokens.
     #[serde(default)]
     pub usage: SessionUsage,
+    /// Which agent currently holds the session. Empty on sessions written
+    /// before agents existed; `Session::agent_or_default` resolves those from
+    /// the legacy `role` so an old file still opens with something sensible.
+    #[serde(default)]
+    pub agent: String,
+    /// Every handover this session has seen, oldest first. The transcript
+    /// needs it: a reply that silently changes voice reads as the model
+    /// behaving oddly rather than as a different agent answering.
+    #[serde(default)]
+    pub switches: Vec<AgentSwitch>,
+    /// Set on a branch session: the session that delegated to it. A branch
+    /// keeps its own transcript so it can be inspected, while its usage rolls
+    /// up into the parent — without that the cost readout reports the router's
+    /// spend alone and is wrong by an order of magnitude.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
     pub turns: Vec<StoredTurn>,
+}
+
+/// One handover, recorded so the transcript can show who answered what.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentSwitch {
+    pub from: String,
+    pub to: String,
+    /// Why the router moved the work. Shown to the user; a switch with no
+    /// stated reason is indistinguishable from a glitch.
+    #[serde(default)]
+    pub reason: String,
+    /// How many turns had been recorded when this happened, so the UI can
+    /// place the marker in the right spot without a timestamp search.
+    pub at_turn: usize,
 }
 
 /// Running totals for one session.
@@ -62,6 +92,74 @@ pub struct SessionUsage {
 }
 
 impl Session {
+    /// Which agent holds this session.
+    ///
+    /// Sessions written before agents existed have an empty `agent` and only
+    /// the legacy `role`. Mapping one to the other here means an old session
+    /// opens with a sensible agent instead of an empty system prompt, without
+    /// every caller having to know about the migration.
+    pub fn agent_or_default(&self) -> String {
+        if !self.agent.trim().is_empty() {
+            return self.agent.clone();
+        }
+        match self.role {
+            Role::Orchestrator => "router",
+            Role::Writer => "docs",
+            Role::Researcher => "research",
+        }
+        .to_owned()
+    }
+
+    /// Record a handover. Does nothing when the agent is unchanged, so a
+    /// re-selection of the current agent does not litter the transcript.
+    pub fn switch_agent(&mut self, to: impl Into<String>, reason: impl Into<String>) {
+        let to = to.into();
+        let from = self.agent_or_default();
+        if from == to {
+            return;
+        }
+        self.switches.push(AgentSwitch {
+            from,
+            to: to.clone(),
+            reason: reason.into(),
+            at_turn: self.turns.len(),
+        });
+        self.agent = to;
+    }
+
+    /// A session branched off this one for a sub-agent to work in.
+    ///
+    /// It carries its own transcript so the work can be inspected, and its
+    /// `parent` so usage can roll up — a branch whose cost is not counted
+    /// makes the readout wrong by an order of magnitude, not merely partial.
+    pub fn branch(&self, agent: impl Into<String>) -> Self {
+        let now = Utc::now();
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            title: String::new(),
+            role: self.role,
+            created_at: now,
+            updated_at: now,
+            workspace: self.workspace.clone(),
+            usage: SessionUsage::default(),
+            agent: agent.into(),
+            switches: Vec::new(),
+            parent: Some(self.id.clone()),
+            turns: Vec::new(),
+        }
+    }
+
+    /// Fold a finished branch's token usage into this session.
+    pub fn absorb_usage(&mut self, branch: &SessionUsage) {
+        self.usage.input_tokens = self.usage.input_tokens.saturating_add(branch.input_tokens);
+        self.usage.output_tokens = self
+            .usage
+            .output_tokens
+            .saturating_add(branch.output_tokens);
+        // `context_tokens` is "how full is the window now" for THIS session, so
+        // a branch's figure is not added to it.
+    }
+
     pub fn new(role: Role) -> Self {
         let now = Utc::now();
         Self {
@@ -72,6 +170,9 @@ impl Session {
             updated_at: now,
             workspace: PathBuf::new(),
             usage: SessionUsage::default(),
+            agent: String::new(),
+            switches: Vec::new(),
+            parent: None,
             turns: Vec::new(),
         }
     }
@@ -175,6 +276,14 @@ struct Header {
     /// those loadable, just with zeroed counters.
     #[serde(default)]
     usage: SessionUsage,
+    /// Absent before agents existed; an old session resolves its agent from
+    /// the legacy `role` instead.
+    #[serde(default)]
+    agent: String,
+    #[serde(default)]
+    switches: Vec<AgentSwitch>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    parent: Option<String>,
 }
 
 impl Default for SessionStore {
@@ -205,6 +314,9 @@ impl SessionStore {
             updated_at: session.updated_at,
             workspace: session.workspace.clone(),
             usage: session.usage,
+            agent: session.agent.clone(),
+            switches: session.switches.clone(),
+            parent: session.parent.clone(),
         };
         out.push_str(&serde_json::to_string(&header)?);
         out.push('\n');
@@ -242,6 +354,9 @@ impl SessionStore {
             updated_at: header.updated_at,
             workspace: header.workspace,
             usage: header.usage,
+            agent: header.agent,
+            switches: header.switches,
+            parent: header.parent,
             turns,
         })
     }
@@ -444,7 +559,7 @@ mod usage_persistence_tests {
         assert_eq!(usage.context_tokens, 4_000, "context is the last prompt");
     }
 
-    mod tempdir {
+    pub(super) mod tempdir {
         pub struct Guard(std::path::PathBuf);
         impl Guard {
             pub fn new() -> Self {
@@ -470,5 +585,162 @@ mod usage_persistence_tests {
                 let _ = std::fs::remove_dir_all(&self.0);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod agent_tests {
+    use super::*;
+
+    #[test]
+    fn a_new_session_has_no_agent_until_one_is_set() {
+        let s = Session::new(Role::Orchestrator);
+        assert!(s.agent.is_empty());
+        assert!(s.switches.is_empty());
+        assert!(s.parent.is_none());
+    }
+
+    /// Sessions written before agents existed carry only the legacy role.
+    /// Resolving them here means an old file opens with a sensible agent
+    /// rather than an empty system prompt.
+    #[test]
+    fn a_legacy_session_resolves_its_agent_from_the_role() {
+        for (role, expected) in [
+            (Role::Orchestrator, "router"),
+            (Role::Writer, "docs"),
+            (Role::Researcher, "research"),
+        ] {
+            let s = Session::new(role);
+            assert_eq!(s.agent_or_default(), expected);
+        }
+    }
+
+    #[test]
+    fn an_explicit_agent_wins_over_the_legacy_role() {
+        let mut s = Session::new(Role::Researcher);
+        s.agent = "fe".into();
+        assert_eq!(s.agent_or_default(), "fe");
+    }
+
+    #[test]
+    fn a_switch_is_recorded_with_its_reason_and_position() {
+        let mut s = Session::new(Role::Orchestrator);
+        s.turns.push(StoredTurn {
+            id: "1".into(),
+            created_at: Utc::now(),
+            message: Message::user("hi"),
+        });
+        s.switch_agent("fe", "the request is about the login page");
+
+        assert_eq!(s.agent, "fe");
+        assert_eq!(s.switches.len(), 1);
+        let sw = &s.switches[0];
+        assert_eq!(sw.from, "router");
+        assert_eq!(sw.to, "fe");
+        assert_eq!(sw.at_turn, 1, "the marker belongs after the turn it follows");
+        assert!(!sw.reason.is_empty(), "a switch with no reason reads as a glitch");
+    }
+
+    /// Re-selecting the current agent is a no-op; otherwise the transcript
+    /// fills with markers for handovers that did not happen.
+    #[test]
+    fn switching_to_the_same_agent_records_nothing() {
+        let mut s = Session::new(Role::Orchestrator);
+        s.agent = "fe".into();
+        s.switch_agent("fe", "again");
+        assert!(s.switches.is_empty());
+    }
+
+    #[test]
+    fn switches_accumulate_in_order() {
+        let mut s = Session::new(Role::Orchestrator);
+        s.switch_agent("fe", "ui work");
+        s.switch_agent("be", "now the api");
+        let path: Vec<&str> = s.switches.iter().map(|x| x.to.as_str()).collect();
+        assert_eq!(path, vec!["fe", "be"]);
+        assert_eq!(s.switches[1].from, "fe");
+    }
+
+    #[test]
+    fn a_branch_starts_clean_but_remembers_its_parent() {
+        let mut parent = Session::new(Role::Orchestrator);
+        parent.agent = "router".into();
+        parent.turns.push(StoredTurn {
+            id: "1".into(),
+            created_at: Utc::now(),
+            message: Message::user("do a thing"),
+        });
+        parent.usage.input_tokens = 500;
+
+        let branch = parent.branch("fe");
+        assert_eq!(branch.parent.as_deref(), Some(parent.id.as_str()));
+        assert_eq!(branch.agent, "fe");
+        assert!(branch.turns.is_empty(), "a sub-agent starts from a briefing");
+        assert_eq!(
+            branch.usage,
+            SessionUsage::default(),
+            "the branch accounts for its own spend"
+        );
+        assert_ne!(branch.id, parent.id);
+        assert_eq!(branch.workspace, parent.workspace);
+    }
+
+    /// Without the roll-up the sidebar reports the router's spend alone, which
+    /// is a wrong number rather than an incomplete one.
+    #[test]
+    fn branch_usage_rolls_up_into_the_parent() {
+        let mut parent = Session::new(Role::Orchestrator);
+        parent.usage = SessionUsage {
+            input_tokens: 1_000,
+            output_tokens: 200,
+            context_tokens: 1_000,
+        };
+        let branch_usage = SessionUsage {
+            input_tokens: 28_000,
+            output_tokens: 3_000,
+            context_tokens: 28_000,
+        };
+        parent.absorb_usage(&branch_usage);
+
+        assert_eq!(parent.usage.input_tokens, 29_000);
+        assert_eq!(parent.usage.output_tokens, 3_200);
+        assert_eq!(
+            parent.usage.context_tokens, 1_000,
+            "context is how full THIS window is; a branch does not fill it"
+        );
+    }
+
+    #[test]
+    fn the_new_fields_survive_a_save_and_load() {
+        let guard = super::usage_persistence_tests::tempdir::Guard::new();
+        let store = SessionStore::new(guard.path().to_path_buf());
+        let mut s = Session::new(Role::Orchestrator);
+        s.switch_agent("fe", "ui work");
+        s.parent = Some("parent-id".into());
+        store.save(&s).expect("save");
+
+        let loaded = store.load(&s.id).expect("load");
+        assert_eq!(loaded.agent, "fe");
+        assert_eq!(loaded.switches.len(), 1);
+        assert_eq!(loaded.switches[0].reason, "ui work");
+        assert_eq!(loaded.parent.as_deref(), Some("parent-id"));
+    }
+
+    /// Every session file on disk today predates these fields.
+    #[test]
+    fn a_session_file_without_agent_fields_still_loads() {
+        let guard = super::usage_persistence_tests::tempdir::Guard::new();
+        let store = SessionStore::new(guard.path().to_path_buf());
+        let id = "22222222-3333-4444-5555-666666666666";
+        let header = format!(
+            r#"{{"id":"{id}","title":"old","role":"writer","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","workspace":"/tmp"}}"#
+        );
+        std::fs::write(guard.path().join(format!("{id}.jsonl")), header + "\n").unwrap();
+
+        let loaded = store.load(id).expect("a pre-agent session must still open");
+        assert!(loaded.agent.is_empty());
+        assert_eq!(loaded.agent_or_default(), "docs", "resolved from the role");
+        assert!(loaded.switches.is_empty());
+        assert!(loaded.parent.is_none());
     }
 }

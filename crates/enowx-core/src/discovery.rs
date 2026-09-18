@@ -13,6 +13,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+pub mod agents;
 pub mod instructions;
 pub mod mcp;
 pub mod skills;
@@ -147,6 +148,9 @@ pub struct Discovery {
     pub shadowed_skills: Vec<(String, PathBuf)>,
     pub instructions: Vec<InstructionFile>,
     pub mcp_servers: Vec<McpServer>,
+    /// The agent roster: shipped defaults with any discovered definitions
+    /// merged over them by name. Always non-empty.
+    pub agents: Vec<crate::agent_def::AgentDef>,
     /// Warnings collected during parsing (malformed frontmatter, unreadable
     /// files, etc.). Surfaced in the sidebar; never fatal.
     pub warnings: Vec<String>,
@@ -158,6 +162,7 @@ impl Discovery {
         skills::collect(workspace, &mut result);
         instructions::collect(workspace, &mut result);
         mcp::collect(workspace, &mut result);
+        agents::collect(workspace, &mut result);
         result
     }
 

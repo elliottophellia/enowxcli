@@ -1,6 +1,7 @@
 //! On-disk configuration. One file, `~/.enx/config.toml`, plus environment
 //! overrides so a container can run without writing anything.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
@@ -162,6 +163,16 @@ pub struct AgentConfig {
     /// Number of trailing turns to keep verbatim during compact. Older turns
     /// get folded into a single summary assistant turn.
     pub compact_keep_last: usize,
+    /// Whether the router may change agent on its own. With this off the UI
+    /// asks first, so a user who does not want their specialist swapped
+    /// mid-conversation keeps the decision.
+    pub auto_switch: bool,
+    /// Model id per tier. An unmapped tier falls back to the active model
+    /// rather than failing: a missing table must not stop delegation.
+    pub tiers: TierModels,
+    /// Model id per agent name, overriding the agent's tier. This is the
+    /// escape hatch for "everything is fine except `fe`".
+    pub models: BTreeMap<String, String>,
 }
 
 impl Default for AgentConfig {
@@ -173,8 +184,44 @@ impl Default for AgentConfig {
             auto_compact_at: 0.85,
             auto_compact: true,
             compact_keep_last: 4,
+            auto_switch: true,
+            tiers: TierModels::default(),
+            models: BTreeMap::new(),
         }
     }
+}
+
+/// The `[agent.tiers]` table: one model id per tier.
+///
+/// Named fields rather than a map because the tiers are a closed set — a
+/// typo'd key in a map would be silently ignored, and `enx config set
+/// agent.tiers.strong` has to resolve to something.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TierModels {
+    pub cheap: String,
+    pub balanced: String,
+    pub strong: String,
+}
+
+impl TierModels {
+    /// The configured id for `tier`, or `None` when the slot is unset.
+    pub fn get(&self, tier: crate::agent_def::Tier) -> Option<&str> {
+        use crate::agent_def::Tier;
+        let id = match tier {
+            Tier::Cheap => &self.cheap,
+            Tier::Balanced => &self.balanced,
+            Tier::Strong => &self.strong,
+        };
+        non_empty(id)
+    }
+}
+
+/// Treat blank as unset: TOML has no way to say "no value" for a string that
+/// was written out by `save`, so every level of the lookup has to skip it.
+fn non_empty(value: &str) -> Option<&str> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then_some(trimmed)
 }
 
 /// Window used when neither the provider nor the catalogue states one.
@@ -280,6 +327,21 @@ impl Config {
         // an unlisted model is far more often capable than not, and turning
         // it off would silently disable every tool.
         self.model.tool_call = entry.map(|e| e.tool_call).unwrap_or(true);
+    }
+
+    /// The model an agent should run on: per-agent override, then its tier,
+    /// then the active model.
+    ///
+    /// Falling back to the active model rather than erroring is deliberate —
+    /// a user who never wrote a tier table still gets working delegation.
+    pub fn model_for(&self, agent: &str, tier: crate::agent_def::Tier) -> String {
+        self.agent
+            .models
+            .get(agent.trim())
+            .and_then(|id| non_empty(id))
+            .or_else(|| self.agent.tiers.get(tier))
+            .unwrap_or_else(|| self.model.default.trim())
+            .to_owned()
     }
 
     fn validate(&self) -> Result<()> {
@@ -520,6 +582,7 @@ fn normalize(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent_def::Tier;
 
     #[test]
     fn set_keeps_scalar_types() {
@@ -549,6 +612,70 @@ mod tests {
 
         config.model.default = "fixture/model".into();
         assert!(config.is_ready());
+    }
+
+    /// Set every level at once: a resolution order that reads the wrong slot
+    /// first still returns *a* model, so only a populated ladder catches it.
+    #[test]
+    fn the_most_specific_model_wins() {
+        let mut config = Config::default();
+        config.model.default = "active/model".into();
+        config.agent.tiers.strong = "tier/strong".into();
+        config.agent.tiers.cheap = "tier/cheap".into();
+        config
+            .agent
+            .models
+            .insert("fe".into(), "override/fe".into());
+
+        assert_eq!(config.model_for("fe", Tier::Strong), "override/fe");
+        assert_eq!(config.model_for("be", Tier::Strong), "tier/strong");
+        assert_eq!(config.model_for("be", Tier::Cheap), "tier/cheap");
+        assert_eq!(
+            config.model_for("be", Tier::Balanced),
+            "active/model",
+            "an unmapped tier falls back rather than failing"
+        );
+    }
+
+    #[test]
+    fn blank_entries_fall_through() {
+        let mut config = Config::default();
+        config.model.default = "active/model".into();
+        config.agent.tiers.balanced = "   ".into();
+        config.agent.models.insert("fe".into(), String::new());
+        assert_eq!(config.model_for("fe", Tier::Balanced), "active/model");
+
+        config.agent.tiers.balanced = "tier/balanced".into();
+        assert_eq!(
+            config.model_for("fe", Tier::Balanced),
+            "tier/balanced",
+            "a blank override must not mask the tier below it"
+        );
+    }
+
+    /// Configs written before the tier table existed have to keep loading.
+    #[test]
+    fn a_config_without_the_agent_tables_parses() {
+        let config: Config = toml::from_str(
+            r#"
+[model]
+default = "active/model"
+
+[agent]
+max_steps = 8
+"#,
+        )
+        .expect("an older config still loads");
+        assert_eq!(config.agent.max_steps, 8);
+        assert!(config.agent.models.is_empty());
+        assert_eq!(config.model_for("fe", Tier::Strong), "active/model");
+    }
+
+    #[test]
+    fn switching_is_automatic_unless_turned_off() {
+        assert!(Config::default().agent.auto_switch);
+        let config: Config = toml::from_str("[agent]\nauto_switch = false\n").unwrap();
+        assert!(!config.agent.auto_switch);
     }
 
     #[test]
@@ -622,9 +749,15 @@ mod adopt_model_tests {
             config.model.context_window, DEFAULT_CONTEXT_WINDOW,
             "an unknown model falls back to the default window, not the previous model's"
         );
-        assert_eq!(config.model.price_input, 0.0, "stale pricing must be dropped");
+        assert_eq!(
+            config.model.price_input, 0.0,
+            "stale pricing must be dropped"
+        );
         assert_eq!(config.model.price_output, 0.0);
-        assert!(!config.model.reasoning, "capabilities describe the old model");
+        assert!(
+            !config.model.reasoning,
+            "capabilities describe the old model"
+        );
         assert!(!config.model.vision);
     }
 

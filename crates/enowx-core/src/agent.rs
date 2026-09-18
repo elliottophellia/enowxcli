@@ -387,7 +387,8 @@ impl Agent {
                             })
                             .await;
                     });
-                }) as Box<dyn Fn(String, u32, u32) + Send + Sync>)
+                })
+                    as Box<dyn Fn(String, u32, u32) + Send + Sync>)
             };
             let completion = tokio::select! {
                 result = provider.complete_with_notice(&wire, &schemas, &chunk_tx, &notice_sink) => {

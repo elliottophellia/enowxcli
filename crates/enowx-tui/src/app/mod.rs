@@ -45,6 +45,9 @@ pub(crate) struct App {
     /// alone cannot say where the rule belongs once the transcript is built.
     pub(crate) switch_markers: Vec<(usize, enowx_core::session::AgentSwitch)>,
     pub(crate) busy: bool,
+    /// A turn the user stopped, whose `Done` is still in flight. Set at the
+    /// keypress so the late event can be told apart from a real completion.
+    pub(crate) abandoned: bool,
     pub(crate) cancel: Option<CancellationToken>,
     pub(crate) events: Option<mpsc::Receiver<Event>>,
     pub(crate) task: Option<tokio::task::JoinHandle<()>>,
@@ -187,6 +190,7 @@ impl App {
             agent_name: enowx_core::Session::new(Role::Orchestrator).agent_or_default(),
             switch_markers: Vec::new(),
             busy: false,
+            abandoned: false,
             cancel: None,
             events: None,
             task: None,

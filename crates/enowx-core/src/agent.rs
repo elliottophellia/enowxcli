@@ -613,8 +613,15 @@ impl Agent {
                     }
                 }
                 _ = cancel.cancelled() => {
+                    // Stop now rather than tidily. `forward` is blocked on a
+                    // channel the in-flight request still holds open, so
+                    // awaiting it here waits out the rest of the stream —
+                    // which is the whole thing the user just asked to stop.
+                    // Aborting drops the HTTP body and closes the connection;
+                    // whatever arrived before this point was already captured
+                    // under the mutex, so the partial reply still persists.
+                    forward.abort();
                     drop(chunk_tx);
-                    let _ = forward.await;
                     persist_interrupted(&mut session, &self.store, &assistant_id, &provider_model, &text, &reasoning, "Interrupted by user.".into())?;
                     stop_reason = "aborted".into();
                     break;

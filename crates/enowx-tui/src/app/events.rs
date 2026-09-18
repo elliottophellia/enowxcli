@@ -50,13 +50,23 @@ impl App {
     }
 
     pub(crate) fn interrupt(&mut self) {
-        if let Some(cancel) = &self.cancel {
-            cancel.cancel();
-            self.set_activity(Activity::Tool("stopping".into()));
-            self.status = "interrupting".into();
-        } else {
+        let Some(cancel) = self.cancel.take() else {
             self.status = "nothing running".into();
-        }
+            return;
+        };
+        cancel.cancel();
+        // Stop being busy now rather than when the backend finishes tidying
+        // up. It still has a partial reply to persist and a task to wind
+        // down, and waiting for its `Done` left the composer locked and the
+        // spinner turning for as long as that took — which reads as the key
+        // not having worked.
+        self.busy = false;
+        self.set_activity(Activity::Idle);
+        self.status = "stopped".into();
+        // The task owns the channel the events arrive on. Dropping the
+        // receiver here would discard the events it still has to send, so it
+        // is left in place: `Done` for the abandoned turn is ignored below.
+        self.abandoned = true;
     }
 
     pub(crate) fn apply_event(&mut self, event: Event) {
@@ -215,6 +225,13 @@ impl App {
                 self.status = "failed".into();
             }
             Event::Done { stop_reason } => {
+                // A turn the user already stopped reports back when it has
+                // finished unwinding. The UI moved on at the keypress, so
+                // this must not relabel the status or disturb a turn the
+                // user may have started since.
+                if std::mem::take(&mut self.abandoned) {
+                    return;
+                }
                 self.busy = false;
                 self.cancel = None;
                 self.set_activity(Activity::Idle);

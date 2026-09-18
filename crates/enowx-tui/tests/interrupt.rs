@@ -94,3 +94,53 @@ fn esc_closes_a_window_without_stopping_the_turn() {
     app.press(KeyCode::Esc, false).expect("esc");
     assert!(cancel.is_cancelled(), "now Esc should stop the turn");
 }
+
+/// The point of the key is that the app stops. Waiting for the backend to
+/// finish unwinding kept the composer locked and the spinner turning, which
+/// reads as the key not having worked.
+#[test]
+fn stopping_frees_the_app_at_the_keypress() {
+    let mut app = TestApp::new();
+    let cancel = app.start_fake_turn();
+    assert!(app.is_busy());
+    app.press(KeyCode::Char('c'), true).expect("ctrl+c");
+    assert!(cancel.is_cancelled());
+    assert!(
+        !app.is_busy(),
+        "the app should be free immediately, not once the turn reports back"
+    );
+}
+
+/// The stopped turn still reports `Done` once it has unwound. That must not
+/// relabel the status the user is looking at.
+#[test]
+fn a_late_done_from_a_stopped_turn_is_ignored() {
+    let mut app = TestApp::new();
+    app.start_fake_turn();
+    app.press(KeyCode::Char('c'), true).expect("ctrl+c");
+    let after_stop = app.status_line();
+    app.deliver_done("aborted");
+    assert_eq!(
+        app.status_line(),
+        after_stop,
+        "the late Done should not change what is shown"
+    );
+}
+
+/// And it must not disturb a turn the user started in the meantime — the
+/// whole reason to free the app instantly is that they can send another.
+#[test]
+fn a_late_done_does_not_stop_the_next_turn() {
+    let mut app = TestApp::new();
+    app.start_fake_turn();
+    app.press(KeyCode::Char('c'), true).expect("ctrl+c");
+    // A new turn, started before the old one finished unwinding.
+    let second = app.start_fake_turn();
+    // The first turn's Done finally arrives.
+    app.deliver_done("aborted");
+    assert!(app.is_busy(), "the second turn should still be running");
+    assert!(
+        !second.is_cancelled(),
+        "the first turn's Done must not cancel the second"
+    );
+}

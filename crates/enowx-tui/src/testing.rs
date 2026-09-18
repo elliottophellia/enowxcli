@@ -769,3 +769,16 @@ impl TestApp {
         cancel
     }
 }
+
+impl TestApp {
+    pub fn is_busy(&self) -> bool {
+        self.inner.busy
+    }
+
+    /// Deliver an event as the running turn would.
+    pub fn deliver_done(&mut self, stop_reason: &str) {
+        self.inner.apply_event(enowx_core::Event::Done {
+            stop_reason: stop_reason.to_owned(),
+        });
+    }
+}

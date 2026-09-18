@@ -379,73 +379,44 @@ pub(crate) fn render_markdown(
             continue;
         }
 
-        if let Some(body) = raw.strip_prefix("##### ") {
-            emit_wrapped(
-                lines,
-                &markdown_spans(body, theme),
-                "",
-                Style::default()
+        // Headings, all five levels in one place. They used to be five
+        // near-identical blocks that all drew accent + bold, so `#` through
+        // `#####` were indistinguishable and a document had no hierarchy.
+        //
+        // A terminal has no type scale to work with, so the levels are
+        // separated by weight and colour instead, and each one is given air:
+        // a heading pressed against the paragraph above it reads as part of
+        // that paragraph rather than as the start of something new.
+        if let Some((level, body)) = heading_of(raw) {
+            // Blank line above, unless we are at the very top or one is
+            // already there — the separation belongs to the heading, not to
+            // whatever happened to come before it.
+            if !lines.is_empty() && !is_blank_line(lines.last()) {
+                lines.push(Line::default());
+            }
+            let style = match level {
+                1 => Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+                2 => Style::default()
                     .fg(theme.accent)
                     .add_modifier(Modifier::BOLD),
-                width,
-                theme,
-            );
-            i += 1;
-            continue;
-        }
-        if let Some(body) = raw.strip_prefix("#### ") {
-            emit_wrapped(
-                lines,
-                &markdown_spans(body, theme),
-                "",
-                Style::default()
-                    .fg(theme.accent)
+                3 => Style::default()
+                    .fg(theme.accent2)
                     .add_modifier(Modifier::BOLD),
-                width,
-                theme,
-            );
-            i += 1;
-            continue;
-        }
-        if let Some(body) = raw.strip_prefix("### ") {
-            emit_wrapped(
-                lines,
-                &markdown_spans(body, theme),
-                "",
-                Style::default()
-                    .fg(theme.accent)
-                    .add_modifier(Modifier::BOLD),
-                width,
-                theme,
-            );
-            i += 1;
-            continue;
-        }
-        if let Some(body) = raw.strip_prefix("## ") {
-            emit_wrapped(
-                lines,
-                &markdown_spans(body, theme),
-                "",
-                Style::default()
-                    .fg(theme.accent)
-                    .add_modifier(Modifier::BOLD),
-                width,
-                theme,
-            );
-            i += 1;
-            continue;
-        }
-        if let Some(body) = raw.strip_prefix("# ") {
-            emit_wrapped(
-                lines,
-                &markdown_spans(body, theme),
-                "",
-                Style::default()
-                    .fg(theme.accent)
-                    .add_modifier(Modifier::BOLD),
-                width,
-                theme,
-            );
+                _ => Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+            };
+            emit_wrapped(lines, &markdown_spans(body, theme), "", style, width, theme);
+            // And a blank line below, so the heading sits with the section it
+            // opens rather than being squeezed between two bodies of text.
+            // Skipped when the source already left one, so authored spacing
+            // is never doubled.
+            if raw_lines
+                .get(i + 1)
+                .is_some_and(|next| !next.trim().is_empty())
+            {
+                lines.push(Line::default());
+            }
             i += 1;
             continue;
         }
@@ -479,6 +450,7 @@ pub(crate) fn render_markdown(
             .or_else(|| trimmed.strip_prefix("* "))
         {
             let prefix = format!("{}• ", " ".repeat(indent));
+            let before = lines.len();
             emit_wrapped(
                 lines,
                 &markdown_spans(item, theme),
@@ -487,6 +459,7 @@ pub(crate) fn render_markdown(
                 width,
                 theme,
             );
+            separate_list_item(lines, before, &raw_lines, i);
             i += 1;
             continue;
         }
@@ -495,6 +468,7 @@ pub(crate) fn render_markdown(
             let display = ordered_counter.map_or(num, |n| n + 1);
             ordered_counter = Some(display);
             let prefix = format!("{}{}. ", " ".repeat(indent), display);
+            let before = lines.len();
             emit_wrapped(
                 lines,
                 &markdown_spans(item, theme),
@@ -503,6 +477,7 @@ pub(crate) fn render_markdown(
                 width,
                 theme,
             );
+            separate_list_item(lines, before, &raw_lines, i);
             i += 1;
             continue;
         } else {
@@ -1687,4 +1662,55 @@ fn tool_row(
     spans.push(Span::raw(" ".repeat(gap)));
     spans.push(Span::styled(right, right_style));
     Line::from(spans)
+}
+
+/// Split a heading line into its level and text, or None when it is not one.
+///
+/// Deeper levels are checked first so `###` is not read as `#` followed by
+/// two literal hashes.
+fn heading_of(raw: &str) -> Option<(usize, &str)> {
+    for level in (1..=5).rev() {
+        let marker = "#".repeat(level) + " ";
+        if let Some(body) = raw.strip_prefix(&marker) {
+            return Some((level, body));
+        }
+    }
+    None
+}
+
+/// Whether a rendered line is empty, used to avoid stacking blank lines.
+fn is_blank_line(line: Option<&Line<'static>>) -> bool {
+    match line {
+        None => true,
+        Some(line) => line.spans.iter().all(|s| s.content.trim().is_empty()),
+    }
+}
+
+/// Put a blank line after a list item that wrapped, when another item follows.
+///
+/// A list of one-line items reads fine packed together, and spacing it out
+/// would waste half the screen. But once items wrap, the rows run into each
+/// other and it stops being clear where one ends — which is exactly when the
+/// separation is worth its space. So the spacing follows the content rather
+/// than being fixed either way.
+///
+/// `before` is how many lines existed prior to emitting this item, so the
+/// wrap is detected from what was actually drawn rather than guessed from the
+/// source text's length.
+fn separate_list_item(
+    lines: &mut Vec<Line<'static>>,
+    before: usize,
+    raw_lines: &[&str],
+    i: usize,
+) {
+    if lines.len() - before < 2 {
+        return;
+    }
+    let next_is_item = raw_lines.get(i + 1).is_some_and(|next| {
+        let t = next.trim_start();
+        t.starts_with("- ") || t.starts_with("* ") || split_ordered(t).is_some()
+    });
+    if next_is_item {
+        lines.push(Line::default());
+    }
 }

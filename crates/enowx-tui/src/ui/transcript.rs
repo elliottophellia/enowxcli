@@ -1263,24 +1263,24 @@ fn render_block(
                 };
                 let expanded = tool_expanded.get(id).copied().unwrap_or(default_expand);
                 match render {
-                    ToolRender::Summary(text) => {
-                        let text = match &waiting {
-                            Some(note) => format!("{text} · {note}"),
-                            None => text,
-                        };
-                        // Register a file marker for tools whose summary
-                        // starts with `<verb> <path>` so a click opens it.
+                    ToolRender::Summary(parts) => {
+                        // Register a file marker for tools whose argument is a
+                        // path, so a click opens it.
                         register_summary_file_link(
                             name,
                             args,
-                            &text,
+                            &format!("{} {}", parts.verb, parts.arg),
                             lines.len(),
                             file_links,
                         );
-                        lines.push(Line::from(vec![
-                            Span::styled(format!("{} ", icon.0), Style::default().fg(icon.1)),
-                            Span::styled(text, Style::default().fg(theme.muted)),
-                        ]));
+                        lines.push(tool_row(
+                            &parts,
+                            None,
+                            icon,
+                            waiting.as_deref(),
+                            width,
+                            theme,
+                        ));
                     }
                     ToolRender::Detail {
                         header,
@@ -1288,18 +1288,15 @@ fn render_block(
                         body,
                     } => {
                         let chevron = if expanded { "▾" } else { "▸" };
-                        let header = match &waiting {
-                            Some(note) => format!("{header} · {note}"),
-                            None => header,
-                        };
                         let header_y_marker = lines.len();
-                        lines.push(Line::from(vec![
-                            Span::styled(
-                                format!("{chevron} {} ", icon.0),
-                                Style::default().fg(icon.1),
-                            ),
-                            Span::styled(header, Style::default().fg(theme.text)),
-                        ]));
+                        lines.push(tool_row(
+                            &header,
+                            Some(chevron),
+                            icon,
+                            waiting.as_deref(),
+                            width,
+                            theme,
+                        ));
                         tool_headers.push((id.clone(), header_y_marker));
                         // Header path (write, bash) is also a link target.
                         register_detail_file_link(
@@ -1490,7 +1487,13 @@ fn render_block(
                 }
             }
         }
-        lines.push(Line::default());
+        // Tool rows stack directly on top of each other: a blank line between
+        // each one turned a run of ten calls into twenty rows of mostly empty
+        // space. The separator before and after the whole run is added during
+        // assembly, so the group still reads as distinct from the prose.
+        if !matches!(block.kind, TranscriptKind::Tool { .. }) {
+            lines.push(Line::default());
+        }
     }
 
 /// Bring `app.render_cache` in line with `app.blocks`, re-rendering only the
@@ -1609,4 +1612,76 @@ fn refresh_render_cache(app: &mut App, width: usize) {
             skipped,
         });
     }
+}
+
+/// Width of the verb column.
+///
+/// Ten covers every built-in tool (`skill_read` is the longest) so the
+/// argument column starts at the same place on every row — that alignment is
+/// the point of the layout. MCP tool names can be far longer and are clipped
+/// rather than allowed to push the column out.
+const VERB_COLUMN: usize = 10;
+
+/// One tool-call row: `▸ ✓ verb       argument            metric`.
+///
+/// The chevron column is present on every row, blank when the row has no body
+/// to open, so summary and expandable rows share a left edge instead of
+/// stepping in and out by two characters. The metric is flush right, which
+/// makes a column of counts scannable down the page.
+fn tool_row(
+    parts: &crate::ui::tool::RowParts,
+    chevron: Option<&str>,
+    icon: (&str, ratatui::style::Color),
+    waiting: Option<&str>,
+    width: usize,
+    theme: &Theme,
+) -> Line<'static> {
+    let faint = Style::default().fg(theme.faint);
+    let dim = Style::default().fg(theme.muted);
+
+    // Right-hand side: the metric, plus any status or elapsed note.
+    let mut right = parts.metric.clone();
+    if let Some(status) = &parts.status {
+        right = if right.is_empty() {
+            status.clone()
+        } else {
+            format!("{right} · {status}")
+        };
+    }
+    if let Some(note) = waiting {
+        right = if right.is_empty() {
+            note.to_string()
+        } else {
+            format!("{right} · {note}")
+        };
+    }
+    // A failing row's count is part of the failure, so it takes the icon's
+    // colour rather than the neutral one.
+    let right_style = if parts.status.is_some() { Style::default().fg(icon.1) } else { dim };
+
+    let verb = trim(&parts.verb, VERB_COLUMN);
+    let verb_pad = VERB_COLUMN.saturating_sub(unicode_width_of(&verb));
+
+    let mut spans = vec![
+        Span::styled(format!("{} ", chevron.unwrap_or(" ")), faint),
+        Span::styled(format!("{} ", icon.0), Style::default().fg(icon.1)),
+        Span::styled(verb, Style::default().fg(theme.accent)),
+        Span::raw(" ".repeat(verb_pad + 2)),
+    ];
+
+    // Whatever is left after the fixed columns and the right-hand text.
+    let used: usize = spans.iter().map(|s| unicode_width_of(&s.content)).sum();
+    let budget = width
+        .saturating_sub(used + unicode_width_of(&right) + 2)
+        .max(8);
+    let arg = trim(&parts.arg, budget);
+    let arg_w = unicode_width_of(&arg);
+    spans.push(Span::styled(arg, Style::default().fg(theme.text)));
+
+    let gap = width
+        .saturating_sub(used + arg_w + unicode_width_of(&right))
+        .max(1);
+    spans.push(Span::raw(" ".repeat(gap)));
+    spans.push(Span::styled(right, right_style));
+    Line::from(spans)
 }

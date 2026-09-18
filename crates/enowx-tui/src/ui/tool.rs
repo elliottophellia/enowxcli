@@ -8,15 +8,62 @@ use serde_json::Value;
 /// What a tool block looks like on screen right now.
 pub(super) enum ToolRender<'a> {
     /// One line, no body. `read`, `glob`, `grep`, `todo`, `skill_read`, etc.
-    Summary(String),
+    Summary(RowParts),
     /// Header line the user can toggle to reveal `body`. `subtitle` is a
     /// muted second line shown when expanded (e.g. the full `bash` command
     /// when the header only carries the program name).
     Detail {
-        header: String,
+        header: RowParts,
         subtitle: Option<String>,
         body: ToolBody<'a>,
     },
+}
+
+/// A tool row split into its columns so the renderer can align them.
+///
+/// Each branch of `classify` used to format one finished string, which glued
+/// the verb, the argument and the count together: rows began at different
+/// columns depending on their shape, and the count landed wherever the text
+/// happened to end. Keeping the parts separate lets the layout own the
+/// alignment.
+pub(super) struct RowParts {
+    /// The tool as the user knows it: `bash`, `read`, `github:list_issues`.
+    pub verb: String,
+    /// What it acted on — a path, a pattern, a command.
+    pub arg: String,
+    /// The outcome worth seeing at a glance: `140 lines`, `4 matches`.
+    pub metric: String,
+    /// Extra status shown after the metric, such as a non-zero exit code.
+    pub status: Option<String>,
+}
+
+impl RowParts {
+    pub(super) fn new(
+        verb: impl Into<String>,
+        arg: impl Into<String>,
+        metric: impl Into<String>,
+    ) -> Self {
+        Self {
+            verb: verb.into(),
+            arg: arg.into(),
+            metric: metric.into(),
+            status: None,
+        }
+    }
+
+    fn with_status(mut self, status: Option<String>) -> Self {
+        self.status = status;
+        self
+    }
+}
+
+/// Plural-aware count, so one result never reads "1 matches".
+fn counted(n: usize, singular: &str, plural: &str) -> String {
+    if n == 1 {
+        format!("{n} {singular}")
+    } else {
+        format!("{n} {plural}")
+    }
 }
 
 pub(super) enum ToolBody<'a> {
@@ -182,16 +229,12 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
             // invocation this was, and collapsed rows hid the subtitle.
             let head = summarize_command(cmd);
             let status = match exit {
-                Some(code) if code != "0" => format!(" · exit {code}"),
-                _ => String::new(),
+                Some(code) if code != "0" => Some(format!("exit {code}")),
+                _ => None,
             };
-            let lines_note = if n == 1 {
-                " · 1 line".to_string()
-            } else {
-                format!(" · {n} lines")
-            };
+            let lines_note = counted(n, "line", "lines");
             ToolRender::Detail {
-                header: format!("$ {head}{lines_note}{status}"),
+                header: RowParts::new("bash", head.clone(), lines_note).with_status(status),
                 // Only worth a second line when the header had to abbreviate.
                 subtitle: (head.len() < cmd.len()).then(|| trim(cmd, 240)),
                 body: ToolBody::Plain(body),
@@ -205,7 +248,7 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
             // the diff gutter shows real file line numbers instead of `1..`.
             let start_line = parse_start_line(result).unwrap_or(1);
             ToolRender::Detail {
-                header: format!("edit {path}"),
+                header: RowParts::new("edit", path.clone(), String::new()),
                 subtitle: None,
                 body: ToolBody::Diff {
                     path: path.clone(),
@@ -220,7 +263,7 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
             let content = str_arg(&parsed, "content").unwrap_or("");
             let n = content.lines().count();
             ToolRender::Detail {
-                header: format!("write {path} · {n} lines"),
+                header: RowParts::new("write", path.clone(), counted(n, "line", "lines")),
                 subtitle: None,
                 body: ToolBody::Preview {
                     content: content.to_string(),
@@ -244,13 +287,21 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
                 .unwrap_or_default();
             if paths.len() > 1 {
                 ToolRender::Detail {
-                    header: format!("Read ({})", paths.len()),
+                    header: RowParts::new(
+                        "read",
+                        counted(paths.len(), "file", "files"),
+                        counted(paths.len(), "file", "files"),
+                    ),
                     subtitle: None,
                     body: ToolBody::Tree { items: paths },
                 }
             } else {
                 let n = result.lines().count();
-                ToolRender::Summary(format!("read {path} · {n} lines"))
+                ToolRender::Summary(RowParts::new(
+                    "read",
+                    path.clone(),
+                    counted(n, "line", "lines"),
+                ))
             }
         }
         "glob" => {
@@ -306,10 +357,14 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
                 })
                 .unwrap_or_default();
             if items.is_empty() {
-                ToolRender::Summary("todo · 0 items".to_string())
+                ToolRender::Summary(RowParts::new("todo", "", "0 items"))
             } else {
                 ToolRender::Detail {
-                    header: format!("Todo {} tasks", items.len()),
+                    header: RowParts::new(
+                        "todo",
+                        String::new(),
+                        counted(items.len(), "task", "tasks"),
+                    ),
                     subtitle: None,
                     body: ToolBody::Todo { items },
                 }
@@ -317,11 +372,15 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
         }
         "skill_read" => {
             let name = str_arg(&parsed, "name").unwrap_or("").to_string();
-            ToolRender::Summary(format!("skill_read {name}"))
+            ToolRender::Summary(RowParts::new("skill_read", name.clone(), String::new()))
         }
         "fetch" => {
             let url = str_arg(&parsed, "url").unwrap_or("").to_string();
-            ToolRender::Summary(format!("fetch {} · {} chars", trim(&url, 60), result.len()))
+            ToolRender::Summary(RowParts::new(
+                "fetch",
+                trim(&url, 60),
+                format!("{} chars", result.len()),
+            ))
         }
         other if other.starts_with("mcp__") => {
             let label = other.trim_start_matches("mcp__").replacen("__", ":", 1);
@@ -332,7 +391,7 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
                 Some(pretty) => {
                     let n = pretty.lines().count();
                     ToolRender::Detail {
-                        header: format!("mcp {label} · {n} lines json"),
+                        header: RowParts::new(label.clone(), "json", counted(n, "line", "lines")),
                         subtitle: None,
                         body: ToolBody::Formatted(pretty),
                     }
@@ -340,7 +399,7 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
                 None => {
                     let n = result.lines().count();
                     ToolRender::Detail {
-                        header: format!("mcp {label} · {n} lines"),
+                        header: RowParts::new(label.clone(), String::new(), counted(n, "line", "lines")),
                         subtitle: None,
                         body: ToolBody::Plain(result),
                     }
@@ -350,7 +409,7 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
         _ => {
             let n = result.lines().count();
             ToolRender::Detail {
-                header: format!("{name} · {n} lines"),
+                header: RowParts::new(name, String::new(), counted(n, "line", "lines")),
                 subtitle: None,
                 body: ToolBody::Plain(result),
             }
@@ -1125,11 +1184,18 @@ pub(super) fn elapsed_note(started: &std::time::Instant) -> Option<String> {
 mod tool_view_tests {
     use super::*;
 
+    /// Flatten a row back to one string, the way the old renderer did, so the
+    /// assertions stay about content rather than layout.
     fn header_of(name: &str, args: &str, result: &str) -> String {
-        match classify(name, args, result) {
+        let parts = match classify(name, args, result) {
             ToolRender::Detail { header, .. } => header,
-            ToolRender::Summary(text) => text,
+            ToolRender::Summary(parts) => parts,
+        };
+        let mut out = format!("{} {} {}", parts.verb, parts.arg, parts.metric);
+        if let Some(status) = parts.status {
+            out.push_str(&format!(" {status}"));
         }
+        out
     }
 
     #[test]
@@ -1263,8 +1329,7 @@ fn search_render<'a>(
     plural: &str,
 ) -> ToolRender<'a> {
     let n = items.len();
-    let noun = if n == 1 { singular } else { plural };
-    let header = format!("{verb} {} · {n} {noun}", trim(pattern, 48));
+    let header = RowParts::new(verb, trim(pattern, 48), counted(n, singular, plural));
     if n == 0 {
         return ToolRender::Summary(header);
     }
@@ -1281,9 +1346,13 @@ mod search_view_tests {
 
     fn render(name: &str, args: &str, result: &str) -> (String, bool) {
         match classify(name, args, result) {
-            ToolRender::Detail { header, .. } => (header, true),
-            ToolRender::Summary(text) => (text, false),
+            ToolRender::Detail { header, .. } => (flatten(header), true),
+            ToolRender::Summary(parts) => (flatten(parts), false),
         }
+    }
+
+    fn flatten(parts: RowParts) -> String {
+        format!("{} {} · {}", parts.verb, parts.arg, parts.metric)
     }
 
     /// One hit and many hits must look like the same tool — previously one

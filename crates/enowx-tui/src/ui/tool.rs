@@ -263,15 +263,11 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
                 .filter(|l| !l.trim().is_empty())
                 .map(|l| l.trim().to_string())
                 .collect();
-            if matches.len() > 1 {
-                ToolRender::Detail {
-                    header: format!("Glob ({}) — {}", matches.len(), trim(&pat, 40)),
-                    subtitle: None,
-                    body: ToolBody::Tree { items: matches },
-                }
-            } else {
-                ToolRender::Summary(format!("glob {pat} · {} matches", matches.len()))
-            }
+            // One shape regardless of count. Switching between a summary row
+            // and an expandable tree at exactly two results made the same
+            // tool look like two different things, and mixed `Glob` with
+            // `glob` in the process.
+            search_render("glob", &pat, matches, "match", "matches")
         }
         "grep" => {
             let pat = str_arg(&parsed, "pattern").unwrap_or("").to_string();
@@ -280,15 +276,7 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
                 .filter(|l| !l.trim().is_empty())
                 .map(|l| l.trim().to_string())
                 .collect();
-            if hits.len() > 1 {
-                ToolRender::Detail {
-                    header: format!("Grep ({}) — '{}'", hits.len(), trim(&pat, 40)),
-                    subtitle: None,
-                    body: ToolBody::Tree { items: hits },
-                }
-            } else {
-                ToolRender::Summary(format!("grep '{}' · {} hits", trim(&pat, 40), hits.len()))
-            }
+            search_render("grep", &pat, hits, "hit", "hits")
         }
         "todo" => {
             // Parse the items array into TodoItems. enowx-cli todo tool ships each
@@ -1259,5 +1247,83 @@ mod tool_view_tests {
         assert_eq!(elapsed_note(&long_ago).as_deref(), Some("2m05s"));
         let seconds = std::time::Instant::now() - std::time::Duration::from_secs(7);
         assert_eq!(elapsed_note(&seconds).as_deref(), Some("7s"));
+    }
+}
+
+/// One consistent rendering for the search-style tools.
+///
+/// A result count of zero is worth stating plainly and has nothing to expand;
+/// anything else gets the same header plus a tree of results, so `glob` and
+/// `grep` read the same whether they matched once or a hundred times.
+fn search_render<'a>(
+    verb: &str,
+    pattern: &str,
+    items: Vec<String>,
+    singular: &str,
+    plural: &str,
+) -> ToolRender<'a> {
+    let n = items.len();
+    let noun = if n == 1 { singular } else { plural };
+    let header = format!("{verb} {} · {n} {noun}", trim(pattern, 48));
+    if n == 0 {
+        return ToolRender::Summary(header);
+    }
+    ToolRender::Detail {
+        header,
+        subtitle: None,
+        body: ToolBody::Tree { items },
+    }
+}
+
+#[cfg(test)]
+mod search_view_tests {
+    use super::*;
+
+    fn render(name: &str, args: &str, result: &str) -> (String, bool) {
+        match classify(name, args, result) {
+            ToolRender::Detail { header, .. } => (header, true),
+            ToolRender::Summary(text) => (text, false),
+        }
+    }
+
+    /// One hit and many hits must look like the same tool — previously one
+    /// produced a lowercase summary row and the other a capitalised tree.
+    #[test]
+    fn grep_looks_the_same_at_one_hit_and_many() {
+        let (one, one_expandable) = render("grep", r#"{"pattern":"fn main"}"#, "src/main.rs:1:fn main");
+        let (many, many_expandable) = render(
+            "grep",
+            r#"{"pattern":"fn main"}"#,
+            "src/a.rs:1:fn main\nsrc/b.rs:2:fn main",
+        );
+        assert!(one.starts_with("grep") && many.starts_with("grep"));
+        assert_eq!(
+            one_expandable, many_expandable,
+            "both counts should offer the same interaction"
+        );
+    }
+
+    #[test]
+    fn counts_are_grammatical() {
+        let (one, _) = render("grep", r#"{"pattern":"x"}"#, "a.rs:1:x");
+        assert!(one.contains("1 hit") && !one.contains("1 hits"), "got {one:?}");
+        let (two, _) = render("grep", r#"{"pattern":"x"}"#, "a.rs:1:x\nb.rs:1:x");
+        assert!(two.contains("2 hits"), "got {two:?}");
+    }
+
+    /// Nothing found is worth saying plainly, and there is no tree to open.
+    #[test]
+    fn an_empty_search_is_a_summary_row() {
+        let (text, expandable) = render("grep", r#"{"pattern":"nope"}"#, "");
+        assert!(!expandable, "there is nothing to expand");
+        assert!(text.contains("0 hits"), "got {text:?}");
+    }
+
+    #[test]
+    fn glob_and_grep_share_one_shape() {
+        let (g, _) = render("glob", r#"{"pattern":"**/*.rs"}"#, "a.rs\nb.rs");
+        let (r, _) = render("grep", r#"{"pattern":"fn"}"#, "a.rs:1:fn\nb.rs:1:fn");
+        assert!(g.starts_with("glob ") && r.starts_with("grep "));
+        assert!(g.contains(" · 2 matches") && r.contains(" · 2 hits"), "got {g:?} / {r:?}");
     }
 }

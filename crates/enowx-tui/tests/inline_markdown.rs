@@ -5,36 +5,36 @@
 
 use enowx_tui::preview_markdown;
 
-/// Render at a generous width and strip styling, leaving the visible text.
+/// The rendered line with its escape sequences intact, for asserting style.
 fn text(md: &str) -> String {
-    preview_markdown(md, 200)
-        .join("\n")
-        .replace(|c: char| c == '\u{1b}', "")
+    preview_markdown(md, 200).join("\n")
 }
 
+/// Just the visible characters: strips complete SGR sequences.
+///
+/// Removing the ESC byte on its own is not enough — that leaves the `[1m`
+/// behind as ordinary text, which is how an earlier version of this helper
+/// silently compared against escape codes rather than content.
 fn plain(md: &str) -> String {
-    let re_stripped: String = {
-        let mut out = String::new();
-        let mut in_escape = false;
-        for c in text(md).chars() {
-            if c == '[' && in_escape {
-                continue;
-            }
-            if in_escape {
-                if c == 'm' {
-                    in_escape = false;
-                }
-                continue;
-            }
-            if c == '\u{1b}' {
-                in_escape = true;
-                continue;
-            }
+    let rendered = text(md);
+    let mut out = String::new();
+    let mut chars = rendered.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\u{1b}' {
             out.push(c);
+            continue;
         }
-        out
-    };
-    re_stripped
+        // Consume "[ … m" — the whole sequence, terminator included.
+        if chars.peek() == Some(&'[') {
+            chars.next();
+            for c in chars.by_ref() {
+                if c == 'm' {
+                    break;
+                }
+            }
+        }
+    }
+    out
 }
 
 #[test]
@@ -124,4 +124,57 @@ fn a_link_shows_its_label_not_its_url() {
         !got.contains("example.com"),
         "the URL must stay out of the prose, got {got:?}"
     );
+}
+
+/// Markdown inside emphasis has to be parsed, not taken as literal text.
+/// `**a `b` c**` used to print its backticks, which is what a heading like
+/// "**1. `enxapi-findings/` — …**" looked like in practice.
+#[test]
+fn code_inside_bold_is_still_code() {
+    let got = plain("**bold with `code` inside**");
+    assert!(
+        got.contains("bold with code inside"),
+        "the backticks should be consumed, got {got:?}"
+    );
+    assert!(!got.contains('`'), "no delimiter should survive: {got:?}");
+}
+
+#[test]
+fn code_inside_italic_and_strikethrough_is_parsed_too() {
+    for md in ["*italic with `code`*", "~~struck with `code`~~"] {
+        let got = plain(md);
+        assert!(!got.contains('`'), "{md:?} kept its backticks: {got:?}");
+    }
+}
+
+/// Emphasis nests: the inner run keeps its own identity while inheriting the
+/// outer weight.
+#[test]
+fn emphasis_can_nest() {
+    let got = plain("**bold with *italic* nested**");
+    assert!(
+        got.contains("bold with italic nested"),
+        "got {got:?}"
+    );
+    assert!(!got.contains('*'), "no asterisks should survive: {got:?}");
+}
+
+/// A code span inside bold must stay visually code — dropping its colour for
+/// the outer style would make it indistinguishable from the prose around it.
+#[test]
+fn nested_code_keeps_its_own_colour() {
+    let styled = text("**bold with `code` inside**");
+    // The code run carries a background; the surrounding bold does not.
+    assert!(
+        styled.contains("48;2;"),
+        "the nested code span should keep its background, got {styled:?}"
+    );
+}
+
+/// An unterminated delimiter must not swallow the rest of the line, and the
+/// recursion must not run away on one.
+#[test]
+fn an_unterminated_emphasis_is_literal() {
+    let got = plain("**unterminated");
+    assert!(got.contains("**unterminated"), "got {got:?}");
 }

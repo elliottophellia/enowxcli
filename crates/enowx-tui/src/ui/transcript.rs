@@ -697,8 +697,9 @@ fn markdown_spans(text: &str, theme: &Theme) -> Vec<(String, Style)> {
             if let Some(end) = find_pair(&chars, i + 2, "~~") {
                 flush(&mut buf, &mut out);
                 let body: String = chars[i + 2..end].iter().collect();
-                out.push((
-                    body,
+                out.extend(nested_spans(
+                    &body,
+                    theme,
                     Style::default()
                         .fg(theme.muted)
                         .add_modifier(Modifier::CROSSED_OUT),
@@ -712,8 +713,12 @@ fn markdown_spans(text: &str, theme: &Theme) -> Vec<(String, Style)> {
             if let Some(end) = find_pair(&chars, i + 2, "**") {
                 flush(&mut buf, &mut out);
                 let body: String = chars[i + 2..end].iter().collect();
-                out.push((
-                    body,
+                // Parse the body rather than taking it as plain text, or
+                // markdown inside emphasis is left as literal characters —
+                // `**bold with `code`**` printed its backticks.
+                out.extend(nested_spans(
+                    &body,
+                    theme,
                     Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
                 ));
                 i = end + 2;
@@ -730,8 +735,9 @@ fn markdown_spans(text: &str, theme: &Theme) -> Vec<(String, Style)> {
             if let Some(end) = find_closing_emphasis(&chars, i + 1, '*') {
                 flush(&mut buf, &mut out);
                 let body: String = chars[i + 1..end].iter().collect();
-                out.push((
-                    body,
+                out.extend(nested_spans(
+                    &body,
+                    theme,
                     Style::default()
                         .fg(theme.text)
                         .add_modifier(Modifier::ITALIC),
@@ -1684,4 +1690,26 @@ fn is_blank_line(line: Option<&Line<'static>>) -> bool {
         None => true,
         Some(line) => line.spans.iter().all(|s| s.content.trim().is_empty()),
     }
+}
+
+/// Parse the inside of an emphasis span, layering the emphasis over whatever
+/// styling the nested markdown produces.
+///
+/// The outer style supplies weight and strikethrough; a nested code span keeps
+/// its own colour and background, since that is what identifies it as code.
+/// Plain runs take the outer style wholesale.
+fn nested_spans(body: &str, theme: &Theme, outer: Style) -> Vec<(String, Style)> {
+    let inner = markdown_spans(body, theme);
+    let plain = Style::default().fg(theme.text);
+    inner
+        .into_iter()
+        .map(|(text, style)| {
+            if style == plain {
+                (text, outer)
+            } else {
+                // Keep the nested run's own colours, add the outer modifiers.
+                (text, style.add_modifier(outer.add_modifier))
+            }
+        })
+        .collect()
 }

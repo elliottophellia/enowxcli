@@ -282,6 +282,25 @@ impl Provider {
                 body.chars().take(2000).collect::<String>()
             );
         }
+        // A base URL pointing at a site rather than an API answers 200 with
+        // an HTML page, which decodes to zero SSE frames and surfaced as
+        // "stream ended without a finish reason" — an error about the model
+        // for what is actually a configuration mistake. Name it instead.
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if content_type.contains("text/html") {
+            bail!(
+                "provider returned an HTML page, not a stream. `{}` does not look \
+                 like an API endpoint — check provider.base_url (an OpenAI-compatible \
+                 base usually ends in /v1).",
+                self.base_url
+            );
+        }
+
         let mut stream = response.bytes_stream();
         let mut decoder = SseDecoder::default();
         let mut result = Completion::default();
@@ -300,6 +319,15 @@ impl Provider {
             }
         }
         if result.finish_reason.is_empty() {
+            // Distinguish "the provider said nothing at all" from "it replied
+            // but never terminated the stream": the first is almost always a
+            // wrong endpoint, the second a genuine upstream fault.
+            if result.text.is_empty() && calls.is_empty() {
+                bail!(
+                    "provider sent no data. Check provider.base_url (`{}`) and the API key.",
+                    self.base_url
+                );
+            }
             bail!("provider stream ended without a finish reason; no tools executed");
         }
         for (_, call) in calls {
@@ -332,6 +360,16 @@ fn backoff_ms(attempt: u32) -> u64 {
 /// Non-transient (4xx auth, malformed request) returns immediately.
 fn is_transient(err: &anyhow::Error) -> bool {
     let msg = format!("{err:#}").to_ascii_lowercase();
+    // Misconfiguration never fixes itself, so retrying it just delays the
+    // report by the whole backoff schedule while repeating the same line.
+    // Checked before the transient patterns because these messages mention
+    // the endpoint, and "connection" appears in some of them.
+    if msg.contains("not a stream")
+        || msg.contains("provider sent no data")
+        || msg.contains("check provider.base_url")
+    {
+        return false;
+    }
     // Server-side or transport failures.
     if msg.contains("timeout")
         || msg.contains("timed out")
@@ -416,5 +454,55 @@ mod tests {
         )
         .await
         .is_err());
+    }
+}
+
+#[cfg(test)]
+mod diagnosis_tests {
+    use super::*;
+
+    /// A wrong base URL is permanent: retrying it ten times only delays the
+    /// report and repeats the same line while the user waits out the backoff.
+    #[test]
+    fn configuration_errors_are_not_retried() {
+        for message in [
+            "provider returned an HTML page, not a stream. `https://ai.example.id` does not look like an API endpoint",
+            "provider sent no data. Check provider.base_url (`https://ai.example.id`) and the API key.",
+        ] {
+            assert!(
+                !is_transient(&anyhow::anyhow!(message.to_string())),
+                "must not retry: {message}"
+            );
+        }
+    }
+
+    /// Genuine upstream faults still retry.
+    #[test]
+    fn upstream_faults_are_still_transient() {
+        for message in [
+            "connection reset by peer",
+            "provider returned 503 service unavailable",
+            "provider stream ended without a finish reason; no tools executed",
+            "operation timed out",
+        ] {
+            assert!(
+                is_transient(&anyhow::anyhow!(message.to_string())),
+                "should retry: {message}"
+            );
+        }
+    }
+
+    /// Auth and bad-request failures were never retried; keep it that way.
+    #[test]
+    fn client_errors_are_not_retried() {
+        for message in [
+            "provider returned 401: invalid api key",
+            "provider returned 404: model not found",
+        ] {
+            assert!(
+                !is_transient(&anyhow::anyhow!(message.to_string())),
+                "must not retry: {message}"
+            );
+        }
     }
 }

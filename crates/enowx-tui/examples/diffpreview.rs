@@ -5,6 +5,7 @@ use enowx_tui::preview_diff;
 fn main() {
     let old = r#"pub fn highlight(line: &str) -> Vec<Tok> {
     let mut out = Vec::new();
+    let total = compute(alpha, beta);
     for c in line.chars() {
         out.push(Tok::Plain);
     }
@@ -12,6 +13,7 @@ fn main() {
 }"#;
     let new = r#"pub fn highlight(line: &str, syntax: &Syntax, state: &mut State) -> Vec<Tok> {
     let mut out = Vec::new();
+    let total = compute(alpha, gamma);
     for c in line.chars() {
         if state.in_block_comment {
             out.push(Tok::Comment);

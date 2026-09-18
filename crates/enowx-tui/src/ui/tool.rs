@@ -489,9 +489,14 @@ pub(super) fn render_diff(
     let mut new_no = start_line;
     let mut rendered = 0usize;
     let visible_ops: Vec<&DiffOp> = ops.iter().collect();
+    // Pair each replaced line with its counterpart so the row can highlight
+    // just the words that moved. `pair[i]` is the line op `i` was replacing
+    // (or replaced by); None for a pure insertion or deletion, where every
+    // word is new and per-word emphasis would carry no signal.
+    let pair = pair_replacements(&visible_ops);
     let cut = visible_ops.len().saturating_sub(DIFF_PREVIEW_MAX);
     let show = &visible_ops[..(DIFF_PREVIEW_MAX).min(visible_ops.len())];
-    for op in show {
+    for (op_idx, op) in show.iter().enumerate() {
         let (marker, marker_st, content_st, n_str, content) = match op {
             DiffOp::Del(t) => {
                 let n = old_no.to_string();
@@ -525,6 +530,26 @@ pub(super) fn render_diff(
         let num_style = dim.bg(row_bg);
         let indent_style = dim.bg(row_bg);
         let body_style = content_st.bg(row_bg);
+        // Words that actually moved get a stronger background still, so a
+        // one-token rename stands out inside an otherwise unchanged line.
+        // Ranges are byte offsets into `rest`, i.e. after the indent.
+        let emph_bg = match op {
+            DiffOp::Add(_) => blend2(bg, theme.green),
+            DiffOp::Del(_) => blend2(bg, theme.red),
+            DiffOp::Keep(_) => row_bg,
+        };
+        let emph_style = content_st
+            .bg(emph_bg)
+            .add_modifier(Modifier::BOLD);
+        let changed: Vec<(usize, usize)> = match (op, pair.get(op_idx).and_then(|p| p.as_ref())) {
+            (DiffOp::Keep(_), _) | (_, None) => Vec::new(),
+            (_, Some(counterpart)) => {
+                // Compare the post-indent text on both sides so a pure
+                // re-indent does not read as a word change.
+                let (_, other_rest) = visualize_indent(counterpart);
+                changed_ranges(&rest, &other_rest)
+            }
+        };
 
         // A long edited line WRAPS instead of being cut with an ellipsis.
         // Truncating hid the tail of exactly the lines worth reading — a long
@@ -533,6 +558,7 @@ pub(super) fn render_diff(
         // repeat the gutter with a blank number so the row still reads as one
         // logical line.
         let chunks = wrap_chars(&rest, body_budget);
+        let mut chunk_start = 0usize; // byte offset of this chunk within `rest`
         for (ci, chunk) in chunks.iter().enumerate() {
             let first = ci == 0;
             let indent_here = if first {
@@ -548,15 +574,26 @@ pub(super) fn render_diff(
             let marker_cell = if first { marker } else { " " };
             let used = 2 + 1 + num_w + 1 + indent_w + chunk.chars().count();
             let pad = width.saturating_sub(used);
-            lines.push(Line::from(vec![
+            let mut spans = vec![
                 Span::styled("│ ", border),
                 Span::styled(marker_cell.to_string(), marker_st.bg(row_bg)),
                 Span::styled(num_cell, num_style),
                 Span::styled("│", num_style),
                 Span::styled(indent_here, indent_style),
-                Span::styled(chunk.clone(), body_style),
-                Span::styled(" ".repeat(pad), Style::default().bg(row_bg)),
-            ]));
+            ];
+            spans.extend(split_emphasis(
+                chunk,
+                chunk_start,
+                &changed,
+                body_style,
+                emph_style,
+            ));
+            spans.push(Span::styled(
+                " ".repeat(pad),
+                Style::default().bg(row_bg),
+            ));
+            lines.push(Line::from(spans));
+            chunk_start += chunk.len();
         }
         rendered += 1;
     }
@@ -695,4 +732,291 @@ fn wrap_chars(text: &str, budget: usize) -> Vec<String> {
     }
     out.push(cur);
     out
+}
+
+/// Split a line into word-ish tokens for intra-line diffing: runs of
+/// identifier characters, and every other character on its own. Keeping
+/// punctuation separate means renaming `foo` to `foo_bar` highlights the
+/// suffix rather than the whole expression.
+fn word_tokens(line: &str) -> Vec<&str> {
+    let bytes = line.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let start = i;
+        let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+        if is_word(bytes[i]) {
+            while i < bytes.len() && is_word(bytes[i]) {
+                i += 1;
+            }
+        } else {
+            // Advance one full char so multi-byte UTF-8 is never split.
+            i += line[i..].chars().next().map_or(1, char::len_utf8);
+        }
+        out.push(&line[start..i]);
+    }
+    out
+}
+
+/// Which spans of a replaced line actually changed.
+///
+/// Returns byte ranges into `line` that differ from its counterpart. An empty
+/// result means the two lines share no useful structure, and the caller should
+/// fall back to colouring the whole row — highlighting everything is the same
+/// as highlighting nothing.
+fn changed_ranges(line: &str, other: &str) -> Vec<(usize, usize)> {
+    let a = word_tokens(line);
+    let b = word_tokens(other);
+    // Guard against the quadratic LCS on pathological rows (minified JS, a
+    // base64 blob); whole-row colouring is the honest answer there.
+    if a.len() > 400 || b.len() > 400 {
+        return Vec::new();
+    }
+    let ops = lcs_diff(&a, &b);
+
+    // Walk the ops in order, tracking our byte offset in `line`. Only tokens
+    // that exist in `line` advance it: Keep and Del for the old side. The
+    // caller passes the counterpart as `other`, so Add rows are handled by
+    // calling this with the arguments swapped.
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+    let mut offset = 0usize;
+    for op in &ops {
+        match op {
+            DiffOp::Keep(t) => offset += t.len(),
+            DiffOp::Del(t) => {
+                let end = offset + t.len();
+                // Merge with the previous range when they touch, so a run of
+                // changed tokens becomes one highlight instead of many.
+                match ranges.last_mut() {
+                    Some(last) if last.1 == offset => last.1 = end,
+                    _ => ranges.push((offset, end)),
+                }
+                offset = end;
+            }
+            DiffOp::Add(_) => {}
+        }
+    }
+    // When almost the whole line is highlighted there is no signal left —
+    // emphasising everything reads the same as emphasising nothing, and the
+    // row's own tint already says "this changed". Measured on non-whitespace
+    // bytes so a line that only shares its spaces still counts as a rewrite.
+    let changed_bytes: usize = ranges
+        .iter()
+        .map(|(s, e)| line[*s..*e].chars().filter(|c| !c.is_whitespace()).count())
+        .sum();
+    let total_bytes = line.chars().filter(|c| !c.is_whitespace()).count();
+    if total_bytes == 0 || changed_bytes * 100 >= total_bytes * 80 {
+        return Vec::new();
+    }
+    ranges
+}
+
+/// For each op, the text of the line it replaced (or was replaced by).
+///
+/// LCS emits a modified line as a `Del` immediately followed by an `Add`
+/// (possibly several of each when a hunk changes together). Those runs are
+/// matched positionally: the first deletion pairs with the first addition and
+/// so on, which is what a reader sees as "this line became that line". A run
+/// with no counterpart — three deletions against one addition, say — leaves
+/// the extras unpaired, because there is no single line they turned into.
+fn pair_replacements(ops: &[&DiffOp]) -> Vec<Option<String>> {
+    let mut pairs: Vec<Option<String>> = vec![None; ops.len()];
+    let mut i = 0;
+    while i < ops.len() {
+        if !matches!(ops[i], DiffOp::Del(_)) {
+            i += 1;
+            continue;
+        }
+        let del_start = i;
+        while i < ops.len() && matches!(ops[i], DiffOp::Del(_)) {
+            i += 1;
+        }
+        let add_start = i;
+        while i < ops.len() && matches!(ops[i], DiffOp::Add(_)) {
+            i += 1;
+        }
+        let dels = del_start..add_start;
+        let adds = add_start..i;
+        for (d, a) in dels.clone().zip(adds.clone()) {
+            if let (DiffOp::Del(dt), DiffOp::Add(at)) = (ops[d], ops[a]) {
+                pairs[d] = Some(at.clone());
+                pairs[a] = Some(dt.clone());
+            }
+        }
+    }
+    pairs
+}
+
+/// Stronger tint for the words that actually changed, layered over the row's
+/// own tint so the emphasis reads as "more of the same colour" rather than a
+/// different one.
+fn blend2(
+    base: ratatui::style::Color,
+    accent: ratatui::style::Color,
+) -> ratatui::style::Color {
+    const STRENGTH: u16 = 46;
+    match (base, accent) {
+        (
+            ratatui::style::Color::Rgb(br, bg_, bb),
+            ratatui::style::Color::Rgb(ar, ag, ab),
+        ) => {
+            let mix = |b: u8, a: u8| -> u8 {
+                ((b as u16 * (100 - STRENGTH) + a as u16 * STRENGTH) / 100) as u8
+            };
+            ratatui::style::Color::Rgb(mix(br, ar), mix(bg_, ag), mix(bb, ab))
+        }
+        _ => base,
+    }
+}
+
+/// Split one wrapped chunk into spans, applying `emph` to the parts that fall
+/// inside `changed` (byte ranges relative to the whole post-indent line) and
+/// `plain` to the rest. `chunk_start` is where this chunk begins in that line.
+fn split_emphasis(
+    chunk: &str,
+    chunk_start: usize,
+    changed: &[(usize, usize)],
+    plain: Style,
+    emph: Style,
+) -> Vec<Span<'static>> {
+    if changed.is_empty() {
+        return vec![Span::styled(chunk.to_string(), plain)];
+    }
+    let mut out: Vec<Span<'static>> = Vec::new();
+    let mut buf = String::new();
+    let mut buf_emph = false;
+    for (i, c) in chunk.char_indices() {
+        let abs = chunk_start + i;
+        let is_emph = changed.iter().any(|(s, e)| abs >= *s && abs < *e);
+        if is_emph != buf_emph && !buf.is_empty() {
+            out.push(Span::styled(
+                std::mem::take(&mut buf),
+                if buf_emph { emph } else { plain },
+            ));
+        }
+        buf_emph = is_emph;
+        buf.push(c);
+    }
+    if !buf.is_empty() {
+        out.push(Span::styled(buf, if buf_emph { emph } else { plain }));
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spans_of(line: &str, other: &str) -> Vec<String> {
+        changed_ranges(line, other)
+            .into_iter()
+            .map(|(s, e)| line[s..e].to_string())
+            .collect()
+    }
+
+    #[test]
+    fn one_word_rename_highlights_only_that_word() {
+        let got = spans_of("let total = compute(a, b);", "let sum = compute(a, b);");
+        assert_eq!(got, vec!["total"]);
+    }
+
+    #[test]
+    fn appended_argument_highlights_the_tail_only() {
+        let got = spans_of(
+            "fn highlight(line: &str, state: &mut State) -> Vec<Tok> {",
+            "fn highlight(line: &str) -> Vec<Tok> {",
+        );
+        assert!(
+            got.iter().any(|s| s.contains("state")),
+            "the added parameter must be highlighted, got {got:?}"
+        );
+        assert!(
+            !got.iter().any(|s| s.contains("highlight")),
+            "the unchanged function name must not be, got {got:?}"
+        );
+    }
+
+    #[test]
+    fn ranges_are_in_order_and_within_bounds() {
+        let line = "a.b(c, d) + e.f(g)";
+        let ranges = changed_ranges(line, "a.b(c) + e.f(h)");
+        let mut prev_end = 0;
+        for (s, e) in ranges {
+            assert!(s >= prev_end, "ranges must not overlap or go backwards");
+            assert!(e <= line.len(), "range must stay inside the line");
+            assert!(s < e, "range must be non-empty");
+            prev_end = e;
+        }
+    }
+
+    /// A wholly rewritten line has no shared structure, so per-word emphasis
+    /// would light up everything — which is the same as lighting up nothing.
+    /// The caller relies on the empty vec to fall back to whole-row colour.
+    #[test]
+    fn total_rewrite_yields_no_emphasis() {
+        assert!(spans_of("alpha beta", "gamma delta").is_empty());
+    }
+
+    #[test]
+    fn identical_lines_have_no_changed_words() {
+        assert!(spans_of("same text here", "same text here").is_empty());
+    }
+
+    #[test]
+    fn multibyte_ranges_land_on_char_boundaries() {
+        // Slicing on a non-boundary would panic; the assertion is that the
+        // indexing inside spans_of succeeds at all.
+        let got = spans_of("let 名前 = 1;", "let 名前 = 2;");
+        assert_eq!(got, vec!["1"]);
+    }
+
+    #[test]
+    fn pathological_line_falls_back_rather_than_hanging() {
+        let long: String = (0..600).map(|i| format!("t{i} ")).collect();
+        let other: String = (0..600).map(|i| format!("u{i} ")).collect();
+        assert!(changed_ranges(&long, &other).is_empty());
+    }
+
+    #[test]
+    fn pairing_matches_deletions_to_their_replacements() {
+        let ops = vec![
+            DiffOp::Keep("ctx".into()),
+            DiffOp::Del("old one".into()),
+            DiffOp::Del("old two".into()),
+            DiffOp::Add("new one".into()),
+            DiffOp::Add("new two".into()),
+        ];
+        let refs: Vec<&DiffOp> = ops.iter().collect();
+        let pairs = pair_replacements(&refs);
+        assert_eq!(pairs[0], None, "kept lines have no counterpart");
+        assert_eq!(pairs[1], Some("new one".to_string()));
+        assert_eq!(pairs[2], Some("new two".to_string()));
+        assert_eq!(pairs[3], Some("old one".to_string()));
+        assert_eq!(pairs[4], Some("old two".to_string()));
+    }
+
+    #[test]
+    fn unbalanced_hunk_leaves_extras_unpaired() {
+        let ops = vec![
+            DiffOp::Del("a".into()),
+            DiffOp::Del("b".into()),
+            DiffOp::Add("c".into()),
+        ];
+        let refs: Vec<&DiffOp> = ops.iter().collect();
+        let pairs = pair_replacements(&refs);
+        assert_eq!(pairs[0], Some("c".to_string()));
+        assert_eq!(pairs[1], None, "no line left for the second deletion");
+    }
+
+    #[test]
+    fn wrap_measures_display_width_not_chars() {
+        // Each CJK char is two columns, so four of them fill a budget of 8.
+        let chunks = wrap_chars("日本語です", 8);
+        assert_eq!(chunks[0].chars().count(), 4);
+    }
+
+    #[test]
+    fn wrap_always_yields_a_chunk_for_empty_input() {
+        assert_eq!(wrap_chars("", 10), vec![String::new()]);
+    }
 }

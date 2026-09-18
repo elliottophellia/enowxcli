@@ -71,3 +71,52 @@ fn the_binding_is_documented() {
         "help should list the binding: {text}"
     );
 }
+
+/// Ctrl+P closes whatever window is open. Otherwise the key that opens the
+/// palette does nothing while a form is up, and the user presses it twice
+/// wondering why.
+#[test]
+fn it_closes_an_open_window() {
+    let mut app = TestApp::new();
+    app.open_settings();
+    assert!(app.settings_modal_open());
+    app.press(KeyCode::Char('p'), true).expect("key");
+    assert!(!app.settings_modal_open(), "Ctrl+P should close the form");
+}
+
+#[test]
+fn it_closes_a_picker_too() {
+    let mut app = TestApp::new();
+    app.open_mcp_list();
+    assert!(app.is_modal_open());
+    app.press(KeyCode::Char('p'), true).expect("key");
+    assert!(!app.is_modal_open());
+}
+
+/// The theme picker previews as you move through it; closing without choosing
+/// has to put the saved theme back.
+#[test]
+fn closing_the_theme_picker_restores_the_saved_theme() {
+    let mut app = TestApp::new();
+    let before = app.theme_name();
+    app.open_themes();
+    app.preview_theme(2);
+    assert_ne!(app.theme_name(), before, "the preview should have applied");
+    app.press(KeyCode::Char('p'), true).expect("key");
+    assert_eq!(
+        app.theme_name(),
+        before,
+        "closing should restore the saved theme, not keep the preview"
+    );
+}
+
+/// Closing a window does not then open the palette in the same press — one
+/// key, one effect.
+#[test]
+fn closing_a_window_does_not_also_open_the_palette() {
+    let mut app = TestApp::new();
+    app.open_settings();
+    app.press(KeyCode::Char('p'), true).expect("key");
+    assert!(!app.settings_modal_open());
+    assert_eq!(app.input_text(), "", "the composer should be untouched");
+}

@@ -3,6 +3,23 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 impl App {
     pub(crate) fn key(&mut self, key: KeyEvent) -> Result<()> {
+        // Ctrl+P closes whatever is open before any modal gets to read it.
+        // Otherwise the key that opens the palette does nothing while a form
+        // is up, and the user presses it twice wondering why.
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('p'))
+            && self.modal != Modal::None
+        {
+            if self.modal == Modal::Themes {
+                // The theme picker previews as you move; closing it without
+                // choosing has to put the saved one back, or the preview
+                // sticks.
+                self.theme = Theme::find(&self.config.ui.theme);
+            }
+            self.modal = Modal::None;
+            self.modal_error.clear();
+            return Ok(());
+        }
         if self.modal != Modal::None {
             if matches!(
                 self.modal,

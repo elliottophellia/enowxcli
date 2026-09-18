@@ -669,3 +669,21 @@ impl TestApp {
         self.inner.input.clone()
     }
 }
+
+impl TestApp {
+    pub fn open_themes(&mut self) {
+        self.inner.open_themes();
+    }
+
+    /// Move the theme picker's cursor, which previews as it goes.
+    pub fn preview_theme(&mut self, index: usize) {
+        self.inner.modal_cursor = index;
+        if let Some(t) = crate::theme::THEMES.get(index) {
+            self.inner.theme = *t;
+        }
+    }
+
+    pub fn theme_name(&self) -> String {
+        self.inner.theme.name.to_owned()
+    }
+}

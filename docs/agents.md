@@ -227,10 +227,12 @@ Ordered so each step is usable on its own.
    parent, or the cost readout is wrong by an order of magnitude.
 6. **Tier resolution** and the `[agent.tiers]` table.
 7. **`auto_switch`** and the confirmation prompt.
-8. **Parallel delegation** with write contracts, serialising the overlaps.
-   Worth deferring until sequential delegation is proven — it multiplies the
-   ways a run can go wrong.
-9. **Compaction rewrite** — tool calls in the summary input, and the
+8. **Handoff summaries** — the compactor writes the handover, so a new
+   specialist does not inherit stale file contents.
+9. **Parallel delegation** with enforced write contracts, serialising the
+   overlaps. Worth deferring until sequential delegation is proven — it
+   multiplies the ways a run can go wrong.
+10. **Compaction rewrite** — tool calls in the summary input, and the
    `compactor` agent. Independent of 1–7 and worth doing early: it is the
    largest single saving, and the current summariser is losing information
    today.
@@ -428,15 +430,153 @@ re-plan, and it has no better information than the scheduler does.
 Declaring intent beats locking: a conflict is known before any work starts,
 rather than discovered halfway through when one agent has already written.
 
+The contract is **enforced**, not advisory. A write outside the declared paths
+is refused the way an out-of-workspace path already is, and the agent is told
+why so it can widen its contract or leave the file alone. An advisory contract
+is worth nothing while other agents are running against it — the scheduler
+serialised on the strength of that declaration, and a write outside it
+reintroduces exactly the conflict the declaration ruled out.
+
+A refused write does not kill the delegation. The specialist keeps running and
+can ask for a wider contract; only the one call fails.
+
+## Handoff carries a summary, not the raw history
+
+A handoff keeps the session, so the obvious question is whether the previous
+specialist's prompt should be compacted away. Measured, it should not matter:
+after five handoffs the retired prompts are about 6% of the context. The
+accumulated *work* is the rest.
+
+The real reason to summarise is correctness, not size. A file read before it
+was edited is now **wrong**: the frontend specialist read `src/auth.rs`, edited
+it, and handed over — the backend specialist inherits the pre-edit text and can
+reason from code that no longer exists.
+
+So a handoff passes on a summary:
+
+```
+User asked: …
+Already decided: JWT rather than sessions
+Files touched:
+  src/auth.rs    edited   ← re-read if you need it
+  tests/auth.rs  created
+Last command: cargo test → 41 passed
+```
+
+What carries: the user's side of the conversation, decisions already made, and
+which files are in what state. What does not: file contents, which may be
+stale, and the retired specialist's prompt.
+
+The `compactor` agent writes it. The job is the same one it already does —
+condense without losing the thread — so there is one place to improve rather
+than two.
+
+The risk to watch is summarising too hard: a specialist that loses the thread
+re-reads everything, which spends the tokens that were saved plus another
+round of tool calls. Naming the files rather than dropping them is what keeps
+that in check — the specialist knows what exists and can fetch what it needs.
+
+
+## The router's prompt
+
+The router is the piece most likely to decide whether this works. Every
+judgement the design defers — which specialist, which tier, handoff or
+delegate, how to split parallel work — lands here. A vague prompt produces a
+router that picks `general` and `strong` for everything, and the roster is
+decoration.
+
+It needs to answer four questions, in order.
+
+### 1. Which specialist
+
+```
+Pick the agent whose description matches the work, not the words.
+"The login page is broken" is `fe` if the page renders wrong and `be` if
+the request fails — read enough to tell which, then choose.
+
+When the work is clearly one part of the stack, use the domain agent.
+Use a cross-cutting agent when the work spans domains or the domain does
+not matter: `review` for a PR touching several areas, `docs` for a
+changelog, `security` for an audit.
+
+`general` is for work that fits nothing above. Reaching for it often means
+the roster is missing an agent — say so rather than quietly absorbing the
+task.
+```
+
+### 2. Handoff or delegate
+
+```
+Delegate when the work is a piece of something larger and you will carry
+on afterwards. The specialist starts clean, returns a summary, and its
+context is discarded — this is the cheaper path and the default.
+
+Hand off when the whole request belongs to one specialist and the user
+will keep talking to them. You step out; they finish.
+
+If unsure, delegate. A delegation that turns out to be the whole task
+costs one summary; a handoff that turns out to be a fragment leaves the
+user talking to the wrong specialist.
+```
+
+### 3. Which tier
+
+Without guidance a router picks `strong` every time, because nothing punishes
+it for doing so. The prompt has to make the cost legible:
+
+```
+cheap     mechanical work with a clear specification: rename, format,
+          apply a stated pattern, gather files
+balanced  normal implementation: a feature with known shape, a bug with a
+          known cause, tests for existing code
+strong    work requiring judgement: unclear cause, design decisions,
+          unfamiliar code, anything where a wrong answer is expensive
+
+Start one tier lower than feels right. A `balanced` attempt that fails
+costs less than a `strong` attempt that was never needed, and the ladder
+promotes on failure anyway.
+```
+
+That last line matters: the fallback ladder already goes *down* on failure,
+so starting low and being wrong is recoverable. Starting high and being wrong
+is simply paid for.
+
+### 4. How to split parallel work
+
+```
+Two delegations may run together when neither writes what the other writes.
+Declare `writes` honestly — too narrow and the specialist is refused
+mid-task; too wide and it blocks work that could have run alongside.
+
+Prefer splitting by area, not by activity: `fe` on the components and `be`
+on the endpoints can run together; "implement" and "test" on the same files
+cannot.
+```
+
+### What the router must not do
+
+```
+Do not do the work. You have read, glob, and grep so you can classify the
+request — not so you can answer it. If you find yourself reading a third
+file to decide, you have enough to delegate.
+
+Do not chain delegations to build a result yourself. Delegate the task, not
+each step of it — the specialist plans its own steps.
+
+Do not summarise a specialist's work back to the user as if it were yours.
+Report what came back.
+```
+
+Each of these is a failure seen in routers elsewhere: reading until the task
+is done, decomposing into tool-call-sized fragments, and laundering a
+specialist's output. They are cheap to forbid and expensive to discover.
+
 ## Open questions
 
-- **Contract enforcement.** A specialist declares `writes` but the tool layer
-  does not yet know about it. Is the declaration advisory, or should a write
-  outside it be refused the way an out-of-workspace path already is?
-- **Router prompt.** The tier guidance and the domain/cross-cutting tie-break
-  both live in the router's prompt, and neither is written. Without them the
-  router will reach for `strong` every time and pick a domain agent for
-  everything.
-- **Handoff and cost.** Handoff keeps one session, so its cost is already
-  counted. But a session that has changed agent three times has three prompts'
-  worth of history in it — is that worth compacting on switch?
+- **Router prompt wording.** The shape is settled above, but the exact text
+  will need iterating against real sessions — routing quality is not something
+  a first draft gets right.
+- **Contract granularity.** `writes: ["src/ui/**"]` is easy to declare and
+  easy to check. But a specialist that needs one file outside its area has to
+  widen the whole glob. Is per-file amendment worth the complexity, or is
+  re-delegating cleaner?

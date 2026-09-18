@@ -247,3 +247,11 @@ impl TestApp {
         self.inner.show_tool_output = on;
     }
 }
+
+impl TestApp {
+    /// Whether the transcript is following new output. Flipped off when the
+    /// user scrolls up, back on when they return to the last line.
+    pub fn auto_scroll(&self) -> bool {
+        self.inner.auto_scroll
+    }
+}

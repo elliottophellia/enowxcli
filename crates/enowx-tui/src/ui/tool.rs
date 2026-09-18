@@ -1396,3 +1396,33 @@ mod search_view_tests {
         assert!(g.contains(" · 2 matches") && r.contains(" · 2 hits"), "got {g:?} / {r:?}");
     }
 }
+
+/// Whether a tool's body is worth opening without being asked.
+///
+/// The line is whether the body tells the reader something the row does not.
+/// A row already names the tool, what it acted on, and how much came back; a
+/// body that only restates that is noise, and a long run of them buries the
+/// conversation.
+///
+/// Collapsed does not mean hidden — every one of these keeps its chevron and
+/// opens on a click, so nothing is lost, it just does not arrive uninvited.
+pub(super) fn opens_by_default(name: &str, master_toggle: bool) -> bool {
+    match name {
+        // The paths only restate the pattern that produced them: "*.md
+        // matched 4 files" is the whole story, and the agent is the one that
+        // needs the list.
+        "glob" => false,
+        // Same shape — a count of files read, where the contents went to the
+        // model rather than the reader.
+        "read" => false,
+        // Hits carry real content, but a search across a repo can return
+        // hundreds of lines; the count answers "did it find anything" and the
+        // body is there when the answer matters.
+        "grep" => false,
+        // Even `ls` in a large tree spills hundreds of lines.
+        "bash" => false,
+        // Everything else — a diff, a file being written, a todo list, an
+        // MCP payload — is the reason the call was made.
+        _ => master_toggle,
+    }
+}

@@ -1253,14 +1253,7 @@ fn render_block(
                     None
                 };
                 let render = classify(name, args, result);
-                // `bash` output can be huge (a stray `ls` on node_modules
-                // spills hundreds of lines). Default-collapse it regardless
-                // of the master toggle; user clicks the header to expand.
-                let default_expand = if name == "bash" {
-                    false
-                } else {
-                    show_tool_output
-                };
+                let default_expand = crate::ui::tool::opens_by_default(name, show_tool_output);
                 let expanded = tool_expanded.get(id).copied().unwrap_or(default_expand);
                 match render {
                     ToolRender::Summary(parts) => {
@@ -1542,11 +1535,10 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 result.hash(&mut hasher);
                 running.hash(&mut hasher);
                 error.hash(&mut hasher);
-                let default_expand = if name == "bash" {
-                    false
-                } else {
-                    show_tool_output
-                };
+                // Must match the renderer exactly, or a row would be cached
+                // in one state and drawn in the other.
+                let default_expand =
+                    crate::ui::tool::opens_by_default(name, show_tool_output);
                 (
                     true,
                     app.tool_expanded.get(id).copied().unwrap_or(default_expand),

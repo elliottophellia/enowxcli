@@ -104,6 +104,9 @@ can actually answer from a request.
 | `perf` | Profiling, hot paths, benchmarks |
 | `general` | Fallback for anything outside the above |
 
+Plus one that is never routed to: `compactor`, invoked by the loop rather than
+chosen by the router. See [Compaction](#compaction).
+
 `librarian` and `research` are both read-only and are easy to confuse. The
 difference is the output: librarian returns **raw material, filtered** —
 quotes, paths, line numbers — while research returns **an answer**. Librarian
@@ -223,16 +226,129 @@ Ordered so each step is usable on its own.
    delegate, the call chain has no bound.
 6. **Tier resolution** and the `[agent.tiers]` table.
 7. **`auto_switch`** and the confirmation prompt.
+8. **Compaction rewrite** — tool calls in the summary input, and the
+   `compactor` agent. Independent of 1–7 and worth doing early: it is the
+   largest single saving, and the current summariser is losing information
+   today.
 
 Steps 1–3 are usable without 4–7: agents from files plus handoff is already an
 improvement on three fixed roles.
+
+## Failure and fallback
+
+A model call fails in four ways, and today all of them take the same path: ten
+retries against the same model, then give up.
+
+| Kind | Example | Retry helps? | Another model helps? |
+|---|---|---|---|
+| Transport | connection reset, timeout | Yes | No |
+| Capacity | 429, 503, overloaded | Yes | Yes |
+| Capability | context overflow, no tool support | **No** | **Yes** |
+| Permanent | 401, unknown model | No | No |
+
+Retrying capacity failures is close to free — the server rejects before
+processing, so a refused request is generally not billed; what is spent is
+time. The exception is a stream that dies *after* the response started: that
+work was done and charged, so it is retried twice rather than ten times.
+
+Capability failures are the ones retrying cannot fix. Those need a different
+model, which is what the tier ladder is for.
+
+### The ladder
+
+1. Retry the chosen model, per the table above.
+2. Exhausted — try another model in the same tier, if the config lists one.
+3. Still failing — drop one tier (`strong` → `balanced` → `cheap`) and say so
+   in the transcript: *"strong unavailable, continuing with balanced"*.
+4. Bottom of the ladder — fail, naming every model tried.
+
+The notice at step 3 is not optional. A cheaper model may not be up to the
+task, and a silent downgrade produces worse work with no indication why.
+
+## Compaction
+
+Compaction is the largest lever on token cost — larger than the agent
+architecture. Measured over a thirty-turn conversation:
+
+| | Cumulative input |
+|---|---|
+| No compaction | 1,395,000 |
+| Compact aggressively | 363,000 (26%) |
+| + sub-agent architecture | 279,000 (20%) |
+
+The reason is that every turn resends the whole conversation, so cost grows
+with the square of the length. Nothing else moves that number as much.
+
+### What it does today
+
+1. Keep the last `keep_last` turns verbatim (default 4), fold the rest.
+2. Flatten the folded turns to `USER: …` / `ASSISTANT: …` text.
+3. Ask the model for a Goal / Decisions / Files / Open note.
+4. Replace the folded turns with one `[COMPACTED SUMMARY]` message.
+
+The session file on disk is untouched — only what is sent to the model
+shrinks, so a compacted session still resumes with its full history.
+
+### The problem
+
+The summariser only sees user and assistant prose. Tool calls and their
+results are dropped by a catch-all arm before summarisation, and an assistant
+turn whose content is empty because it carries `tool_calls` is dropped with
+them.
+
+For a working session — twelve reads and six commands — that leaves the
+summariser looking at about **7% of what happened**. It is then asked for
+"Files: which files were created, edited, or read", information that was
+discarded before it arrived. That is why compaction feels like it loses the
+thread: not that it folds too much, but that it folds away the part that
+carried the work.
+
+### The fix
+
+Include tool calls, summarised rather than verbatim: the tool, its argument,
+and a one-line outcome.
+
+```
+USER: fix auth
+ASSISTANT: let me look
+  → read src/auth.rs (240 lines)
+  → edit src/auth.rs (+12/-4)
+  → bash cargo test → exit 0, 41 passed
+ASSISTANT: done, the token check was inverted
+```
+
+This costs about **360 tokens** per session for the tool lines, and closes the
+89% gap. Full file contents and command output stay out — the point is what
+was touched and what came back, not the bytes.
+
+### Compaction as an agent
+
+The summariser becomes a `compactor` agent rather than a hardcoded prompt. It
+is a natural fit for the roster: its own prompt, its own tier — `cheap`, since
+the job is condensing rather than reasoning — and improvable by editing a file
+instead of recompiling.
+
+It is not routed to like the others; the loop invokes it directly, on the
+threshold or on `/compact`.
+
+### Trigger
+
+Percentage of the window, as today, plus the existing manual `/compact`.
+
+Worth knowing: a percentage trigger scales with the window, so on a 1M-context
+model `auto_compact_at = 0.85` fires at 850,000 tokens — in practice never,
+and the conversation pays the full quadratic cost. A large window is for
+holding one large file, not a reason to drag 800k of history through every
+turn. Users on large-context models should set this far lower.
 
 ## Open questions
 
 - **Depth limit.** A sub-agent cannot delegate, which bounds the tree at one
   level. Enough, or is two levels needed?
-- **Failure.** A sub-agent that fails or is interrupted — does the router see
-  the error and retry with another specialist, or does it surface to the user?
+- **Sub-agent failure.** A sub-agent that fails or is interrupted — does the
+  router see the error and retry with another specialist, or does it surface
+  to the user? (The model-level ladder above is settled; this is about the
+  agent level.)
 - **Cost accounting.** Session usage is per session; a delegation spends
   tokens in a branch. The sidebar should probably show the total, which means
   branch usage has to roll up into the parent.

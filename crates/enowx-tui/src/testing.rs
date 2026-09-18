@@ -214,6 +214,19 @@ impl TestApp {
     }
 
     pub fn push_tool(&mut self, id: &str, name: &str, args: &str, result: &str) {
+        self.push_tool_with_status(id, name, args, result, false);
+    }
+
+    /// `error` mirrors what the agent sets from `ToolOutput::error`, so a
+    /// fixture can reproduce a failed call rather than always looking green.
+    pub fn push_tool_with_status(
+        &mut self,
+        id: &str,
+        name: &str,
+        args: &str,
+        result: &str,
+        error: bool,
+    ) {
         self.inner.blocks.push(crate::session::TranscriptBlock {
             kind: TranscriptKind::Tool {
                 id: id.into(),
@@ -221,9 +234,16 @@ impl TestApp {
                 args: args.into(),
                 result: result.into(),
                 running: false,
-                error: false,
+                error,
+                started: None,
             },
             text: String::new(),
         });
+    }
+}
+
+impl TestApp {
+    pub fn set_show_tool_output(&mut self, on: bool) {
+        self.inner.show_tool_output = on;
     }
 }

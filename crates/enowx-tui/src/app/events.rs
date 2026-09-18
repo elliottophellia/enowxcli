@@ -104,6 +104,7 @@ impl App {
                         args: arguments,
                         result: String::new(),
                         running: true,
+                        started: Some(std::time::Instant::now()),
                         error: false,
                     },
                     String::new(),

@@ -100,6 +100,10 @@ impl App {
                                 result: String::new(),
                                 running: true,
                                 error: false,
+                                // Replayed from a session file: the original
+                                // start time is not recorded, and timing a
+                                // finished call from "now" would be wrong.
+                                started: None,
                             },
                             String::new(),
                         );

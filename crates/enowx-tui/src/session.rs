@@ -10,6 +10,11 @@ pub(crate) enum TranscriptKind {
         result: String,
         running: bool,
         error: bool,
+        /// When the call was dispatched, so a long-running tool can show how
+        /// long it has been going. `None` for blocks restored from a session
+        /// file, where the original wall-clock start is not recoverable and a
+        /// duration measured from "now" would be a lie.
+        started: Option<std::time::Instant>,
     },
     Notice,
     Error,

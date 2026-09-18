@@ -21,6 +21,9 @@ pub(super) enum ToolRender<'a> {
 
 pub(super) enum ToolBody<'a> {
     Plain(&'a str),
+    /// Output the classifier reformatted (currently: pretty-printed JSON), so
+    /// it is owned rather than borrowed from the raw result.
+    Formatted(String),
     /// Per-line unified diff derived from an `edit` tool's args.
     /// Per-line unified diff derived from an `edit` tool's args. `start_line`
     /// is where the region begins in the target file so the gutter can show
@@ -168,12 +171,30 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
             // Even `ls` in a large repo can spill hundreds of lines. Default
             // collapsed; click the header to expand.
             let cmd = str_arg(&parsed, "command").unwrap_or("").trim();
-            let short = cmd.split_whitespace().next().unwrap_or(cmd);
-            let n = result.lines().count();
+            // The shell tool prefixes its output with `exit N`. Lift that into
+            // the header and off the body: a non-zero exit is the single most
+            // useful thing about a failed command, and it was previously
+            // buried as the first line of collapsed output.
+            let (exit, body) = split_exit_line(result);
+            let n = body.lines().filter(|l| !l.trim().is_empty()).count();
+            // The header shows as much of the command as fits rather than just
+            // its first word — `$ cargo` said nothing about which cargo
+            // invocation this was, and collapsed rows hid the subtitle.
+            let head = summarize_command(cmd);
+            let status = match exit {
+                Some(code) if code != "0" => format!(" · exit {code}"),
+                _ => String::new(),
+            };
+            let lines_note = if n == 1 {
+                " · 1 line".to_string()
+            } else {
+                format!(" · {n} lines")
+            };
             ToolRender::Detail {
-                header: format!("$ {short} · {n} lines"),
-                subtitle: Some(trim(cmd, 120)),
-                body: ToolBody::Plain(result),
+                header: format!("$ {head}{lines_note}{status}"),
+                // Only worth a second line when the header had to abbreviate.
+                subtitle: (head.len() < cmd.len()).then(|| trim(cmd, 240)),
+                body: ToolBody::Plain(body),
             }
         }
         "edit" => {
@@ -316,11 +337,26 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
         }
         other if other.starts_with("mcp__") => {
             let label = other.trim_start_matches("mcp__").replacen("__", ":", 1);
-            let n = result.lines().count();
-            ToolRender::Detail {
-                header: format!("mcp {label} · {n} lines"),
-                subtitle: None,
-                body: ToolBody::Plain(result),
+            // MCP servers overwhelmingly answer with JSON, and a whole
+            // response on one line is unreadable. Pretty-print it when it
+            // parses; anything else passes through untouched.
+            match pretty_json(result) {
+                Some(pretty) => {
+                    let n = pretty.lines().count();
+                    ToolRender::Detail {
+                        header: format!("mcp {label} · {n} lines json"),
+                        subtitle: None,
+                        body: ToolBody::Formatted(pretty),
+                    }
+                }
+                None => {
+                    let n = result.lines().count();
+                    ToolRender::Detail {
+                        header: format!("mcp {label} · {n} lines"),
+                        subtitle: None,
+                        body: ToolBody::Plain(result),
+                    }
+                }
             }
         }
         _ => {
@@ -1018,5 +1054,210 @@ mod tests {
     #[test]
     fn wrap_always_yields_a_chunk_for_empty_input() {
         assert_eq!(wrap_chars("", 10), vec![String::new()]);
+    }
+}
+
+/// Split the shell tool's `exit N\n…` prefix off its output.
+///
+/// Returns the code (when the prefix is present) and the remaining body. A
+/// tool that does not emit the prefix — an older build, or a non-shell tool
+/// routed here — passes through untouched rather than losing its first line.
+fn split_exit_line(result: &str) -> (Option<&str>, &str) {
+    let Some(rest) = result.strip_prefix("exit ") else {
+        return (None, result);
+    };
+    let (code, body) = match rest.split_once('\n') {
+        Some((code, body)) => (code, body),
+        None => (rest, ""),
+    };
+    // `signal` is what the tool reports when a command was killed.
+    let looks_like_code = !code.is_empty()
+        && (code == "signal" || code.chars().all(|c| c.is_ascii_digit()));
+    if looks_like_code {
+        (Some(code), body)
+    } else {
+        (None, result)
+    }
+}
+
+/// A one-line rendering of a shell command for the collapsed header.
+///
+/// Keeps the command readable instead of reducing it to its first word:
+/// newlines and runs of whitespace collapse to single spaces so a heredoc or
+/// a multi-line pipeline still fits on one row.
+fn summarize_command(cmd: &str) -> String {
+    let flat: String = cmd.split_whitespace().collect::<Vec<_>>().join(" ");
+    trim(&flat, 64)
+}
+
+/// Re-indent a JSON payload for display, or None when it is not JSON.
+///
+/// Only objects and arrays are reformatted: a bare string or number is
+/// already one line, and rewriting it would just strip its quotes. The
+/// result is capped because a huge response should be scrolled, not
+/// exploded into tens of thousands of rows the renderer then has to hold.
+fn pretty_json(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if !(trimmed.starts_with('{') || trimmed.starts_with('[')) {
+        return None;
+    }
+    if trimmed.len() > 256 * 1024 {
+        return None;
+    }
+    let value: Value = serde_json::from_str(trimmed).ok()?;
+    // Already multi-line? Then the server formatted it and we should not
+    // second-guess the layout it chose.
+    if raw.lines().count() > 1 {
+        return None;
+    }
+    serde_json::to_string_pretty(&value).ok()
+}
+
+/// How long a still-running tool has been going, or None when it is too soon
+/// to be worth saying.
+///
+/// Below the threshold the note would be noise on every fast call, and it
+/// would also churn the render cache once a second for no benefit. Resolution
+/// drops to whole seconds, then minutes, so the text changes as rarely as the
+/// information does.
+pub(super) fn elapsed_note(started: &std::time::Instant) -> Option<String> {
+    const FLOOR: u64 = 2;
+    let secs = started.elapsed().as_secs();
+    if secs < FLOOR {
+        return None;
+    }
+    Some(if secs < 60 {
+        format!("{secs}s")
+    } else {
+        format!("{}m{:02}s", secs / 60, secs % 60)
+    })
+}
+
+#[cfg(test)]
+mod tool_view_tests {
+    use super::*;
+
+    fn header_of(name: &str, args: &str, result: &str) -> String {
+        match classify(name, args, result) {
+            ToolRender::Detail { header, .. } => header,
+            ToolRender::Summary(text) => text,
+        }
+    }
+
+    #[test]
+    fn exit_line_is_lifted_out_of_the_body() {
+        let (code, body) = split_exit_line("exit 0\nhello\nworld");
+        assert_eq!(code, Some("0"));
+        assert_eq!(body, "hello\nworld");
+    }
+
+    #[test]
+    fn a_killed_command_reports_signal() {
+        let (code, body) = split_exit_line("exit signal\n");
+        assert_eq!(code, Some("signal"));
+        assert_eq!(body, "");
+    }
+
+    /// Output that does not carry the prefix must keep its first line — an
+    /// older build, or another tool routed through the same path.
+    #[test]
+    fn output_without_the_prefix_is_untouched() {
+        let (code, body) = split_exit_line("exiting the loop\nsecond line");
+        assert_eq!(code, None);
+        assert_eq!(body, "exiting the loop\nsecond line");
+    }
+
+    #[test]
+    fn a_failing_command_shows_its_exit_code_in_the_header() {
+        let header = header_of("bash", r#"{"command":"cargo test"}"#, "exit 101\nfailures:\n  a");
+        assert!(
+            header.contains("exit 101"),
+            "a non-zero exit belongs in the header, got {header:?}"
+        );
+    }
+
+    /// A successful command should not carry a redundant `exit 0`.
+    #[test]
+    fn a_successful_command_does_not_mention_its_exit_code() {
+        let header = header_of("bash", r#"{"command":"ls"}"#, "exit 0\na\nb");
+        assert!(
+            !header.contains("exit"),
+            "exit 0 is noise, got {header:?}"
+        );
+    }
+
+    #[test]
+    fn the_header_keeps_the_whole_command_not_just_its_first_word() {
+        let header = header_of(
+            "bash",
+            r#"{"command":"cargo test --workspace --all-features"}"#,
+            "exit 0\n",
+        );
+        assert!(
+            header.contains("cargo test --workspace"),
+            "the header must identify WHICH cargo invocation this was, got {header:?}"
+        );
+    }
+
+    #[test]
+    fn a_multiline_command_is_flattened_for_the_header() {
+        let header = header_of(
+            "bash",
+            "{\"command\":\"for f in *.rs; do\\n  echo $f\\ndone\"}",
+            "exit 0\n",
+        );
+        assert!(
+            !header.contains('\n'),
+            "the header is one row, got {header:?}"
+        );
+        assert!(header.contains("for f in"), "got {header:?}");
+    }
+
+    #[test]
+    fn mcp_json_is_pretty_printed() {
+        let raw = r#"{"items":[{"id":1,"name":"a"}],"total":1}"#;
+        let pretty = pretty_json(raw).expect("valid json object");
+        assert!(
+            pretty.lines().count() > 3,
+            "a one-line JSON response should expand, got {pretty:?}"
+        );
+        // Round-trips to the same value: reformatting must not lose data.
+        let a: serde_json::Value = serde_json::from_str(raw).unwrap();
+        let b: serde_json::Value = serde_json::from_str(&pretty).unwrap();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn non_json_output_is_left_alone() {
+        assert!(pretty_json("just some text").is_none());
+        assert!(pretty_json("").is_none());
+        assert!(pretty_json("{not valid json").is_none());
+    }
+
+    /// A server that already formatted its reply chose that layout; do not
+    /// reflow it.
+    #[test]
+    fn already_formatted_json_is_not_reflowed() {
+        assert!(pretty_json("{\n  \"a\": 1\n}").is_none());
+    }
+
+    #[test]
+    fn a_scalar_json_value_is_not_expanded() {
+        assert!(pretty_json("\"just a string\"").is_none());
+        assert!(pretty_json("42").is_none());
+    }
+
+    #[test]
+    fn elapsed_is_silent_until_it_is_worth_saying() {
+        let now = std::time::Instant::now();
+        assert_eq!(elapsed_note(&now), None, "a fast call needs no timer");
+    }
+
+    #[test]
+    fn elapsed_switches_to_minutes() {
+        let long_ago = std::time::Instant::now() - std::time::Duration::from_secs(125);
+        assert_eq!(elapsed_note(&long_ago).as_deref(), Some("2m05s"));
+        let seconds = std::time::Instant::now() - std::time::Duration::from_secs(7);
+        assert_eq!(elapsed_note(&seconds).as_deref(), Some("7s"));
     }
 }

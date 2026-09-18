@@ -1232,14 +1232,22 @@ fn render_block(
                 result,
                 running,
                 error,
+                started,
             } => {
-                use crate::ui::tool::{classify, render_diff, ToolBody, ToolRender};
+                use crate::ui::tool::{classify, elapsed_note, render_diff, ToolBody, ToolRender};
                 let icon = if *running {
                     ("›", theme.yellow)
                 } else if *error {
                     ("✗", theme.red)
                 } else {
                     ("✓", theme.green)
+                };
+                // A tool that has been running a while should say so, rather
+                // than looking identical at one second and at two minutes.
+                let waiting = if *running {
+                    started.as_ref().and_then(elapsed_note)
+                } else {
+                    None
                 };
                 let render = classify(name, args, result);
                 // `bash` output can be huge (a stray `ls` on node_modules
@@ -1253,6 +1261,10 @@ fn render_block(
                 let expanded = tool_expanded.get(id).copied().unwrap_or(default_expand);
                 match render {
                     ToolRender::Summary(text) => {
+                        let text = match &waiting {
+                            Some(note) => format!("{text} · {note}"),
+                            None => text,
+                        };
                         // Register a file marker for tools whose summary
                         // starts with `<verb> <path>` so a click opens it.
                         register_summary_file_link(
@@ -1273,6 +1285,10 @@ fn render_block(
                         body,
                     } => {
                         let chevron = if expanded { "▾" } else { "▸" };
+                        let header = match &waiting {
+                            Some(note) => format!("{header} · {note}"),
+                            None => header,
+                        };
                         let header_y_marker = lines.len();
                         lines.push(Line::from(vec![
                             Span::styled(
@@ -1303,7 +1319,16 @@ fn render_block(
                                 }
                             }
                             match body {
-                                ToolBody::Plain(text) => {
+                                // `Formatted` carries text the classifier
+                                // rewrote (pretty-printed JSON), so it draws
+                                // exactly like `Plain` — the only difference
+                                // is that it owns its buffer.
+                                ToolBody::Plain(_) | ToolBody::Formatted(_) => {
+                                    let text: &str = match &body {
+                                        ToolBody::Plain(t) => t,
+                                        ToolBody::Formatted(t) => t.as_str(),
+                                        _ => unreachable!("guarded by the arm pattern"),
+                                    };
                                     // Parse ANSI SGR so `ls --color`,
                                     // `grep --color`, and other TUI-aware
                                     // programs render with their real
@@ -1464,7 +1489,17 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 result,
                 running,
                 error,
+                started,
             } => {
+                // A running tool shows a seconds counter, so its key has to
+                // advance once a second or the cached header would freeze.
+                // Only while running: a finished tool is stable again, and
+                // hashing a live clock would re-render the whole transcript.
+                if *running {
+                    if let Some(at) = started {
+                        at.elapsed().as_secs().hash(&mut hasher);
+                    }
+                }
                 id.hash(&mut hasher);
                 name.hash(&mut hasher);
                 args.hash(&mut hasher);

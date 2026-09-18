@@ -3,10 +3,10 @@
 A Rust coding agent with a terminal interface.
 
 ```
-enowx                # open the terminal interface (default)
-enowx config get model.default
-enowx config set model.default anthropic/claude-sonnet-4.5
-enowx config path
+enx                # open the terminal interface (default)
+enx config get model.default
+enx config set model.default anthropic/claude-sonnet-4.5
+enx config path
 ```
 
 enowx-cli opens the TUI immediately; there is no onboarding screen. Open
@@ -70,7 +70,7 @@ immediately.
 ## Configuration
 
 `~/.enx/config.toml`, overridable by `ENX_API_KEY`, `ENX_BASE_URL`, `ENX_MODEL`,
-`ENX_HOME`. `enowx config get provider.api_key` prints `(redacted)`; the key is
+`ENX_HOME`. `enx config get provider.api_key` prints `(redacted)`; the key is
 never echoed to the terminal.
 
 | Key | Meaning |
@@ -108,31 +108,32 @@ and providers.
 
 ```sh
 cargo build --release                     # terminal only
-cargo build --release --features web      # adds the optional `enowx serve` dashboard
+cargo build --release --features web      # adds the optional `enx serve` dashboard
 cargo test --workspace
 ```
 
-Install the binary under the `enowx` name:
+Install the binary (cargo emits it as `enx`, per `[[bin]]` in
+`crates/enowx-cli/Cargo.toml`):
 
 ```sh
-which -a enowx                                     # expect no output before installing
-install -m 755 target/release/enowx ~/.local/bin/enowx
+which -a enx                                     # expect no output before installing
+install -m 755 target/release/enx ~/.local/bin/enx
 ```
 
 ## Live reload while developing
 
 ```sh
-enowx dev                     # rebuild and relaunch the interface on every source change
-enowx dev --session <id>      # pin one conversation across reloads
-enowx tui --session <id>      # resume a session directly
+enx dev                     # rebuild and relaunch the interface on every source change
+enx dev --session <id>      # pin one conversation across reloads
+enx tui --session <id>      # resume a session directly
 ```
 
-Run `enowx dev` from this checkout. It watches `crates/` and `Cargo.toml`,
+Run `enx dev` from this checkout. It watches `crates/` and `Cargo.toml`,
 keeps the interface in the foreground, and on each save rebuilds and relaunches
 it while resuming the newest session in this workspace.
 
 For the optional dashboard, `bun run dev` in `web/` provides hot module
-replacement and proxies `/api` to `enowx serve` on port 8787.
+replacement and proxies `/api` to `enx serve` on port 8787.
 
 ## Licence
 

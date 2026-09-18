@@ -756,3 +756,16 @@ impl TestApp {
         crate::commands::COMMANDS.to_vec()
     }
 }
+
+impl TestApp {
+    /// Put the app into the state a live turn leaves it in: busy, with a real
+    /// cancellation token the interrupt path has to reach. `set_busy` alone
+    /// only flips the flag, so a test using it cannot tell whether Ctrl+C
+    /// actually cancelled anything.
+    pub fn start_fake_turn(&mut self) -> tokio_util::sync::CancellationToken {
+        let cancel = tokio_util::sync::CancellationToken::new();
+        self.inner.busy = true;
+        self.inner.cancel = Some(cancel.clone());
+        cancel
+    }
+}

@@ -3,6 +3,16 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 impl App {
     pub(crate) fn key(&mut self, key: KeyEvent) -> Result<()> {
+        // Stopping the model outranks whatever window happens to be in front
+        // of it: a modal handler that ate this key left Ctrl+C doing nothing
+        // while a turn ran.
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Char('c'))
+            && self.busy
+        {
+            self.interrupt();
+            return Ok(());
+        }
         // Ctrl+P closes whatever is open before any modal gets to read it.
         // Otherwise the key that opens the palette does nothing while a form
         // is up, and the user presses it twice wondering why.
@@ -385,8 +395,15 @@ impl App {
                 self.auto_scroll = self.scroll == self.max_scroll;
             }
             KeyCode::Esc => {
-                self.input.clear();
-                self.cursor = 0;
+                // While a turn runs, Esc stops it. Clearing the composer is
+                // the idle meaning of the key, and discarding a draft is the
+                // wrong thing to do to someone reaching for the stop key.
+                if self.busy {
+                    self.interrupt();
+                } else {
+                    self.input.clear();
+                    self.cursor = 0;
+                }
             }
             _ => {}
         }

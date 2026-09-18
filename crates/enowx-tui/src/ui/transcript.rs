@@ -674,13 +674,61 @@ fn markdown_spans(text: &str, theme: &Theme) -> Vec<(String, Style)> {
     };
     while i < chars.len() {
         let c = chars[i];
-        // Inline code: `…`
+        // Backslash escape: the next character is literal, and the backslash
+        // itself is not shown. Checked first so `\*` cannot open emphasis.
+        if c == '\\' {
+            if let Some(&next) = chars.get(i + 1) {
+                if "\\`*_~[]()#+-.!>".contains(next) {
+                    buf.push(next);
+                    i += 2;
+                    continue;
+                }
+            }
+        }
+        // Inline code. A run of N backticks opens a span that ends at the
+        // next run of exactly N, so ``a ` b`` can contain a single backtick.
         if c == '`' {
-            if let Some(end) = chars[i + 1..].iter().position(|&c| c == '`') {
+            let fence = chars[i..].iter().take_while(|&&c| c == '`').count();
+            let body_start = i + fence;
+            let mut j = body_start;
+            let mut found = None;
+            while j < chars.len() {
+                if chars[j] == '`' {
+                    let run = chars[j..].iter().take_while(|&&c| c == '`').count();
+                    if run == fence {
+                        found = Some(j);
+                        break;
+                    }
+                    j += run;
+                    continue;
+                }
+                j += 1;
+            }
+            if let Some(end) = found {
                 flush(&mut buf, &mut out);
-                let body: String = chars[i + 1..i + 1 + end].iter().collect();
+                // A single leading/trailing space is padding that lets the
+                // body start or end with a backtick; CommonMark strips it.
+                let mut body: String = chars[body_start..end].iter().collect();
+                if body.len() >= 2 && body.starts_with(' ') && body.ends_with(' ') {
+                    body = body[1..body.len() - 1].to_string();
+                }
                 out.push((body, Style::default().fg(theme.accent2).bg(theme.subtle)));
-                i += end + 2;
+                i = end + fence;
+                continue;
+            }
+        }
+        // Strikethrough: ~~…~~
+        if c == '~' && chars.get(i + 1) == Some(&'~') {
+            if let Some(end) = find_pair(&chars, i + 2, "~~") {
+                flush(&mut buf, &mut out);
+                let body: String = chars[i + 2..end].iter().collect();
+                out.push((
+                    body,
+                    Style::default()
+                        .fg(theme.muted)
+                        .add_modifier(Modifier::CROSSED_OUT),
+                ));
+                i = end + 2;
                 continue;
             }
         }
@@ -697,9 +745,14 @@ fn markdown_spans(text: &str, theme: &Theme) -> Vec<(String, Style)> {
                 continue;
             }
         }
-        // Italic: *…* (single asterisk, avoid ** that we already handled)
-        if c == '*' {
-            if let Some(end) = find_pair(&chars, i + 1, "*") {
+        // Italic: *…* (single asterisk; ** was handled above).
+        //
+        // Emphasis only opens when the delimiter is followed by non-space, as
+        // CommonMark requires. Without that check `2 * 3 * 4` read as italic
+        // and the renderer silently ate both asterisks, corrupting arithmetic
+        // and glob patterns in prose.
+        if c == '*' && chars.get(i + 1).is_some_and(|n| !n.is_whitespace()) {
+            if let Some(end) = find_closing_emphasis(&chars, i + 1, '*') {
                 flush(&mut buf, &mut out);
                 let body: String = chars[i + 1..end].iter().collect();
                 out.push((
@@ -737,6 +790,23 @@ fn markdown_spans(text: &str, theme: &Theme) -> Vec<(String, Style)> {
     }
     flush(&mut buf, &mut out);
     out
+}
+
+/// Find the closing delimiter of a single-character emphasis span.
+///
+/// CommonMark's rule, reduced to what matters here: the closer must be
+/// attached to the text it ends, i.e. preceded by a non-space. Requiring that
+/// stops `rm *.log and *.tmp` from reading as emphasis around `.log and `,
+/// which silently deleted both stars from a shell command.
+fn find_closing_emphasis(chars: &[char], start: usize, delim: char) -> Option<usize> {
+    let mut i = start;
+    while i < chars.len() {
+        if chars[i] == delim && i > start && !chars[i - 1].is_whitespace() {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
 }
 
 fn find_pair(chars: &[char], start: usize, delim: &str) -> Option<usize> {

@@ -450,7 +450,7 @@ pub(crate) fn render_markdown(
             .or_else(|| trimmed.strip_prefix("* "))
         {
             let prefix = format!("{}• ", " ".repeat(indent));
-            let before = lines.len();
+
             emit_wrapped(
                 lines,
                 &markdown_spans(item, theme),
@@ -459,7 +459,7 @@ pub(crate) fn render_markdown(
                 width,
                 theme,
             );
-            separate_list_item(lines, before, &raw_lines, i);
+
             i += 1;
             continue;
         }
@@ -468,7 +468,7 @@ pub(crate) fn render_markdown(
             let display = ordered_counter.map_or(num, |n| n + 1);
             ordered_counter = Some(display);
             let prefix = format!("{}{}. ", " ".repeat(indent), display);
-            let before = lines.len();
+
             emit_wrapped(
                 lines,
                 &markdown_spans(item, theme),
@@ -477,7 +477,7 @@ pub(crate) fn render_markdown(
                 width,
                 theme,
             );
-            separate_list_item(lines, before, &raw_lines, i);
+
             i += 1;
             continue;
         } else {
@@ -1683,34 +1683,5 @@ fn is_blank_line(line: Option<&Line<'static>>) -> bool {
     match line {
         None => true,
         Some(line) => line.spans.iter().all(|s| s.content.trim().is_empty()),
-    }
-}
-
-/// Put a blank line after a list item that wrapped, when another item follows.
-///
-/// A list of one-line items reads fine packed together, and spacing it out
-/// would waste half the screen. But once items wrap, the rows run into each
-/// other and it stops being clear where one ends — which is exactly when the
-/// separation is worth its space. So the spacing follows the content rather
-/// than being fixed either way.
-///
-/// `before` is how many lines existed prior to emitting this item, so the
-/// wrap is detected from what was actually drawn rather than guessed from the
-/// source text's length.
-fn separate_list_item(
-    lines: &mut Vec<Line<'static>>,
-    before: usize,
-    raw_lines: &[&str],
-    i: usize,
-) {
-    if lines.len() - before < 2 {
-        return;
-    }
-    let next_is_item = raw_lines.get(i + 1).is_some_and(|next| {
-        let t = next.trim_start();
-        t.starts_with("- ") || t.starts_with("* ") || split_ordered(t).is_some()
-    });
-    if next_is_item {
-        lines.push(Line::default());
     }
 }

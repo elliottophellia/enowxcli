@@ -111,46 +111,20 @@ fn a_short_list_stays_tight() {
     );
 }
 
-/// Once items wrap, the rows run together and the separation earns its space.
+/// Lists stay packed regardless of item length. Spacing them by wrap made the
+/// rhythm depend on where the text happened to break, which read as random
+/// rather than as structure.
 #[test]
-fn a_wrapped_list_item_is_followed_by_a_gap() {
-    let long = "- ".to_string()
-        + &"word ".repeat(30)
-        + "\n- second item";
-    let rows = render(&long);
-    let second = index_of(&rows, "second item");
-    assert!(
-        rows[second - 1].trim().is_empty(),
-        "a wrapped item should be separated from the next, got {rows:?}"
-    );
-}
-
-/// The gap belongs BETWEEN items. A list followed by prose gets no extra gap
-/// from this rule — whatever spacing the author wrote there stands, so the
-/// renderer does not quietly rewrite the document's rhythm.
-#[test]
-fn no_trailing_gap_after_the_final_item() {
-    let long = "- ".to_string() + &"word ".repeat(30) + "\nAfter the list.";
-    let rows = render(&long);
-    let after = index_of(&rows, "After the list.");
-    assert!(
-        !rows[after - 1].trim().is_empty(),
-        "a gap was inserted after the last item even though no item followed: {rows:?}"
-    );
-}
-
-/// Numbered lists follow the same rule as bulleted ones.
-#[test]
-fn ordered_lists_space_the_same_way() {
+fn lists_stay_packed_whatever_their_item_length() {
     let short = render("1. one\n2. two");
     let first = index_of(&short, "one");
     assert!(!short[first + 1].trim().is_empty(), "short: {short:?}");
 
-    let long = "1. ".to_string() + &"word ".repeat(30) + "\n2. second";
+    let long = "- ".to_string() + &"word ".repeat(30) + "\n- second item";
     let rows = render(&long);
-    let second = index_of(&rows, "second");
+    let second = index_of(&rows, "second item");
     assert!(
-        rows[second - 1].trim().is_empty(),
-        "wrapped ordered item should be separated, got {rows:?}"
+        !rows[second - 1].trim().is_empty(),
+        "a wrapped item must not introduce a gap, got {rows:?}"
     );
 }

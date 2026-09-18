@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::settings_keys::origin_of;
 
 impl App {
     pub(crate) fn open_settings(&mut self) {
@@ -92,6 +93,10 @@ impl App {
     }
 
     pub(crate) fn save_settings(&mut self) -> Result<()> {
+        // Decide host-scoped invalidation once, against the finished URL.
+        // Doing it per keystroke cleared the key while the user was still
+        // typing the hostname.
+        self.reconcile_host_change();
         let mut next = self.config.clone();
         next.provider.name = self.settings.provider.trim().to_owned();
         next.provider.preset = self.settings.preset.clone();
@@ -134,6 +139,31 @@ impl App {
             "saved; this provider still needs an API key".into()
         };
         Ok(())
+    }
+
+    /// Drop credentials that belonged to a host the user has moved away from.
+    ///
+    /// Only the API key and the model-list URL are host-scoped. The model ID
+    /// is deliberately kept: pointing a base URL at a different gateway for
+    /// the same catalogue is common, and making the user re-pick a model they
+    /// already chose is the annoyance this whole path is meant to avoid.
+    fn reconcile_host_change(&mut self) {
+        let previous = origin_of(&self.config.provider.base_url);
+        let current = origin_of(&self.settings.base_url);
+        let (Some(previous), Some(current)) = (previous, current) else {
+            return;
+        };
+        if previous == current {
+            return;
+        }
+        self.settings.api_key.clear();
+        // A catalogue URL on the old host cannot describe the new one; if it
+        // moved with the base URL, rewrite it rather than discarding it.
+        let models_url = self.settings.models_url.trim().to_owned();
+        self.settings.models_url = match models_url.strip_prefix(&previous) {
+            Some(path) => format!("{current}{path}"),
+            None => String::new(),
+        };
     }
 
     pub(crate) fn open_model_source(&mut self) {

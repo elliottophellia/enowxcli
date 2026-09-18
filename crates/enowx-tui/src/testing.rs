@@ -320,3 +320,131 @@ impl TestApp {
             .count()
     }
 }
+
+/// Provider/settings form access, so the config-preservation rules can be
+/// asserted without driving the modal through raw key events.
+impl TestApp {
+    #[allow(clippy::too_many_arguments)]
+    pub fn seed_provider(
+        &mut self,
+        name: &str,
+        preset: &str,
+        base_url: &str,
+        models_url: &str,
+        api_key: &str,
+        model: &str,
+        context_window: u32,
+    ) {
+        let mut config = self.inner.config.clone();
+        config.provider.name = name.into();
+        config.provider.preset = preset.into();
+        config.provider.base_url = base_url.into();
+        config.provider.models_url = models_url.into();
+        config.provider.api_key = api_key.into();
+        config.model.default = model.into();
+        config.model.context_window = context_window;
+        self.inner.adopt(config);
+    }
+
+    pub fn open_settings(&mut self) {
+        self.inner.open_settings();
+    }
+
+    pub fn open_providers(&mut self) {
+        self.inner.open_providers();
+    }
+
+    /// Choose the Nth entry in the provider list, as Enter on that row does.
+    pub fn select_provider_at(&mut self, index: usize) {
+        self.inner.modal_cursor = index;
+        self.inner.select_provider();
+    }
+
+    pub fn set_settings_field(&mut self, field: &str, value: &str) {
+        let draft = &mut self.inner.settings;
+        match field {
+            "provider" => draft.provider = value.into(),
+            "base_url" => draft.base_url = value.into(),
+            "api_key" => draft.api_key = value.into(),
+            "models_url" => draft.models_url = value.into(),
+            "model" => draft.model = value.into(),
+            "context_window" => draft.context_window = value.into(),
+            "theme" => draft.theme = value.into(),
+            other => panic!("unknown settings field {other}"),
+        }
+    }
+
+    pub fn settings_field(&self, field: &str) -> String {
+        let draft = &self.inner.settings;
+        match field {
+            "provider" => draft.provider.clone(),
+            "base_url" => draft.base_url.clone(),
+            "api_key" => draft.api_key.clone(),
+            "models_url" => draft.models_url.clone(),
+            "model" => draft.model.clone(),
+            "context_window" => draft.context_window.clone(),
+            "theme" => draft.theme.clone(),
+            other => panic!("unknown settings field {other}"),
+        }
+    }
+
+    pub fn save_settings(&mut self) -> anyhow::Result<()> {
+        self.inner.save_settings()
+    }
+
+    pub fn config_provider(&self) -> (String, String, String, String, String) {
+        let p = &self.inner.config.provider;
+        (
+            p.name.clone(),
+            p.preset.clone(),
+            p.base_url.clone(),
+            p.models_url.clone(),
+            p.api_key.clone(),
+        )
+    }
+
+    pub fn config_model(&self) -> (String, u32) {
+        (
+            self.inner.config.model.default.clone(),
+            self.inner.config.model.context_window,
+        )
+    }
+
+    pub fn config_agent_max_steps(&self) -> u32 {
+        self.inner.config.agent.max_steps
+    }
+}
+
+impl TestApp {
+    pub fn connect_preset(&mut self) -> anyhow::Result<()> {
+        self.inner.connect_preset()
+    }
+}
+
+impl TestApp {
+    /// Simulate editing a settings field the way typing does: mutate the
+    /// value, then fire the change hook.
+    pub fn edit_settings_field(&mut self, field: &str, value: &str) {
+        use crate::modal::SettingsField;
+        self.set_settings_field(field, value);
+        let which = match field {
+            "provider" => SettingsField::Provider,
+            "base_url" => SettingsField::BaseUrl,
+            "api_key" => SettingsField::ApiKey,
+            "models_url" => SettingsField::ModelsUrl,
+            "model" => SettingsField::Model,
+            "context_window" => SettingsField::ContextWindow,
+            "theme" => SettingsField::Theme,
+            other => panic!("unknown settings field {other}"),
+        };
+        self.inner.settings_changed(which);
+    }
+}
+
+impl TestApp {
+    /// True when the settings modal has closed, i.e. a save finished without
+    /// pushing the user into another step.
+    pub fn modal_closed(&self) -> bool {
+        self.inner.modal == Modal::None
+    }
+}

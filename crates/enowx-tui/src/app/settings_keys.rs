@@ -2,16 +2,27 @@ use super::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 impl App {
-    /// Editing provider identity invalidates everything scoped to the old
-    /// provider: its key, endpoints, and any detected model.
+    /// React to an edit in the settings form.
+    ///
+    /// Editing the endpoint used to blank the API key, the model-list URL,
+    /// the model and the context window — on every keystroke, before the user
+    /// could save. Correcting a typo in a URL (adding a missing `/v1`, say)
+    /// therefore cost the whole provider setup and forced a re-entry of
+    /// everything.
+    ///
+    /// What actually stops being valid is scoped to the HOST: a key issued by
+    /// one service is meaningless at another. That is decided at SAVE, in
+    /// `reconcile_host_change`, not here — every prefix of a URL is typed on
+    /// the way to the full one, and `https://a` is a perfectly valid host that
+    /// happens to be one keystroke into `https://ai.example.id`. Clearing on
+    /// each keystroke wiped the key before the user finished the word.
+    ///
+    /// The model list held in memory is still dropped, since it was fetched
+    /// from the old endpoint and may no longer describe this one.
     pub(crate) fn settings_changed(&mut self, field: SettingsField) {
         self.modal_error.clear();
         if matches!(field, SettingsField::Provider | SettingsField::BaseUrl) {
             self.settings.preset = "custom".into();
-            self.settings.api_key.clear();
-            self.settings.models_url.clear();
-            self.settings.model.clear();
-            self.settings.context_window.clear();
         }
         if field != SettingsField::Model && field != SettingsField::ContextWindow {
             self.models.clear();
@@ -120,5 +131,87 @@ impl App {
             _ => {}
         }
         Ok(())
+    }
+}
+
+/// Scheme and authority of a URL (`https://host:port`), lowercased, or None
+/// when the text is not yet a usable URL — the state every partially typed
+/// URL passes through, and the reason this returns an Option rather than
+/// guessing.
+///
+/// Hand-rolled rather than pulling an HTTP client into the UI crate: the only
+/// question here is whether two endpoints point at the same host.
+pub(crate) fn origin_of(url: &str) -> Option<String> {
+    let url = url.trim();
+    let (scheme, rest) = url.split_once("://")?;
+    let scheme = scheme.to_ascii_lowercase();
+    if scheme != "http" && scheme != "https" {
+        return None;
+    }
+    // Authority runs to the first `/`, `?` or `#`.
+    let authority = rest
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    // Strip any userinfo; the host is what identifies the service.
+    let authority = authority.rsplit('@').next().unwrap_or_default();
+    if authority.is_empty() {
+        return None;
+    }
+    Some(format!("{scheme}://{authority}"))
+}
+
+#[cfg(test)]
+mod origin_tests {
+    use super::origin_of;
+
+    #[test]
+    fn paths_do_not_change_the_origin() {
+        assert_eq!(
+            origin_of("https://ai.example.id/v1"),
+            origin_of("https://ai.example.id/v2/chat")
+        );
+    }
+
+    #[test]
+    fn a_different_host_is_a_different_origin() {
+        assert_ne!(
+            origin_of("https://ai.example.id/v1"),
+            origin_of("https://other.example.id/v1")
+        );
+    }
+
+    #[test]
+    fn a_port_is_part_of_the_origin() {
+        assert_ne!(
+            origin_of("http://localhost:8080/v1"),
+            origin_of("http://localhost:9090/v1")
+        );
+    }
+
+    #[test]
+    fn case_is_ignored_in_the_host() {
+        assert_eq!(
+            origin_of("https://AI.Example.ID/v1"),
+            origin_of("https://ai.example.id/v1")
+        );
+    }
+
+    /// Every prefix of a URL is typed on the way to the full one; none of
+    /// them may read as a move to a new host.
+    #[test]
+    fn partial_input_has_no_origin() {
+        for partial in ["h", "https", "https:/", "https://", "https://@", "  "] {
+            assert_eq!(origin_of(partial), None, "{partial:?} should not parse");
+        }
+    }
+
+    #[test]
+    fn userinfo_is_not_part_of_the_identity() {
+        assert_eq!(
+            origin_of("https://user:pw@ai.example.id/v1"),
+            origin_of("https://ai.example.id/v1")
+        );
     }
 }

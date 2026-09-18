@@ -82,21 +82,90 @@ fn the_toggles_flip_and_persist() {
 
 /// Entering the key opens a masked field rather than echoing it into the
 /// transcript.
+///
+/// The screen alone cannot test this: a masked field and a field that never
+/// received the keystrokes look identical. The first version of this test
+/// only asserted the key was not visible, which passed while typing went
+/// into the wrong field entirely and the key could not be set at all.
 #[test]
-fn the_key_is_entered_in_a_form() {
+fn typing_reaches_the_key_field() {
     let mut app = TestApp::new();
     app.run_command("/typesafe").expect("/typesafe");
     app.press(KeyCode::Enter, false).expect("choose API key");
-    let text = app.render_to_text(100, 24).join("\n");
-    assert!(text.contains("TypeSafe"), "the form should name it: {text}");
     for c in "secret-key-123".chars() {
         app.press(KeyCode::Char(c), false).expect("type");
     }
+    assert_eq!(
+        app.key_draft(),
+        "secret-key-123",
+        "the keystrokes must land in the key field"
+    );
     let text = app.render_to_text(100, 24).join("\n");
     assert!(
         !text.contains("secret-key-123"),
-        "the key must be masked as it is typed: {text}"
+        "and must not be echoed to the screen: {text}"
     );
+}
+
+/// Typing a key is only half of it: Enter has to save it, and the feature has
+/// to come on as a result.
+#[test]
+fn entering_a_key_turns_typesafe_on() {
+    let mut app = TestApp::new();
+    assert!(!app.typesafe_active(), "off to begin with");
+    app.run_command("/typesafe").expect("/typesafe");
+    app.press(KeyCode::Enter, false).expect("choose API key");
+    for c in "a-real-looking-key".chars() {
+        app.press(KeyCode::Char(c), false).expect("type");
+    }
+    app.press(KeyCode::Enter, false).expect("save");
+    assert_eq!(
+        app.typesafe_key(),
+        "a-real-looking-key",
+        "it should be saved"
+    );
+    assert!(app.typesafe_active(), "and the features should come on");
+    // Back to the list, which should now say so.
+    let text = app.render_to_text(100, 24).join("\n");
+    assert!(
+        text.contains("set") && !text.contains("not set"),
+        "the window should reflect the saved key: {text}"
+    );
+}
+
+/// Clearing the key is how someone turns the whole thing off again.
+#[test]
+fn an_emptied_key_turns_it_off() {
+    let mut app = TestApp::new();
+    app.run_command("/typesafe").expect("/typesafe");
+    app.press(KeyCode::Enter, false).expect("choose API key");
+    for c in "temporary".chars() {
+        app.press(KeyCode::Char(c), false).expect("type");
+    }
+    app.press(KeyCode::Enter, false).expect("save");
+    assert!(app.typesafe_active());
+
+    app.press(KeyCode::Enter, false)
+        .expect("choose API key again");
+    app.press(KeyCode::Enter, false).expect("save an empty one");
+    assert!(
+        !app.typesafe_active(),
+        "an empty key must turn every feature off"
+    );
+}
+
+/// Esc must not save a half-typed key.
+#[test]
+fn cancelling_does_not_save() {
+    let mut app = TestApp::new();
+    app.run_command("/typesafe").expect("/typesafe");
+    app.press(KeyCode::Enter, false).expect("choose API key");
+    for c in "half-typed".chars() {
+        app.press(KeyCode::Char(c), false).expect("type");
+    }
+    app.press(KeyCode::Esc, false).expect("cancel");
+    assert!(!app.typesafe_active(), "nothing should have been saved");
+    assert_eq!(app.typesafe_key(), "");
 }
 
 #[test]

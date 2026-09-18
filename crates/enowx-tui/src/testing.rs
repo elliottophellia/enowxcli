@@ -828,3 +828,16 @@ impl TestApp {
         self.inner.config.typesafe.gate_tool_results
     }
 }
+
+impl TestApp {
+    /// What the key form currently holds. A masked field shows nothing on
+    /// screen, so a test that only reads the screen cannot tell "typed and
+    /// hidden" from "not typed at all".
+    pub fn key_draft(&self) -> String {
+        self.inner.settings.api_key.clone()
+    }
+
+    pub fn typesafe_key(&self) -> String {
+        self.inner.config.typesafe.api_key.clone()
+    }
+}

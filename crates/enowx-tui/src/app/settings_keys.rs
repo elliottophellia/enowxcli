@@ -70,6 +70,7 @@ impl App {
             }
             KeyCode::Enter if self.modal == Modal::ModelUrl => self.discover_models(),
             KeyCode::Enter if self.modal == Modal::ProviderKey => self.connect_preset()?,
+            KeyCode::Enter if self.modal == Modal::TypeSafeKey => self.save_typesafe_key()?,
             KeyCode::Enter if field == SettingsField::Theme => {
                 self.open_themes();
                 return Ok(());

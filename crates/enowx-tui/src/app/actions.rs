@@ -196,7 +196,16 @@ impl App {
         match self.modal_cursor {
             0 => {
                 // Reuse the provider-key form, which already masks input.
+                // The cursor has to name the API-key field: the form routes
+                // typing by `SETTINGS_FIELDS[modal_cursor]`, so leaving it at
+                // 0 sent every keystroke into the provider-name field while
+                // the API-key row was the one on screen.
                 self.settings.api_key.clear();
+                self.modal_cursor = SETTINGS_FIELDS
+                    .iter()
+                    .position(|f| *f == SettingsField::ApiKey)
+                    .unwrap_or(0);
+                self.field_cursor = 0;
                 self.modal = Modal::TypeSafeKey;
             }
             1 => {

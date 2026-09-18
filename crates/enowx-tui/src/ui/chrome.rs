@@ -77,12 +77,14 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
         if sidebar > 0 {
             let x = parts[1].x + parts[1].width - sidebar;
             frame.render_widget(
-                // Sits on the footer's own background so the rule does not
-                // punch a lighter cell into the strip beside it.
+                // The rule takes the SIDEBAR's background, not the footer's.
+                // It marks the sidebar's edge, and painting it `subtle` left
+                // one lighter cell standing proud of the dark column below —
+                // a single-cell leak, but the eye finds it immediately.
                 Paragraph::new("│").style(
                     Style::default()
                         .fg(app.theme.border)
-                        .bg(app.theme.subtle),
+                        .bg(app.theme.panel),
                 ),
                 Rect::new(x, parts[2].y, 1, parts[2].height),
             );

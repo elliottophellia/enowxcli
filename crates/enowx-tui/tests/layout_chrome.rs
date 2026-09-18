@@ -137,3 +137,32 @@ fn the_sidebar_pager_shares_the_pane_background() {
         "the pager should share the sidebar's background, not a lighter strip"
     );
 }
+
+/// Every cell of the divider column must share one background. A single cell
+/// painted with the footer's lighter colour stood proud of the dark column
+/// below it — one cell wide, but the eye lands on it immediately.
+#[test]
+fn the_divider_column_is_one_colour_all_the_way_down() {
+    let mut app = TestApp::new();
+    app.push_assistant("content");
+    let rows = app.render_to_text(W, H);
+    let col = divider_column(&rows);
+
+    let top = rows
+        .iter()
+        .position(|r| r.matches('│').count() >= 3)
+        .expect("a body row");
+    let bottom = rows
+        .iter()
+        .rposition(|r| r.contains('╰'))
+        .expect("the bottom frame");
+
+    let reference = app.row_backgrounds(W, H, top as u16)[col].clone();
+    for row in top..bottom {
+        let bg = app.row_backgrounds(W, H, row as u16)[col].clone();
+        assert_eq!(
+            bg, reference,
+            "row {row} breaks the divider column's colour: {bg} vs {reference}"
+        );
+    }
+}

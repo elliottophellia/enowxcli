@@ -137,6 +137,10 @@ pub(crate) struct App {
     /// streamed token re-ran the markdown parser over the whole session, so
     /// the cost of drawing a frame grew with the length of the conversation.
     pub(crate) render_cache: Vec<Option<crate::ui::BlockRender>>,
+    /// How many times the trailing error block's message has arrived in a row.
+    /// Shown as `×N` so a silent collapse does not hide that it is still
+    /// happening. Reset whenever a non-error block lands.
+    pub(crate) error_repeats: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -217,6 +221,7 @@ impl App {
             quit_confirm_rects: [(Rect::default(), false), (Rect::default(), false)],
             file_link_markers: Vec::new(),
             render_cache: Vec::new(),
+            error_repeats: 0,
             file_link_rects: Vec::new(),
             selection: None,
             wrapped_snapshot: Vec::new(),
@@ -230,9 +235,40 @@ impl App {
     }
 
     pub(crate) fn push(&mut self, kind: TranscriptKind, text: impl Into<String>) {
+        let text = text.into();
+        // Errors collapse instead of stacking. A provider that is down, a bad
+        // key, or a retry loop otherwise fills the transcript with the same
+        // line over and over and pushes the real conversation off screen.
+        if matches!(kind, TranscriptKind::Error) {
+            self.push_error(text);
+            return;
+        }
+        self.blocks.push(TranscriptBlock { kind, text });
+    }
+
+    /// Record an error as ONE block.
+    ///
+    /// A repeat of the message already showing updates that block in place and
+    /// bumps its counter; a different message replaces it, because the newest
+    /// failure is the one worth reading and the previous one is usually its
+    /// cause rather than separate news. Any other block arriving in between
+    /// ends the run, so an error from an earlier turn stays where it happened.
+    fn push_error(&mut self, text: String) {
+        if let Some(last) = self.blocks.last_mut() {
+            if matches!(last.kind, TranscriptKind::Error) {
+                if last.text == text {
+                    self.error_repeats = self.error_repeats.saturating_add(1);
+                } else {
+                    last.text = text;
+                    self.error_repeats = 1;
+                }
+                return;
+            }
+        }
+        self.error_repeats = 1;
         self.blocks.push(TranscriptBlock {
-            kind,
-            text: text.into(),
+            kind: TranscriptKind::Error,
+            text,
         });
     }
 

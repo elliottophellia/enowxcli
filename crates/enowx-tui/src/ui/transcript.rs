@@ -1201,6 +1201,7 @@ fn render_block(
     theme: &Theme,
     show_reasoning: bool,
     show_tool_output: bool,
+    error_repeats: usize,
     tool_expanded: &std::collections::HashMap<String, bool>,
     lines: &mut Vec<Line<'static>>,
     tool_headers: &mut Vec<(String, usize)>,
@@ -1440,8 +1441,15 @@ fn render_block(
                 }
             }
             TranscriptKind::Error => {
+                // `×N` says the same failure is still arriving. Without it the
+                // collapse would look like the error happened once.
+                let label = if error_repeats > 1 {
+                    format!("error ×{error_repeats}")
+                } else {
+                    "error".to_string()
+                };
                 lines.push(Line::styled(
-                    "error",
+                    label,
                     Style::default().fg(theme.red).add_modifier(Modifier::BOLD),
                 ));
                 for line in textwrap::wrap(&block.text, width.saturating_sub(3)) {
@@ -1472,6 +1480,7 @@ fn refresh_render_cache(app: &mut App, width: usize) {
     let theme = app.theme;
     let show_reasoning = app.show_reasoning;
     let show_tool_output = app.show_tool_output;
+    let error_repeats = app.error_repeats;
 
     app.render_cache.resize(app.blocks.len(), None);
 
@@ -1518,6 +1527,11 @@ fn refresh_render_cache(app: &mut App, width: usize) {
             }
             other => {
                 std::mem::discriminant(other).hash(&mut hasher);
+                // The repeat counter is drawn into the error block, so a
+                // change to it has to invalidate that block's cache entry.
+                if matches!(other, TranscriptKind::Error) {
+                    error_repeats.hash(&mut hasher);
+                }
                 (false, false)
             }
         };
@@ -1547,6 +1561,7 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 &theme,
                 show_reasoning,
                 show_tool_output,
+                error_repeats,
                 &app.tool_expanded,
                 &mut lines,
                 &mut tool_headers,

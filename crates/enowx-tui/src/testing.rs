@@ -255,3 +255,51 @@ impl TestApp {
         self.inner.auto_scroll
     }
 }
+
+impl TestApp {
+    pub fn push_error(&mut self, text: &str) {
+        self.inner.push(TranscriptKind::Error, text);
+    }
+
+    pub fn block_count(&self) -> usize {
+        self.inner.blocks.len()
+    }
+
+    pub fn error_block_count(&self) -> usize {
+        self.inner
+            .blocks
+            .iter()
+            .filter(|b| matches!(b.kind, TranscriptKind::Error))
+            .count()
+    }
+}
+
+impl TestApp {
+    /// Rendered rows paired with whether they carry the theme's red, so a test
+    /// can assert colour without hard-coding escape sequences.
+    pub fn render_to_styled(&mut self, width: u16, height: u16) -> Vec<(String, bool)> {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let red = self.inner.theme.red;
+        let mut term = Terminal::new(TestBackend::new(width, height)).unwrap();
+        term.draw(|f| crate::ui::draw(f, &mut self.inner)).unwrap();
+        let buffer = term.backend().buffer().clone();
+        (0..height)
+            .map(|y| {
+                let mut row = String::new();
+                let mut is_red = false;
+                let mut x = 0u16;
+                while x < width {
+                    let cell = &buffer[(x, y)];
+                    let symbol = cell.symbol();
+                    if cell.fg == red && !symbol.trim().is_empty() {
+                        is_red = true;
+                    }
+                    row.push_str(symbol);
+                    x += unicode_width::UnicodeWidthStr::width(symbol).max(1) as u16;
+                }
+                (row.trim_end().to_string(), is_red)
+            })
+            .collect()
+    }
+}

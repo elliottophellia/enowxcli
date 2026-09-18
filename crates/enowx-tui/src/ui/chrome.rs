@@ -43,6 +43,22 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
     }
     if footer > 0 {
         draw_footer(frame, app, parts[2]);
+        // Carry the pane divider through the footer to the frame. The
+        // divider is the sidebar's left border, so it ended where the
+        // sidebar did — one row short of the bottom — and a vertical rule
+        // stopping in mid-air reads as a rendering fault rather than as the
+        // edge of a pane.
+        if sidebar > 0 {
+            let x = parts[1].x + parts[1].width - sidebar;
+            frame.render_widget(
+                Paragraph::new("│").style(
+                    Style::default()
+                        .fg(app.theme.border)
+                        .bg(app.theme.subtle),
+                ),
+                Rect::new(x, parts[2].y, 1, parts[2].height),
+            );
+        }
     }
 }
 

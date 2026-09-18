@@ -3,10 +3,12 @@ use enowx_tui::testing::TestApp;
 
 fn main() {
     let mut app = TestApp::new();
-    app.push_user("summarize this repo");
-    app.push_assistant("Reading the tree now.");
-    for _ in 0..7 {
-        app.push_error("Request failed: error sending request for url (https://api.example.com/v1/chat/completions): connection refused");
+    app.push_user("hallo");
+    
+    // The exact sequence from a real backoff: one message per attempt.
+    let msg = "provider stream ended without a finish reason; no tools executed";
+    for attempt in 2..=6 {
+        app.push_retry(msg, attempt, 10);
     }
     for line in app.render_to_text(78, 22) {
         println!("{line}");

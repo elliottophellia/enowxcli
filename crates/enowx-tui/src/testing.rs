@@ -303,3 +303,20 @@ impl TestApp {
             .collect()
     }
 }
+
+impl TestApp {
+    /// Feed a retry the way the agent's backoff loop does.
+    pub fn push_retry(&mut self, message: &str, attempt: u32, max: u32) {
+        self.inner.retry_attempt = attempt;
+        self.inner.retry_max = max;
+        self.inner.push(TranscriptKind::Retry, message);
+    }
+
+    pub fn retry_block_count(&self) -> usize {
+        self.inner
+            .blocks
+            .iter()
+            .filter(|b| matches!(b.kind, TranscriptKind::Retry))
+            .count()
+    }
+}

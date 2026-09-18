@@ -195,9 +195,11 @@ impl Provider {
     }
 }
 
-/// Notice callback used by the retry loop to surface `Notice` events to the
-/// UI while the request is being retried. `None` disables notifications.
-pub type NoticeSink = Option<Box<dyn Fn(String) + Send + Sync>>;
+/// Callback the retry loop uses to tell the UI a transient failure is being
+/// retried. Receives the failure text plus which attempt this is, so the UI
+/// can render one collapsing line rather than one message per attempt.
+/// `None` disables notifications.
+pub type NoticeSink = Option<Box<dyn Fn(String, u32, u32) + Send + Sync>>;
 
 impl Provider {
     pub async fn complete(
@@ -231,12 +233,10 @@ impl Provider {
                     }
                     let delay = backoff_ms(attempt);
                     if let Some(cb) = notice {
-                        cb(format!(
-                            "upstream error: {e}. retry {}/{} in {}ms",
-                            attempt + 1,
-                            MAX_RETRIES,
-                            delay
-                        ));
+                        // Hand over the parts, not a sentence: the UI shows a
+                        // single line that updates in place, so it needs the
+                        // attempt number separately from the message.
+                        cb(format!("{e}"), attempt + 1, MAX_RETRIES);
                     }
                     tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
                     last_err = Some(e);

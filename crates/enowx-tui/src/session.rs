@@ -17,6 +17,11 @@ pub(crate) enum TranscriptKind {
         started: Option<std::time::Instant>,
     },
     Notice,
+    /// A transient upstream failure being retried. Rendered like an error —
+    /// it IS one, the turn just has not given up yet — but as a single line
+    /// that updates in place, because a backoff sequence emits one of these
+    /// per attempt.
+    Retry,
     Error,
     System,
 }

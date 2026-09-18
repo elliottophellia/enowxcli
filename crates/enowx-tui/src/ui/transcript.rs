@@ -1202,6 +1202,8 @@ fn render_block(
     show_reasoning: bool,
     show_tool_output: bool,
     error_repeats: usize,
+    retry_attempt: u32,
+    retry_max: u32,
     tool_expanded: &std::collections::HashMap<String, bool>,
     lines: &mut Vec<Line<'static>>,
     tool_headers: &mut Vec<(String, usize)>,
@@ -1440,6 +1442,26 @@ fn render_block(
                     lines.push(line);
                 }
             }
+            TranscriptKind::Retry => {
+                // Red like an error, because it is one — the turn simply has
+                // not given up yet. `retry N/M` replaces the per-attempt
+                // messages that used to stack, one per backoff step.
+                let label = if retry_max > 0 {
+                    format!("retry {retry_attempt}/{retry_max}")
+                } else {
+                    "retry".to_string()
+                };
+                lines.push(Line::styled(
+                    label,
+                    Style::default().fg(theme.red).add_modifier(Modifier::BOLD),
+                ));
+                for line in textwrap::wrap(&block.text, width.saturating_sub(3)) {
+                    lines.push(Line::styled(
+                        format!("│ {line}"),
+                        Style::default().fg(theme.red),
+                    ));
+                }
+            }
             TranscriptKind::Error => {
                 // `×N` says the same failure is still arriving. Without it the
                 // collapse would look like the error happened once.
@@ -1481,6 +1503,8 @@ fn refresh_render_cache(app: &mut App, width: usize) {
     let show_reasoning = app.show_reasoning;
     let show_tool_output = app.show_tool_output;
     let error_repeats = app.error_repeats;
+    let retry_attempt = app.retry_attempt;
+    let retry_max = app.retry_max;
 
     app.render_cache.resize(app.blocks.len(), None);
 
@@ -1532,6 +1556,12 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 if matches!(other, TranscriptKind::Error) {
                     error_repeats.hash(&mut hasher);
                 }
+                // The attempt counter is drawn into the retry block, so it
+                // has to invalidate that block's cache entry as it advances.
+                if matches!(other, TranscriptKind::Retry) {
+                    retry_attempt.hash(&mut hasher);
+                    retry_max.hash(&mut hasher);
+                }
                 (false, false)
             }
         };
@@ -1562,6 +1592,8 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 show_reasoning,
                 show_tool_output,
                 error_repeats,
+                retry_attempt,
+                retry_max,
                 &app.tool_expanded,
                 &mut lines,
                 &mut tool_headers,

@@ -137,6 +137,11 @@ pub(crate) struct App {
     /// streamed token re-ran the markdown parser over the whole session, so
     /// the cost of drawing a frame grew with the length of the conversation.
     pub(crate) render_cache: Vec<Option<crate::ui::BlockRender>>,
+    /// Which attempt the trailing retry block is on, and the cap. Shown as
+    /// `retry N/M` so collapsing the sequence still tells the user the agent
+    /// is working through its budget rather than stuck.
+    pub(crate) retry_attempt: u32,
+    pub(crate) retry_max: u32,
     /// How many times the trailing error block's message has arrived in a row.
     /// Shown as `×N` so a silent collapse does not hide that it is still
     /// happening. Reset whenever a non-error block lands.
@@ -221,6 +226,8 @@ impl App {
             quit_confirm_rects: [(Rect::default(), false), (Rect::default(), false)],
             file_link_markers: Vec::new(),
             render_cache: Vec::new(),
+            retry_attempt: 0,
+            retry_max: 0,
             error_repeats: 0,
             file_link_rects: Vec::new(),
             selection: None,
@@ -239,8 +246,8 @@ impl App {
         // Errors collapse instead of stacking. A provider that is down, a bad
         // key, or a retry loop otherwise fills the transcript with the same
         // line over and over and pushes the real conversation off screen.
-        if matches!(kind, TranscriptKind::Error) {
-            self.push_error(text);
+        if matches!(kind, TranscriptKind::Error | TranscriptKind::Retry) {
+            self.push_failure(kind, text);
             return;
         }
         self.blocks.push(TranscriptBlock { kind, text });
@@ -253,12 +260,17 @@ impl App {
     /// failure is the one worth reading and the previous one is usually its
     /// cause rather than separate news. Any other block arriving in between
     /// ends the run, so an error from an earlier turn stays where it happened.
-    fn push_error(&mut self, text: String) {
+    fn push_failure(&mut self, kind: TranscriptKind, text: String) {
+        // A retry that ends in failure should leave ONE block behind, not a
+        // retry line plus an error line, so a terminal error takes over the
+        // retry block it grew out of.
         if let Some(last) = self.blocks.last_mut() {
-            if matches!(last.kind, TranscriptKind::Error) {
-                if last.text == text {
+            if matches!(last.kind, TranscriptKind::Error | TranscriptKind::Retry) {
+                let same_kind = std::mem::discriminant(&last.kind) == std::mem::discriminant(&kind);
+                if same_kind && last.text == text {
                     self.error_repeats = self.error_repeats.saturating_add(1);
                 } else {
+                    last.kind = kind;
                     last.text = text;
                     self.error_repeats = 1;
                 }
@@ -266,10 +278,7 @@ impl App {
             }
         }
         self.error_repeats = 1;
-        self.blocks.push(TranscriptBlock {
-            kind: TranscriptKind::Error,
-            text,
-        });
+        self.blocks.push(TranscriptBlock { kind, text });
     }
 
     pub(crate) fn set_activity(&mut self, activity: Activity) {

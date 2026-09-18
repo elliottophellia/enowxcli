@@ -376,12 +376,18 @@ impl Agent {
             // can await it.
             let notice_sink: crate::provider::NoticeSink = {
                 let events = events.clone();
-                Some(Box::new(move |msg: String| {
+                Some(Box::new(move |msg: String, attempt: u32, max: u32| {
                     let events = events.clone();
                     tokio::spawn(async move {
-                        let _ = events.send(Event::Notice { message: msg }).await;
+                        let _ = events
+                            .send(Event::Retry {
+                                message: msg,
+                                attempt,
+                                max,
+                            })
+                            .await;
                     });
-                }) as Box<dyn Fn(String) + Send + Sync>)
+                }) as Box<dyn Fn(String, u32, u32) + Send + Sync>)
             };
             let completion = tokio::select! {
                 result = provider.complete_with_notice(&wire, &schemas, &chunk_tx, &notice_sink) => {

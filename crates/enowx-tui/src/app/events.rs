@@ -164,6 +164,15 @@ impl App {
                 );
             }
             Event::Notice { message } => self.push(TranscriptKind::Notice, message),
+            Event::Retry {
+                message,
+                attempt,
+                max,
+            } => {
+                self.retry_attempt = attempt;
+                self.retry_max = max;
+                self.push(TranscriptKind::Retry, message);
+            }
             Event::Usage {
                 input_tokens,
                 output_tokens,

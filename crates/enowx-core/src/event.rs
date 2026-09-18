@@ -50,9 +50,19 @@ pub enum Event {
         install_hint: String,
         install_cmd: Vec<String>,
     },
-    /// Harness note the user should see: retry, step cap, role switch.
+    /// Harness note the user should see: step cap, role switch, compaction.
     Notice {
         message: String,
+    },
+    /// A transient upstream failure that is being retried. Separate from
+    /// `Notice` because the UI collapses these into one line — a backoff
+    /// sequence otherwise emits a near-identical message per attempt and
+    /// buries the conversation — and from `Error` because the turn has not
+    /// failed yet.
+    Retry {
+        message: String,
+        attempt: u32,
+        max: u32,
     },
     /// Token accounting for the finished model call.
     Usage {

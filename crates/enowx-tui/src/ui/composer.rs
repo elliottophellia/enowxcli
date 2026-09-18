@@ -7,8 +7,11 @@ pub(super) fn draw_composer_pane(frame: &mut Frame, app: &mut App, area: Rect) {
     let (input, row, col) = input_rows(&app.input, app.cursor, width);
     // Two rows of breathing room by default, growing to eight so a pasted block
     // stays readable, and never past half the pane so the chat keeps its space.
-    let cap = (area.height / 2).clamp(3, 9);
-    let ih = (input.len().clamp(2, 8) as u16 + 1).min(cap);
+    let cap = (area.height / 2).clamp(4, 10);
+    // One row for the top rule and one for the gap above the footer, so the
+    // last line of input never sits directly against either.
+    const FRAME: u16 = 2;
+    let ih = (input.len().clamp(1, 8) as u16 + FRAME).min(cap);
     // Chip row above the input surfaces pasted or dropped images and their errors.
     // Attachments now render as inline `[Image N]` chips inside the field.
     let ah = if app.attach_error.is_some() { 1 } else { 0 };
@@ -89,7 +92,7 @@ pub(super) fn draw_composer_pane(frame: &mut Frame, app: &mut App, area: Rect) {
         area.x + 2,
         rows[3].y + 1,
         area.width.saturating_sub(3),
-        ih.saturating_sub(1),
+        ih.saturating_sub(FRAME),
     );
     frame.render_widget(
         Paragraph::new("❯").style(Style::default().fg(t.accent).bg(t.subtle)),

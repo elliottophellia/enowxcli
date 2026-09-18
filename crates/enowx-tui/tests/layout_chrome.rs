@@ -169,3 +169,62 @@ fn the_divider_column_is_one_colour_all_the_way_down() {
         );
     }
 }
+
+/// The last line of input must not sit directly on the footer. Without a gap
+/// the text reads as though it has fallen out of the composer onto the black
+/// band below it.
+#[test]
+fn the_composer_keeps_a_gap_above_the_footer() {
+    for input in ["halo", "satu\ndua", "satu\ndua\ntiga\nempat"] {
+        let mut app = TestApp::new();
+        app.type_input(input);
+        let rendered = rows(&mut app);
+        let footer = rendered
+            .iter()
+            .rposition(|row| row.contains("router"))
+            .expect("the footer names the agent");
+        let last = input.lines().next_back().expect("a last line");
+        let text = rendered
+            .iter()
+            .rposition(|row| row.contains(last))
+            .unwrap_or_else(|| panic!("{last:?} should be on screen"));
+        assert!(
+            text < footer,
+            "input at {text} should sit above the footer at {footer}"
+        );
+        assert_eq!(
+            footer - text,
+            2,
+            "exactly one blank row belongs between the last input line ({:?}) \
+             and the footer ({:?})",
+            rendered[text],
+            rendered[footer]
+        );
+        // Only the composer's own column: the sidebar beside it has its own
+        // content on that row and is not what this is about.
+        let gap = &rendered[text + 1];
+        let composer = gap.split('│').nth(1).expect("the composer pane's cells");
+        assert!(
+            composer.trim().is_empty(),
+            "the composer's row between them should be blank: {composer:?}"
+        );
+    }
+}
+
+/// The rule above the composer is the other edge of the same gap: input must
+/// not touch it either.
+#[test]
+fn the_composer_keeps_its_rule_above_the_input() {
+    let mut app = TestApp::new();
+    app.type_input("satu\ndua");
+    let rendered = rows(&mut app);
+    let first = rendered
+        .iter()
+        .position(|row| row.contains("❯ satu"))
+        .expect("the first input line");
+    assert!(
+        rendered[first - 1].contains('─'),
+        "a rule belongs directly above the input: {:?}",
+        rendered[first - 1]
+    );
+}

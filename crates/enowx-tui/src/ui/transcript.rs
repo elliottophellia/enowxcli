@@ -46,254 +46,96 @@ pub(super) fn draw_transcript(frame: &mut Frame, app: &mut App, area: Rect) {
     app.file_link_markers.clear();
     app.file_link_rects.clear();
     app.transcript_area = Some(area);
+    // Re-render only the blocks whose key changed, then stitch the cached
+    // pieces together. Streaming mutates just the last block, so a token
+    // arriving mid-turn costs one block of parsing rather than the whole
+    // transcript's — which is what made a long session slow down as it grew.
+    refresh_render_cache(app, width);
+
     let mut lines: Vec<Line> = Vec::new();
+    // Total height first, WITHOUT materialising any lines. Scroll position
+    // and the scrollbar need the transcript's full length, but the frame only
+    // ever shows `area.height` rows of it — cloning every line of a long
+    // session to then draw thirty of them is what kept the cost proportional
+    // to the conversation even once parsing was cached.
+    let mut total: usize = 0;
     let mut compact_tools = false;
-    for block in &app.blocks {
-        if matches!(block.kind, TranscriptKind::Reasoning) && !app.show_reasoning {
+    for idx in 0..app.blocks.len() {
+        let Some(cached) = app.render_cache.get(idx).and_then(|c| c.as_ref()) else {
+            continue;
+        };
+        if cached.skipped {
             continue;
         }
-        if compact_tools && !matches!(block.kind, TranscriptKind::Tool { .. }) {
-            lines.push(Line::default());
-            compact_tools = false;
+        if compact_tools && !cached.is_tool {
+            total += 1;
         }
-        match &block.kind {
-            TranscriptKind::User => {
-                user_card(&mut lines, &block.text, width, &theme);
-            }
-            TranscriptKind::Assistant => {
-                render_markdown(&block.text, width, &mut lines, &theme);
-            }
-            TranscriptKind::Reasoning if app.show_reasoning => {
-                card(
-                    &mut lines,
-                    "THOUGHT TRACE",
-                    &block.text,
-                    width,
-                    theme.accent2,
-                    &theme,
-                );
-            }
-            TranscriptKind::Reasoning => continue,
-            TranscriptKind::Tool {
-                id,
-                name,
-                args,
-                result,
-                running,
-                error,
-            } => {
-                use crate::ui::tool::{classify, render_diff, ToolBody, ToolRender};
-                let icon = if *running {
-                    ("›", theme.yellow)
-                } else if *error {
-                    ("✗", theme.red)
-                } else {
-                    ("✓", theme.green)
-                };
-                let render = classify(name, args, result);
-                // `bash` output can be huge (a stray `ls` on node_modules
-                // spills hundreds of lines). Default-collapse it regardless
-                // of the master toggle; user clicks the header to expand.
-                let default_expand = if name == "bash" {
-                    false
-                } else {
-                    app.show_tool_output
-                };
-                let expanded = app.tool_expanded.get(id).copied().unwrap_or(default_expand);
-                match render {
-                    ToolRender::Summary(text) => {
-                        // Register a file marker for tools whose summary
-                        // starts with `<verb> <path>` so a click opens it.
-                        register_summary_file_link(
-                            name,
-                            args,
-                            &text,
-                            lines.len(),
-                            &mut app.file_link_markers,
-                        );
-                        lines.push(Line::from(vec![
-                            Span::styled(format!("{} ", icon.0), Style::default().fg(icon.1)),
-                            Span::styled(text, Style::default().fg(theme.muted)),
-                        ]));
-                    }
-                    ToolRender::Detail {
-                        header,
-                        subtitle,
-                        body,
-                    } => {
-                        let chevron = if expanded { "▾" } else { "▸" };
-                        let header_y_marker = lines.len();
-                        lines.push(Line::from(vec![
-                            Span::styled(
-                                format!("{chevron} {} ", icon.0),
-                                Style::default().fg(icon.1),
-                            ),
-                            Span::styled(header, Style::default().fg(theme.text)),
-                        ]));
-                        app.tool_header_markers.push((id.clone(), header_y_marker));
-                        // Header path (write, bash) is also a link target.
-                        register_detail_file_link(
-                            name,
-                            args,
-                            header_y_marker,
-                            &mut app.file_link_markers,
-                        );
-                        if expanded || *error {
-                            if let Some(sub) = subtitle {
-                                for wrapped in textwrap::wrap(&sub, width.saturating_sub(4).max(1))
-                                {
-                                    lines.push(Line::from(vec![
-                                        Span::styled("    ", Style::default().fg(theme.muted)),
-                                        Span::styled(
-                                            wrapped.into_owned(),
-                                            Style::default().fg(theme.muted),
-                                        ),
-                                    ]));
-                                }
-                            }
-                            match body {
-                                ToolBody::Plain(text) => {
-                                    // Parse ANSI SGR so `ls --color`,
-                                    // `grep --color`, and other TUI-aware
-                                    // programs render with their real
-                                    // colors instead of leaking `[m]`
-                                    // fragments. Non-bash Plain bodies
-                                    // (MCP proxy, generic tool) go through
-                                    // the same path — safe: they either
-                                    // have no escapes or the parser drops
-                                    // them.
-                                    let bg = theme.subtle;
-                                    let border_style = Style::default().fg(theme.accent).bg(bg);
-                                    let pieces = crate::ansi::parse(text);
-                                    let mut current: Vec<Span<'static>> = Vec::new();
-                                    let mut current_w: usize = 0;
-                                    // Layout: `│ content …` → 2 col gutter
-                                    // (`│ `) + body + right pad to full width.
-                                    let max_body_w = width.saturating_sub(3).max(1);
-                                    let flush = |lines: &mut Vec<Line<'static>>,
-                                                 current: &mut Vec<Span<'static>>,
-                                                 current_w: &mut usize| {
-                                        let pad = max_body_w.saturating_sub(*current_w);
-                                        let mut row: Vec<Span<'static>> = Vec::new();
-                                        row.push(Span::styled("│ ", border_style));
-                                        row.extend(std::mem::take(current));
-                                        row.push(Span::styled(
-                                            format!("{} ", " ".repeat(pad)),
-                                            Style::default().bg(bg),
-                                        ));
-                                        lines.push(Line::from(row));
-                                        *current_w = 0;
-                                    };
-                                    for piece in pieces {
-                                        let style = piece.style.bg(bg);
-                                        for segment in piece.text.split_inclusive('\n') {
-                                            let is_nl = segment.ends_with('\n');
-                                            let visible: String = if is_nl {
-                                                segment[..segment.len() - 1].to_string()
-                                            } else {
-                                                segment.to_string()
-                                            };
-                                            let vw = visible.chars().count();
-                                            let room = max_body_w.saturating_sub(current_w);
-                                            let (shown, overflow) = if vw > room {
-                                                let mut s: String = visible
-                                                    .chars()
-                                                    .take(room.saturating_sub(1).max(1))
-                                                    .collect();
-                                                s.push('…');
-                                                (s, true)
-                                            } else {
-                                                (visible, false)
-                                            };
-                                            let shown_w = shown.chars().count();
-                                            current.push(Span::styled(shown, style));
-                                            current_w += shown_w;
-                                            if is_nl || overflow {
-                                                flush(&mut lines, &mut current, &mut current_w);
-                                            }
-                                        }
-                                    }
-                                    if !current.is_empty() {
-                                        flush(&mut lines, &mut current, &mut current_w);
-                                    }
-                                }
-                                ToolBody::Diff {
-                                    path,
-                                    old,
-                                    new,
-                                    start_line,
-                                } => {
-                                    render_diff(
-                                        &path,
-                                        &old,
-                                        &new,
-                                        start_line,
-                                        width,
-                                        &mut lines,
-                                        &theme,
-                                        &mut app.file_link_markers,
-                                    );
-                                }
-                                ToolBody::Preview { content, total } => {
-                                    crate::ui::tool::render_preview(
-                                        &content, total, width, &mut lines, &theme,
-                                    );
-                                }
-                                ToolBody::Tree { items } => {
-                                    crate::ui::tool::render_tree(
-                                        &items,
-                                        width,
-                                        &mut lines,
-                                        &theme,
-                                        &mut app.file_link_markers,
-                                    );
-                                }
-                                ToolBody::Todo { items } => {
-                                    crate::ui::tool::render_todo(&items, width, &mut lines, &theme);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            TranscriptKind::Notice => {
-                let mut inner: Vec<Line<'static>> = Vec::new();
-                render_markdown(&block.text, width, &mut inner, &theme);
-                for line in inner {
-                    lines.push(line);
-                }
-            }
-            TranscriptKind::Error => {
-                lines.push(Line::styled(
-                    "error",
-                    Style::default().fg(theme.red).add_modifier(Modifier::BOLD),
-                ));
-                for line in textwrap::wrap(&block.text, width.saturating_sub(3)) {
-                    lines.push(Line::styled(
-                        format!("│ {line}"),
-                        Style::default().fg(theme.red),
-                    ));
-                }
-            }
-            TranscriptKind::System => {
-                for line in block.text.lines() {
-                    lines.push(Line::styled(
-                        line.to_string(),
-                        Style::default().fg(theme.muted),
-                    ));
-                }
-            }
-        }
-        lines.push(Line::default());
+        total += cached.lines.len();
+        compact_tools = cached.is_tool;
     }
+
+    let content_height = total.min(u16::MAX as usize) as u16;
+    let max_scroll = content_height.saturating_sub(area.height);
+    app.max_scroll = max_scroll;
+    if app.auto_scroll {
+        app.scroll = max_scroll;
+    } else {
+        app.scroll = app.scroll.min(max_scroll);
+    }
+
+    // Now walk again and keep only the window the viewport will show. Markers
+    // are rebased onto absolute transcript rows (what the click handlers
+    // expect) even for blocks scrolled out of view, so a marker's row stays
+    // comparable against `app.scroll`.
+    let view_start = app.scroll as usize;
+    let view_end = view_start.saturating_add(area.height as usize);
+    let mut cursor: usize = 0;
+    let mut compact_tools = false;
+    for idx in 0..app.blocks.len() {
+        let Some(cached) = app.render_cache.get(idx).and_then(|c| c.as_ref()) else {
+            continue;
+        };
+        if cached.skipped {
+            continue;
+        }
+        if compact_tools && !cached.is_tool {
+            if cursor >= view_start && cursor < view_end {
+                lines.push(Line::default());
+            }
+            cursor += 1;
+        }
+        let base = cursor;
+        let headers: Vec<(String, usize)> = cached
+            .tool_headers
+            .iter()
+            .map(|(id, off)| (id.clone(), base + off))
+            .collect();
+        let links: Vec<(usize, String)> = cached
+            .file_links
+            .iter()
+            .map(|(off, path)| (base + off, path.clone()))
+            .collect();
+        let block_end = base + cached.lines.len();
+        if block_end > view_start && base < view_end {
+            let from = view_start.saturating_sub(base);
+            let to = (view_end - base).min(cached.lines.len());
+            lines.extend(cached.lines[from..to].iter().cloned());
+        }
+        cursor = block_end;
+        compact_tools = cached.is_tool;
+        app.tool_header_markers.extend(headers);
+        app.file_link_markers.extend(links);
+    }
+    // `lines` now holds only the visible window, so everything downstream
+    // indexes from the top of the viewport rather than the transcript.
+    let view_offset = view_start;
+
     // Truncate any line that overshoots `width` instead of wrapping. Wrap
     // would push a continuation onto the next row without the gutter/marker
     // that the diff and card layouts rely on, leaving what look like blank
     // gap rows. A trailing `…` says content was elided.
     let mut wrapped: Vec<Line> = Vec::new();
-    let mut source_to_wrapped: Vec<usize> = Vec::with_capacity(lines.len());
     for line in lines {
-        source_to_wrapped.push(wrapped.len());
         if line.width() <= width {
             wrapped.push(line);
             continue;
@@ -320,31 +162,19 @@ pub(super) fn draw_transcript(frame: &mut Frame, app: &mut App, area: Rect) {
         ));
         wrapped.push(Line::from(out_spans).style(line.style));
     }
-    let content_height = wrapped.len().min(u16::MAX as usize) as u16;
-    let max_scroll = content_height.saturating_sub(area.height);
-    app.max_scroll = max_scroll;
-    if app.auto_scroll {
-        app.scroll = max_scroll;
-    } else {
-        app.scroll = app.scroll.min(max_scroll);
-    }
     // Snapshot visible rows with the terminal row they occupy so a mouse
-    // drag selection can extract exactly what the user saw.
+    // drag selection can extract exactly what the user saw. `wrapped` already
+    // starts at the first visible row, so row 0 is the top of the viewport.
     app.wrapped_snapshot.clear();
-    let scroll = app.scroll as usize;
-    for (idx, line) in wrapped
-        .iter()
-        .enumerate()
-        .skip(scroll)
-        .take(area.height as usize)
-    {
-        let screen_y = area.y + (idx - scroll) as u16;
+    for (idx, line) in wrapped.iter().enumerate().take(area.height as usize) {
+        let screen_y = area.y + idx as u16;
         app.wrapped_snapshot.push((screen_y, line.to_string()));
     }
-    // Convert tool header markers to on-screen rects (scroll-adjusted).
+    // Convert tool header markers to on-screen rects. Markers carry absolute
+    // transcript rows, so subtracting the scroll gives the screen row; the
+    // truncation pass above is one-to-one, so no index remapping is needed.
     for (id, marker) in std::mem::take(&mut app.tool_header_markers) {
-        let wrapped_idx = source_to_wrapped.get(marker).copied().unwrap_or(marker);
-        let screen_y = wrapped_idx as i32 - app.scroll as i32;
+        let screen_y = marker as i32 - view_offset as i32;
         if screen_y < 0 || screen_y >= area.height as i32 {
             continue;
         }
@@ -355,8 +185,7 @@ pub(super) fn draw_transcript(frame: &mut Frame, app: &mut App, area: Rect) {
     // Convert file link markers to on-screen rects so a click can open the
     // file with the OS default app.
     for (marker, path) in std::mem::take(&mut app.file_link_markers) {
-        let wrapped_idx = source_to_wrapped.get(marker).copied().unwrap_or(marker);
-        let screen_y = wrapped_idx as i32 - app.scroll as i32;
+        let screen_y = marker as i32 - view_offset as i32;
         if screen_y < 0 || screen_y >= area.height as i32 {
             continue;
         }
@@ -368,16 +197,18 @@ pub(super) fn draw_transcript(frame: &mut Frame, app: &mut App, area: Rect) {
     if let Some(sel) = app.selection {
         let (start, end) = normalize_selection(sel);
         for (idx, line) in wrapped.iter_mut().enumerate() {
-            let row = area.y + (idx as u16).saturating_sub(app.scroll);
-            if idx < scroll || row < start.0 || row > end.0 {
+            let row = area.y + idx as u16;
+            if row < start.0 || row > end.0 {
                 continue;
             }
             let bg = app.theme.active_tab;
             highlight_line(line, row, start, end, bg);
         }
     }
+    // `wrapped` already begins at the first visible row, so the paragraph
+    // draws from its own top — scrolling was applied when the window was cut.
     frame.render_widget(
-        Paragraph::new(wrapped).scroll((app.scroll, 0)),
+        Paragraph::new(wrapped),
         Rect::new(area.x, area.y, width as u16, area.height),
     );
 }
@@ -1252,5 +1083,346 @@ pub(super) fn register_detail_file_link(
     }
     if let Some(path) = args_path(args) {
         markers.push((line_index, path));
+    }
+}
+
+/// Render ONE transcript block into `lines`, recording click markers at
+/// offsets relative to that block's first line.
+///
+/// Split out of `draw_transcript` so a block can be rendered once and reused
+/// across frames. Takes plain buffers rather than `&mut App` because the cache
+/// calls it while holding a borrow of the block list.
+#[allow(clippy::too_many_arguments)]
+fn render_block(
+    block: &crate::session::TranscriptBlock,
+    width: usize,
+    theme: &Theme,
+    show_reasoning: bool,
+    show_tool_output: bool,
+    tool_expanded: &std::collections::HashMap<String, bool>,
+    lines: &mut Vec<Line<'static>>,
+    tool_headers: &mut Vec<(String, usize)>,
+    file_links: &mut Vec<(usize, String)>,
+) {
+
+        match &block.kind {
+            TranscriptKind::User => {
+                user_card(lines, &block.text, width, &theme);
+            }
+            TranscriptKind::Assistant => {
+                render_markdown(&block.text, width, lines, &theme);
+            }
+            TranscriptKind::Reasoning if show_reasoning => {
+                card(
+                    lines,
+                    "THOUGHT TRACE",
+                    &block.text,
+                    width,
+                    theme.accent2,
+                    &theme,
+                );
+            }
+            TranscriptKind::Reasoning => return,
+            TranscriptKind::Tool {
+                id,
+                name,
+                args,
+                result,
+                running,
+                error,
+            } => {
+                use crate::ui::tool::{classify, render_diff, ToolBody, ToolRender};
+                let icon = if *running {
+                    ("›", theme.yellow)
+                } else if *error {
+                    ("✗", theme.red)
+                } else {
+                    ("✓", theme.green)
+                };
+                let render = classify(name, args, result);
+                // `bash` output can be huge (a stray `ls` on node_modules
+                // spills hundreds of lines). Default-collapse it regardless
+                // of the master toggle; user clicks the header to expand.
+                let default_expand = if name == "bash" {
+                    false
+                } else {
+                    show_tool_output
+                };
+                let expanded = tool_expanded.get(id).copied().unwrap_or(default_expand);
+                match render {
+                    ToolRender::Summary(text) => {
+                        // Register a file marker for tools whose summary
+                        // starts with `<verb> <path>` so a click opens it.
+                        register_summary_file_link(
+                            name,
+                            args,
+                            &text,
+                            lines.len(),
+                            file_links,
+                        );
+                        lines.push(Line::from(vec![
+                            Span::styled(format!("{} ", icon.0), Style::default().fg(icon.1)),
+                            Span::styled(text, Style::default().fg(theme.muted)),
+                        ]));
+                    }
+                    ToolRender::Detail {
+                        header,
+                        subtitle,
+                        body,
+                    } => {
+                        let chevron = if expanded { "▾" } else { "▸" };
+                        let header_y_marker = lines.len();
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                format!("{chevron} {} ", icon.0),
+                                Style::default().fg(icon.1),
+                            ),
+                            Span::styled(header, Style::default().fg(theme.text)),
+                        ]));
+                        tool_headers.push((id.clone(), header_y_marker));
+                        // Header path (write, bash) is also a link target.
+                        register_detail_file_link(
+                            name,
+                            args,
+                            header_y_marker,
+                            file_links,
+                        );
+                        if expanded || *error {
+                            if let Some(sub) = subtitle {
+                                for wrapped in textwrap::wrap(&sub, width.saturating_sub(4).max(1))
+                                {
+                                    lines.push(Line::from(vec![
+                                        Span::styled("    ", Style::default().fg(theme.muted)),
+                                        Span::styled(
+                                            wrapped.into_owned(),
+                                            Style::default().fg(theme.muted),
+                                        ),
+                                    ]));
+                                }
+                            }
+                            match body {
+                                ToolBody::Plain(text) => {
+                                    // Parse ANSI SGR so `ls --color`,
+                                    // `grep --color`, and other TUI-aware
+                                    // programs render with their real
+                                    // colors instead of leaking `[m]`
+                                    // fragments. Non-bash Plain bodies
+                                    // (MCP proxy, generic tool) go through
+                                    // the same path — safe: they either
+                                    // have no escapes or the parser drops
+                                    // them.
+                                    let bg = theme.subtle;
+                                    let border_style = Style::default().fg(theme.accent).bg(bg);
+                                    let pieces = crate::ansi::parse(text);
+                                    let mut current: Vec<Span<'static>> = Vec::new();
+                                    let mut current_w: usize = 0;
+                                    // Layout: `│ content …` → 2 col gutter
+                                    // (`│ `) + body + right pad to full width.
+                                    let max_body_w = width.saturating_sub(3).max(1);
+                                    let flush = |lines: &mut Vec<Line<'static>>,
+                                                 current: &mut Vec<Span<'static>>,
+                                                 current_w: &mut usize| {
+                                        let pad = max_body_w.saturating_sub(*current_w);
+                                        let mut row: Vec<Span<'static>> = Vec::new();
+                                        row.push(Span::styled("│ ", border_style));
+                                        row.extend(std::mem::take(current));
+                                        row.push(Span::styled(
+                                            format!("{} ", " ".repeat(pad)),
+                                            Style::default().bg(bg),
+                                        ));
+                                        lines.push(Line::from(row));
+                                        *current_w = 0;
+                                    };
+                                    for piece in pieces {
+                                        let style = piece.style.bg(bg);
+                                        for segment in piece.text.split_inclusive('\n') {
+                                            let is_nl = segment.ends_with('\n');
+                                            let visible: String = if is_nl {
+                                                segment[..segment.len() - 1].to_string()
+                                            } else {
+                                                segment.to_string()
+                                            };
+                                            let vw = visible.chars().count();
+                                            let room = max_body_w.saturating_sub(current_w);
+                                            let (shown, overflow) = if vw > room {
+                                                let mut s: String = visible
+                                                    .chars()
+                                                    .take(room.saturating_sub(1).max(1))
+                                                    .collect();
+                                                s.push('…');
+                                                (s, true)
+                                            } else {
+                                                (visible, false)
+                                            };
+                                            let shown_w = shown.chars().count();
+                                            current.push(Span::styled(shown, style));
+                                            current_w += shown_w;
+                                            if is_nl || overflow {
+                                                flush(lines, &mut current, &mut current_w);
+                                            }
+                                        }
+                                    }
+                                    if !current.is_empty() {
+                                        flush(lines, &mut current, &mut current_w);
+                                    }
+                                }
+                                ToolBody::Diff {
+                                    path,
+                                    old,
+                                    new,
+                                    start_line,
+                                } => {
+                                    render_diff(
+                                        &path,
+                                        &old,
+                                        &new,
+                                        start_line,
+                                        width,
+                                        lines,
+                                        &theme,
+                                        file_links,
+                                    );
+                                }
+                                ToolBody::Preview { content, total } => {
+                                    crate::ui::tool::render_preview(
+                                        &content, total, width, lines, &theme,
+                                    );
+                                }
+                                ToolBody::Tree { items } => {
+                                    crate::ui::tool::render_tree(
+                                        &items,
+                                        width,
+                                        lines,
+                                        &theme,
+                                        file_links,
+                                    );
+                                }
+                                ToolBody::Todo { items } => {
+                                    crate::ui::tool::render_todo(&items, width, lines, &theme);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            TranscriptKind::Notice => {
+                let mut inner: Vec<Line<'static>> = Vec::new();
+                render_markdown(&block.text, width, &mut inner, &theme);
+                for line in inner {
+                    lines.push(line);
+                }
+            }
+            TranscriptKind::Error => {
+                lines.push(Line::styled(
+                    "error",
+                    Style::default().fg(theme.red).add_modifier(Modifier::BOLD),
+                ));
+                for line in textwrap::wrap(&block.text, width.saturating_sub(3)) {
+                    lines.push(Line::styled(
+                        format!("│ {line}"),
+                        Style::default().fg(theme.red),
+                    ));
+                }
+            }
+            TranscriptKind::System => {
+                for line in block.text.lines() {
+                    lines.push(Line::styled(
+                        line.to_string(),
+                        Style::default().fg(theme.muted),
+                    ));
+                }
+            }
+        }
+        lines.push(Line::default());
+    }
+
+/// Bring `app.render_cache` in line with `app.blocks`, re-rendering only the
+/// entries whose key changed.
+fn refresh_render_cache(app: &mut App, width: usize) {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let theme = app.theme;
+    let show_reasoning = app.show_reasoning;
+    let show_tool_output = app.show_tool_output;
+
+    app.render_cache.resize(app.blocks.len(), None);
+
+    for idx in 0..app.blocks.len() {
+        let block = &app.blocks[idx];
+        let mut hasher = DefaultHasher::new();
+        block.text.hash(&mut hasher);
+        // Hash every field that alters what is drawn. A tool's `result` grows
+        // while it streams, so it has to be part of the key.
+        let (is_tool, expanded) = match &block.kind {
+            TranscriptKind::Tool {
+                id,
+                name,
+                args,
+                result,
+                running,
+                error,
+            } => {
+                id.hash(&mut hasher);
+                name.hash(&mut hasher);
+                args.hash(&mut hasher);
+                result.hash(&mut hasher);
+                running.hash(&mut hasher);
+                error.hash(&mut hasher);
+                let default_expand = if name == "bash" {
+                    false
+                } else {
+                    show_tool_output
+                };
+                (
+                    true,
+                    app.tool_expanded.get(id).copied().unwrap_or(default_expand),
+                )
+            }
+            other => {
+                std::mem::discriminant(other).hash(&mut hasher);
+                (false, false)
+            }
+        };
+        let skipped = matches!(block.kind, TranscriptKind::Reasoning) && !show_reasoning;
+        let key = crate::ui::BlockKey {
+            content: hasher.finish(),
+            width,
+            theme: theme.name,
+            expanded,
+            show_reasoning,
+        };
+        if app
+            .render_cache
+            .get(idx)
+            .and_then(|c| c.as_ref())
+            .is_some_and(|c| c.key == key)
+        {
+            continue;
+        }
+        let mut lines: Vec<Line<'static>> = Vec::new();
+        let mut tool_headers: Vec<(String, usize)> = Vec::new();
+        let mut file_links: Vec<(usize, String)> = Vec::new();
+        if !skipped {
+            render_block(
+                block,
+                width,
+                &theme,
+                show_reasoning,
+                show_tool_output,
+                &app.tool_expanded,
+                &mut lines,
+                &mut tool_headers,
+                &mut file_links,
+            );
+        }
+        app.render_cache[idx] = Some(crate::ui::BlockRender {
+            key,
+            lines,
+            tool_headers,
+            file_links,
+            is_tool,
+            skipped,
+        });
     }
 }

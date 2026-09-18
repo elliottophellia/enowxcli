@@ -28,6 +28,43 @@ use popups::draw_popup;
 use sidebar::*;
 use transcript::*;
 
+/// One transcript block's rendered output, cached between frames.
+///
+/// Markers are stored RELATIVE to the block's first line. The absolute index
+/// a click handler needs depends on how many lines the blocks above produced,
+/// which changes as the transcript grows — storing absolute offsets would
+/// invalidate every block below an edit. The assembly step rebases them.
+#[derive(Clone)]
+pub(crate) struct BlockRender {
+    /// What the block looked like when this was produced. A mismatch on the
+    /// next frame is what forces a re-render.
+    pub(crate) key: BlockKey,
+    pub(crate) lines: Vec<ratatui::text::Line<'static>>,
+    /// (tool_id, line_offset_within_block)
+    pub(crate) tool_headers: Vec<(String, usize)>,
+    /// (line_offset_within_block, path)
+    pub(crate) file_links: Vec<(usize, String)>,
+    /// Whether this block is a tool call. Consecutive tool blocks render
+    /// without a blank line between them, so assembly needs to know.
+    pub(crate) is_tool: bool,
+    /// Reasoning block hidden by the current toggle: cached as empty so the
+    /// key still tracks the toggle, and skipped at assembly.
+    pub(crate) skipped: bool,
+}
+
+/// Everything a block's rendering depends on. Two blocks that agree on this
+/// produce identical lines, so the cached copy can be reused.
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct BlockKey {
+    /// Cheap content fingerprint. A hash rather than the text itself so the
+    /// key stays small for a long assistant turn.
+    pub(crate) content: u64,
+    pub(crate) width: usize,
+    pub(crate) theme: &'static str,
+    pub(crate) expanded: bool,
+    pub(crate) show_reasoning: bool,
+}
+
 pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
     frame.render_widget(

@@ -132,6 +132,11 @@ pub(crate) struct App {
     /// OS default app.
     pub(crate) file_link_markers: Vec<(usize, String)>,
     pub(crate) file_link_rects: Vec<(Rect, String)>,
+    /// Rendered lines per transcript block, so a frame only re-parses the
+    /// blocks that actually changed. Without it every keystroke and every
+    /// streamed token re-ran the markdown parser over the whole session, so
+    /// the cost of drawing a frame grew with the length of the conversation.
+    pub(crate) render_cache: Vec<Option<crate::ui::BlockRender>>,
 }
 
 #[derive(Clone, Copy)]
@@ -211,6 +216,7 @@ impl App {
             quit_confirm_yes: false,
             quit_confirm_rects: [(Rect::default(), false), (Rect::default(), false)],
             file_link_markers: Vec::new(),
+            render_cache: Vec::new(),
             file_link_rects: Vec::new(),
             selection: None,
             wrapped_snapshot: Vec::new(),

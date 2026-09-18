@@ -124,3 +124,96 @@ fn fastrand() -> u64 {
         .map(|d| d.subsec_nanos() as u64)
         .unwrap_or(0)
 }
+
+/// Draw the app into an off-screen buffer and return it as plain text, one
+/// string per row. Used to assert that the render cache produces byte-identical
+/// output to a cold render — a stale cache shows up as wrong pixels, which no
+/// unit test of the key alone would catch.
+impl TestApp {
+    pub fn render_to_text(&mut self, width: u16, height: u16) -> Vec<String> {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let mut term = Terminal::new(TestBackend::new(width, height)).unwrap();
+        term.draw(|f| crate::ui::draw(f, &mut self.inner)).unwrap();
+        let buffer = term.backend().buffer().clone();
+        (0..height)
+            .map(|y| {
+                (0..width)
+                    .map(|x| buffer[(x, y)].symbol().to_string())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_string()
+            })
+            .collect()
+    }
+
+    /// Drop every cached block so the next draw re-renders from scratch.
+    pub fn clear_render_cache(&mut self) {
+        self.inner.render_cache.clear();
+    }
+
+    /// How many blocks currently hold a cached rendering.
+    pub fn cached_block_count(&self) -> usize {
+        self.inner.render_cache.iter().filter(|c| c.is_some()).count()
+    }
+
+    pub fn push_user(&mut self, text: &str) {
+        self.inner.push(TranscriptKind::User, text);
+    }
+
+    pub fn push_assistant(&mut self, text: &str) {
+        self.inner.push(TranscriptKind::Assistant, text);
+    }
+
+    /// Append to the last block, the way a streamed token does.
+    pub fn append_to_last(&mut self, delta: &str) {
+        if let Some(last) = self.inner.blocks.last_mut() {
+            last.text.push_str(delta);
+        }
+    }
+
+    pub fn set_show_reasoning(&mut self, on: bool) {
+        self.inner.show_reasoning = on;
+    }
+
+    pub fn push_reasoning(&mut self, text: &str) {
+        self.inner.push(TranscriptKind::Reasoning, text);
+    }
+}
+
+impl TestApp {
+    /// Scroll to an absolute row and stop following the tail, so a render
+    /// exercises the mid-transcript window rather than the bottom.
+    pub fn scroll_to(&mut self, row: u16) {
+        self.inner.auto_scroll = false;
+        self.inner.scroll = row;
+    }
+
+    pub fn max_scroll(&self) -> u16 {
+        self.inner.max_scroll
+    }
+
+    /// Rows of the transcript body that a click handler currently maps to a
+    /// tool header, as (screen_y, tool_id).
+    pub fn tool_header_rows(&self) -> Vec<(u16, String)> {
+        self.inner
+            .tool_header_rects
+            .iter()
+            .map(|(rect, id)| (rect.y, id.clone()))
+            .collect()
+    }
+
+    pub fn push_tool(&mut self, id: &str, name: &str, args: &str, result: &str) {
+        self.inner.blocks.push(crate::session::TranscriptBlock {
+            kind: TranscriptKind::Tool {
+                id: id.into(),
+                name: name.into(),
+                args: args.into(),
+                result: result.into(),
+                running: false,
+                error: false,
+            },
+            text: String::new(),
+        });
+    }
+}

@@ -33,6 +33,12 @@ impl App {
         self.turn_started = Instant::now();
         self.set_activity(Activity::Waiting);
         self.status = "working".into();
+        // Any `Done` still owed by a stopped turn arrives on the channel that
+        // is about to be replaced, so it can never reach us. Holding the debt
+        // open would make this turn's own `Done` pay it off instead, leaving
+        // the app busy until the channel closed — reported to the user as
+        // "Agent stopped without a terminal event".
+        self.forget_abandoned_turns();
         let cancel = CancellationToken::new();
         let (tx, rx) = mpsc::channel(256);
         self.cancel = Some(cancel.clone());
@@ -45,8 +51,25 @@ impl App {
             attachments,
         };
         self.task = Some(tokio::spawn(async move {
-            let _ = agent.run(request, tx, cancel).await;
+            // Report the failure rather than dropping it. Without this the
+            // channel simply closes, and the only thing the user is told is
+            // that the agent "stopped without a terminal event" — which says
+            // nothing about what actually went wrong.
+            if let Err(error) = agent.run(request, tx.clone(), cancel).await {
+                let _ = tx
+                    .send(Event::Error {
+                        message: format!("{error:#}"),
+                    })
+                    .await;
+            }
         }));
+    }
+
+    /// A `Done` still owed by a stopped turn arrives on the channel that
+    /// starting a new turn replaces, so it can never be delivered. Clearing
+    /// the debt stops this turn's own `Done` from paying it off instead.
+    pub(crate) fn forget_abandoned_turns(&mut self) {
+        self.abandoned = 0;
     }
 
     pub(crate) fn interrupt(&mut self) {
@@ -66,7 +89,7 @@ impl App {
         // The task owns the channel the events arrive on. Dropping the
         // receiver here would discard the events it still has to send, so it
         // is left in place: `Done` for the abandoned turn is ignored below.
-        self.abandoned = true;
+        self.abandoned += 1;
     }
 
     pub(crate) fn apply_event(&mut self, event: Event) {
@@ -229,7 +252,8 @@ impl App {
                 // finished unwinding. The UI moved on at the keypress, so
                 // this must not relabel the status or disturb a turn the
                 // user may have started since.
-                if std::mem::take(&mut self.abandoned) {
+                if self.abandoned > 0 {
+                    self.abandoned -= 1;
                     return;
                 }
                 self.busy = false;

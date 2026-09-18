@@ -766,6 +766,10 @@ impl TestApp {
         let cancel = tokio_util::sync::CancellationToken::new();
         self.inner.busy = true;
         self.inner.cancel = Some(cancel.clone());
+        // `start_turn` replaces the event channel, which is what makes any
+        // `Done` still owed by an earlier turn unreachable. Call the same
+        // production routine it does, so removing that call fails a test.
+        self.inner.forget_abandoned_turns();
         cancel
     }
 }

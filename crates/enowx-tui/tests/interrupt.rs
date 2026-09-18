@@ -127,20 +127,43 @@ fn a_late_done_from_a_stopped_turn_is_ignored() {
     );
 }
 
-/// And it must not disturb a turn the user started in the meantime — the
-/// whole reason to free the app instantly is that they can send another.
+/// A stopped turn's `Done` cannot reach a later turn: starting one replaces
+/// the channel it would have arrived on. So the only `Done` the new turn can
+/// see is its own, and it must be honoured — anything else leaves the app
+/// busy with no way out.
 #[test]
-fn a_late_done_does_not_stop_the_next_turn() {
+fn the_next_turn_owns_its_own_completion() {
     let mut app = TestApp::new();
     app.start_fake_turn();
     app.press(KeyCode::Char('c'), true).expect("ctrl+c");
-    // A new turn, started before the old one finished unwinding.
     let second = app.start_fake_turn();
-    // The first turn's Done finally arrives.
-    app.deliver_done("aborted");
-    assert!(app.is_busy(), "the second turn should still be running");
+    assert!(app.is_busy(), "the second turn is running");
+    app.deliver_done("stop");
     assert!(
-        !second.is_cancelled(),
-        "the first turn's Done must not cancel the second"
+        !app.is_busy(),
+        "its own Done must end it rather than being eaten by the earlier stop"
+    );
+    assert!(!second.is_cancelled(), "finishing is not cancelling");
+}
+
+/// A stop must not poison the turns that follow it. The abandoned flag was
+/// set on interrupt and only cleared by the `Done` it was waiting for — so if
+/// that never arrived, the NEXT turn's `Done` was swallowed instead, leaving
+/// the app busy until the channel closed and reported "Agent stopped without
+/// a terminal event".
+#[test]
+fn a_stop_does_not_swallow_the_next_turns_completion() {
+    let mut app = TestApp::new();
+    app.start_fake_turn();
+    app.press(KeyCode::Esc, false).expect("stop it");
+    assert!(!app.is_busy());
+
+    // A fresh turn, whose Done is its own.
+    app.start_fake_turn();
+    assert!(app.is_busy());
+    app.deliver_done("stop");
+    assert!(
+        !app.is_busy(),
+        "the new turn's Done must be honoured, not eaten by the old stop"
     );
 }

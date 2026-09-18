@@ -37,6 +37,47 @@ impl App {
         self.modal_error.clear();
     }
 
+    /// Open the add/edit form prefilled with an existing server.
+    ///
+    /// Entries discovered from another tool's config (`.claude/`, `.cursor/`)
+    /// are shown here too. Saving writes to OUR file rather than editing
+    /// theirs: rewriting a file the user maintains for a different tool would
+    /// be a surprise, and our entry takes precedence anyway. The notice says
+    /// so, since otherwise the original would appear not to have changed.
+    pub(crate) fn open_mcp_editor(&mut self, name: &str) {
+        let Some(server) = self
+            .discovery
+            .mcp_servers
+            .iter()
+            .find(|s| s.name == name)
+            .cloned()
+        else {
+            return;
+        };
+        self.mcp_draft = crate::modal::McpDraft {
+            name: server.name.clone(),
+            command: server.command_or_url.clone(),
+            args: server.args.join(", "),
+            env: server
+                .env
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            transport: server.transport,
+        };
+        self.mcp_field = 0;
+        self.modal_error.clear();
+        self.modal = Modal::McpForm;
+        self.status = if server.source == enowx_core::discovery::user_mcp_path() {
+            format!("editing {name}")
+        } else {
+            format!(
+                "editing {name} — saving copies it into your own config",
+            )
+        };
+    }
+
     pub(crate) fn mcp_rows(&self) -> Vec<McpRow> {
         let needle = self.modal_search.trim().to_ascii_lowercase();
         let mut rows: Vec<McpRow> = self
@@ -85,12 +126,29 @@ impl App {
                 self.open_mcp_form();
             }
             McpRow::Server { name, .. } => {
-                let text = self.describe_mcp_tools(&name);
-                self.push(crate::session::TranscriptKind::Notice, text);
-                self.modal = Modal::None;
+                // Enter opens the entry for editing. It used to dump the
+                // server's tool list into the transcript, which is a thing
+                // you read once and then have to scroll past — and it left no
+                // way to correct a command or an env var short of editing
+                // JSON by hand.
+                self.open_mcp_editor(&name);
             }
         }
         Ok(())
+    }
+
+    /// Print the highlighted server's tools into the transcript.
+    ///
+    /// This is what Enter used to do; it is worth keeping, just not as the
+    /// primary action on a row you are more often trying to correct.
+    pub(crate) fn show_mcp_tools(&mut self) {
+        let rows = self.mcp_rows();
+        let Some(McpRow::Server { name, .. }) = rows.get(self.modal_cursor).cloned() else {
+            return;
+        };
+        let text = self.describe_mcp_tools(&name);
+        self.push(crate::session::TranscriptKind::Notice, text);
+        self.modal = Modal::None;
     }
 
     fn describe_mcp_tools(&self, server: &str) -> String {

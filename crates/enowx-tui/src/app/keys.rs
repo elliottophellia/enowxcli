@@ -101,6 +101,12 @@ impl App {
                         self.modal = Modal::None;
                         return Ok(());
                     }
+                    // Enter edits the entry, so the tool listing moves to its
+                    // own key rather than disappearing.
+                    KeyCode::Char('t') if self.modal == Modal::Mcp => {
+                        self.show_mcp_tools();
+                        return Ok(());
+                    }
                     KeyCode::Up => {
                         self.modal_cursor = self.modal_cursor.saturating_sub(1);
                         return Ok(());

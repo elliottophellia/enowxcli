@@ -484,3 +484,75 @@ impl TestApp {
             .unwrap_or_default()
     }
 }
+
+/// MCP modal access, so the Enter behaviour can be asserted without driving
+/// the popup through raw key events.
+impl TestApp {
+    pub fn seed_mcp_server(
+        &mut self,
+        name: &str,
+        command: &str,
+        args: &[&str],
+        env: &[(&str, &str)],
+        from_our_config: bool,
+    ) {
+        use enowx_core::{McpServer, McpTransport, SkillScope};
+        let source = if from_our_config {
+            enowx_core::discovery::user_mcp_path()
+        } else {
+            std::path::PathBuf::from("/somewhere/.claude/mcp.json")
+        };
+        // `discovery` is shared behind an Arc; rebuild it with the extra entry.
+        let mut discovery = (*self.inner.discovery).clone();
+        discovery.mcp_servers.push(McpServer {
+            name: name.into(),
+            scope: SkillScope::User,
+            command_or_url: command.into(),
+            args: args.iter().map(|a| (*a).to_string()).collect(),
+            env: env
+                .iter()
+                .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+                .collect(),
+            transport: McpTransport::Stdio,
+            source,
+            enabled: true,
+        });
+        self.inner.discovery = std::sync::Arc::new(discovery);
+    }
+
+    pub fn open_mcp_list(&mut self) {
+        self.inner.open_mcp();
+    }
+
+    pub fn select_mcp_row(&mut self, index: usize) {
+        self.inner.modal_cursor = index;
+    }
+
+    /// Press Enter on the highlighted row.
+    pub fn accept_mcp_row(&mut self) -> anyhow::Result<()> {
+        self.inner.accept_mcp_row()
+    }
+
+    pub fn in_mcp_form(&self) -> bool {
+        self.inner.modal == Modal::McpForm
+    }
+
+    /// The form's current contents as (name, command, args, env).
+    pub fn mcp_draft(&self) -> (String, String, String, String) {
+        let d = &self.inner.mcp_draft;
+        (
+            d.name.clone(),
+            d.command.clone(),
+            d.args.clone(),
+            d.env.clone(),
+        )
+    }
+
+    pub fn status_line(&self) -> String {
+        self.inner.status.clone()
+    }
+
+    pub fn transcript_len(&self) -> usize {
+        self.inner.blocks.len()
+    }
+}

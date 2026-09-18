@@ -209,7 +209,7 @@ fn draw_mcp(frame: &mut Frame, app: &mut App) {
         app,
         layout[1],
         frame,
-        "Enter inspect/add · Tab enable/disable · Esc close",
+        "Enter edit · t tools · Tab enable/disable · Esc close",
     );
 
     let items: Vec<ListItem> = rows
@@ -299,7 +299,20 @@ fn draw_mcp_form(frame: &mut Frame, app: &mut App) {
     let height = 14;
     let popup = popup_rect(area, width, height);
     frame.render_widget(Clear, popup);
-    let block = frame_block(app);
+    // The same form adds and edits; say which, or an edit looks like it is
+    // about to create a second entry.
+    let title = if app.mcp_draft.name.trim().is_empty() {
+        " ADD MCP SERVER "
+    } else {
+        " EDIT MCP SERVER "
+    };
+    // Built directly rather than via `frame_block`, whose title would be
+    // appended to rather than replaced by this one.
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(app.theme.accent));
     let inner = block.inner(popup);
     frame.render_widget(block, popup);
 

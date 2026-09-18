@@ -110,6 +110,9 @@ pub struct Agent {
     #[allow(dead_code)]
     mcp_clients: Arc<tokio::sync::Mutex<Vec<Arc<McpClient>>>>,
     mcp_warmed: Arc<std::sync::atomic::AtomicBool>,
+    /// `None` unless a TypeSafe key is configured, in which case small typed
+    /// judgements are available to the harness.
+    system_one: Option<crate::systemone::SystemOne>,
 }
 
 impl Agent {
@@ -125,6 +128,7 @@ impl Agent {
         let discovery = Arc::new(Discovery::run(&config.workspace()));
         let disabled = config.ui.disabled_skills.clone();
         let registry = build_registry(discovery.clone(), disabled);
+        let system_one = crate::systemone::SystemOne::new(&config.typesafe);
         Self {
             config,
             tools: Arc::new(tokio::sync::RwLock::new(registry)),
@@ -132,7 +136,19 @@ impl Agent {
             discovery,
             mcp_clients: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             mcp_warmed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            system_one,
         }
+    }
+
+    /// The judge used to rescue still-live turns from a compaction, or `None`
+    /// when the feature is off or unconfigured — in which case compaction is
+    /// the positional fold it has always been.
+    fn ranking_judge(&self) -> Option<&crate::systemone::SystemOne> {
+        self.config
+            .typesafe
+            .rank_compaction
+            .then_some(self.system_one.as_ref())
+            .flatten()
     }
 
     /// Spawn every discovered MCP server on the current tokio runtime. Safe to
@@ -262,7 +278,9 @@ impl Agent {
         let mut session = self.store.load(session_id)?;
         let provider = Provider::from_config(&self.config)?;
         let keep = self.config.agent.compact_keep_last.max(1);
-        let summary = crate::compact::compact(&mut session, &provider, keep).await?;
+        let summary =
+            crate::compact::compact_with(&mut session, &provider, keep, self.ranking_judge())
+                .await?;
         if summary.is_some() {
             self.store.save(&session)?;
         }
@@ -445,7 +463,13 @@ impl Agent {
                     .await;
                 let provider_pre = Provider::from_config(&self.config)?;
                 let keep = self.config.agent.compact_keep_last.max(1);
-                let summary = crate::compact::compact(&mut session, &provider_pre, keep).await?;
+                let summary = crate::compact::compact_with(
+                    &mut session,
+                    &provider_pre,
+                    keep,
+                    self.ranking_judge(),
+                )
+                .await?;
                 if summary.is_some() {
                     self.store.save(&session)?;
                     let _ = events
@@ -732,7 +756,28 @@ impl Agent {
                         is_error: output.is_error,
                     })
                     .await;
-                let mut result = Message::tool_result(&call.id, output.content);
+                // The transcript already has the full result; what is decided
+                // here is only what later turns are made to re-read. Tool
+                // results are 93% of a session's context, and the three tools
+                // that dominate — bash, read, skill_read — cannot be judged
+                // from their names.
+                let stored = if self.config.typesafe.gate_tool_results
+                    && matches!(
+                        crate::gating::judge(
+                            self.system_one.as_ref(),
+                            &call.name,
+                            &call.arguments,
+                            &output.content,
+                            output.is_error,
+                        )
+                        .await,
+                        crate::gating::Keep::Trimmed
+                    ) {
+                    crate::gating::trim(&output.content)
+                } else {
+                    output.content.clone()
+                };
+                let mut result = Message::tool_result(&call.id, stored);
                 if output.is_error {
                     result.error = Some("Tool execution failed".into());
                 }

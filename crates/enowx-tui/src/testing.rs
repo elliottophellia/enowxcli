@@ -818,3 +818,13 @@ impl TestApp {
         self.inner.rewind_to(index)
     }
 }
+
+impl TestApp {
+    pub fn typesafe_active(&self) -> bool {
+        self.inner.config.typesafe.active()
+    }
+
+    pub fn typesafe_gating(&self) -> bool {
+        self.inner.config.typesafe.gate_tool_results
+    }
+}

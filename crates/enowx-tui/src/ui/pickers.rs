@@ -26,6 +26,7 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
         Modal::Roles
             | Modal::Agents
             | Modal::Message
+            | Modal::TypeSafe
             | Modal::ModelSource
             | Modal::Providers
             | Modal::Themes

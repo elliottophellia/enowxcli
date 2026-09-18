@@ -2,7 +2,10 @@ use super::*;
 
 pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
     let width = area.width.saturating_sub(2).min(72);
-    let height = (if matches!(app.modal, Modal::ModelUrl | Modal::ProviderKey) {
+    let height = (if matches!(
+        app.modal,
+        Modal::ModelUrl | Modal::ProviderKey | Modal::TypeSafeKey
+    ) {
         10
     } else {
         26
@@ -18,6 +21,8 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .title(if app.modal == Modal::ModelUrl {
             " Auto detect · model-list URL "
+        } else if app.modal == Modal::TypeSafeKey {
+            " TypeSafe · API key "
         } else if app.modal == Modal::ProviderKey {
             &app.settings.provider
         } else {
@@ -31,14 +36,17 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
     let footer_height = if inner.height >= 10 { 4 } else { 2 };
     let rows =
         Layout::vertical([Constraint::Min(2), Constraint::Length(footer_height)]).split(inner);
-    let visible = if matches!(app.modal, Modal::ModelUrl | Modal::ProviderKey) {
+    let visible = if matches!(
+        app.modal,
+        Modal::ModelUrl | Modal::ProviderKey | Modal::TypeSafeKey
+    ) {
         1
     } else {
         (rows[0].height / 3).max(1) as usize
     };
     let start = if app.modal == Modal::ModelUrl {
         3
-    } else if app.modal == Modal::ProviderKey {
+    } else if matches!(app.modal, Modal::ProviderKey | Modal::TypeSafeKey) {
         2
     } else {
         app.modal_cursor.saturating_sub(visible - 1)
@@ -108,6 +116,8 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
     let hint = if app.modal_error.is_empty() {
         if app.modal == Modal::ModelUrl {
             "Enter detect · Ctrl+U clear · Esc cancel\nFull JSON endpoint URL; metadata depends on what it returns."
+        } else if app.modal == Modal::TypeSafeKey {
+            "Enter save · Ctrl+U clear · Esc cancel\nAn empty key turns TypeSafe off. TYPESAFE_API_KEY is read too."
         } else if app.modal == Modal::ProviderKey {
             "Enter connect · Ctrl+U clear · Esc cancel\nProvider endpoints are preset. Add a model after connecting."
         } else if SETTINGS_FIELDS.get(app.modal_cursor) == Some(&SettingsField::Theme) {

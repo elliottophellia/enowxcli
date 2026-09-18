@@ -33,6 +33,53 @@ pub struct Config {
     pub server: ServerConfig,
     pub agent: AgentConfig,
     pub ui: UiConfig,
+    pub typesafe: TypeSafeConfig,
+}
+
+/// TypeSafe's System One model, used for small typed judgements inside the
+/// harness — not for talking to the user.
+///
+/// Deliberately not a `provider`: nothing here can answer a prompt, and
+/// putting it in the provider list would offer it as a chat model. With no
+/// key set every feature below stays off and the existing behaviour is what
+/// runs, so this is additive by construction.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TypeSafeConfig {
+    /// Empty means every TypeSafe-backed feature is off.
+    pub api_key: String,
+    pub base_url: String,
+    pub model: String,
+    /// Judge whether a tool result is worth keeping in context rather than
+    /// deciding from the tool's name alone.
+    pub gate_tool_results: bool,
+    /// Score turns by how live they still are, so compaction drops what is
+    /// finished rather than what is merely old.
+    pub rank_compaction: bool,
+    /// Milliseconds to wait before giving up and using the existing rules.
+    /// A judgement that arrives late is worse than no judgement: it stalls
+    /// the turn the user is waiting on.
+    pub timeout_ms: u64,
+}
+
+impl Default for TypeSafeConfig {
+    fn default() -> Self {
+        Self {
+            api_key: String::new(),
+            base_url: "https://api.typesafe.ai/v1/systemone".into(),
+            model: "jev-latest".into(),
+            gate_tool_results: true,
+            rank_compaction: true,
+            timeout_ms: 1500,
+        }
+    }
+}
+
+impl TypeSafeConfig {
+    /// Nothing runs without a key, whatever the toggles say.
+    pub fn active(&self) -> bool {
+        !self.api_key.trim().is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -390,6 +437,11 @@ impl Config {
         if let Ok(v) = std::env::var("ENX_THEME") {
             self.ui.theme = v;
         }
+        // `TYPESAFE_API_KEY` is the name TypeSafe's own SDKs read, so a key
+        // already exported for another tool works here without being copied.
+        if let Ok(v) = std::env::var("TYPESAFE_API_KEY") {
+            self.typesafe.api_key = v;
+        }
     }
 
     pub fn save(&self) -> Result<PathBuf> {
@@ -434,6 +486,14 @@ impl Config {
         let mut value = serde_json::to_value(self).ok()?;
         value["provider"]["api_key"] = serde_json::Value::String(
             if self.provider.api_key.is_empty() {
+                "(unset)"
+            } else {
+                "(redacted)"
+            }
+            .into(),
+        );
+        value["typesafe"]["api_key"] = serde_json::Value::String(
+            if self.typesafe.api_key.is_empty() {
                 "(unset)"
             } else {
                 "(redacted)"

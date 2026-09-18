@@ -155,6 +155,85 @@ impl App {
         Ok(true)
     }
 
+    /// TypeSafe's settings: the key, and the two features it powers.
+    ///
+    /// Not part of `/provider`. Jev answers typed questions, not prompts —
+    /// listing it beside the chat providers would offer a model that cannot
+    /// hold a conversation.
+    pub(crate) fn open_typesafe(&mut self) {
+        self.modal_items = vec![
+            (
+                "API key".into(),
+                if self.config.typesafe.active() {
+                    "set  ·  Enter to replace".into()
+                } else {
+                    "not set  ·  Enter to add".into()
+                },
+            ),
+            (
+                "Trim spent tool results".into(),
+                format!(
+                    "{}  ·  keeps context small; the transcript is untouched",
+                    on_off(self.config.typesafe.gate_tool_results)
+                ),
+            ),
+            (
+                "Keep live turns through compaction".into(),
+                format!(
+                    "{}  ·  folds what is finished rather than what is old",
+                    on_off(self.config.typesafe.rank_compaction)
+                ),
+            ),
+        ];
+        self.modal_cursor = 0;
+        self.modal = Modal::TypeSafe;
+        if !self.config.typesafe.active() {
+            self.status = "TypeSafe is off until a key is set".into();
+        }
+    }
+
+    fn accept_typesafe_row(&mut self) -> Result<()> {
+        match self.modal_cursor {
+            0 => {
+                // Reuse the provider-key form, which already masks input.
+                self.settings.api_key.clear();
+                self.modal = Modal::TypeSafeKey;
+            }
+            1 => {
+                let mut next = self.config.clone();
+                next.typesafe.gate_tool_results = !next.typesafe.gate_tool_results;
+                next.save()?;
+                self.adopt(next);
+                self.open_typesafe();
+            }
+            2 => {
+                let mut next = self.config.clone();
+                next.typesafe.rank_compaction = !next.typesafe.rank_compaction;
+                next.save()?;
+                self.adopt(next);
+                self.open_typesafe();
+            }
+            _ => self.modal = Modal::None,
+        }
+        Ok(())
+    }
+
+    pub(crate) fn save_typesafe_key(&mut self) -> Result<()> {
+        let key = self.settings.api_key.trim().to_owned();
+        let mut next = self.config.clone();
+        next.typesafe.api_key = key.clone();
+        next.save()?;
+        self.adopt(next);
+        self.settings.api_key.clear();
+        self.status = if key.is_empty() {
+            "TypeSafe key cleared; its features are off".into()
+        } else {
+            "TypeSafe key saved".into()
+        };
+        self.open_typesafe();
+        Ok(())
+    }
+
     pub(crate) fn open_palette(&mut self) {
         self.modal = Modal::Commands;
         self.modal_cursor = 0;
@@ -192,7 +271,7 @@ impl App {
                 let mut text = String::from("Commands");
                 for (name, summary) in COMMANDS { text.push_str(&format!("\n  /{name:<10} {summary}")); }
                 text.push_str("\n\nKeys\n  Enter      Send message\n  Ctrl+J     Newline\n  Ctrl+R     Toggle reasoning\n  Ctrl+O     Toggle tool output\n  PgUp/PgDn  Scroll transcript\n  Esc        Close picker / stop turn / clear input\n  Ctrl+C     Stop turn / quit");
-                text.push_str("\n  F1–F5      Sidebar tabs\n  Alt+←/→    Sidebar pages\n  Ctrl+B     Toggle sidebar\n  Ctrl+P     Command palette\n  Ctrl+↑     Edit, resend or copy your last message\n  /theme     Choose palette");
+                text.push_str("\n  F1–F5      Sidebar tabs\n  Alt+←/→    Sidebar pages\n  Ctrl+B     Toggle sidebar\n  Ctrl+P     Command palette\n  Ctrl+↑     Edit, resend or copy your last message\n  /typesafe  TypeSafe key and context-saving features\n  /theme     Choose palette");
                 self.push(TranscriptKind::System, text);
             }
             "new" => self.new_session(),
@@ -230,6 +309,7 @@ impl App {
                 }
             }
             "attach" => self.open_attach()?,
+            "typesafe" => self.open_typesafe(),
             "theme" => self.open_themes(),
             "skills" => self.open_skills(),
             "mcp" => self.open_mcp(),
@@ -379,6 +459,8 @@ impl App {
                 }
                 self.modal = Modal::None;
             }
+            Modal::TypeSafe => return self.accept_typesafe_row(),
+            Modal::TypeSafeKey => return self.save_typesafe_key(),
             Modal::Message => return self.accept_message_action(),
             Modal::MessageEdit => return self.submit_message_edit(),
             Modal::Commands => return self.accept_palette_row(),
@@ -425,5 +507,13 @@ impl App {
                 .await;
         });
         Ok(())
+    }
+}
+
+fn on_off(value: bool) -> &'static str {
+    if value {
+        "on"
+    } else {
+        "off"
     }
 }

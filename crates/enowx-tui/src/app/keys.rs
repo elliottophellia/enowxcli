@@ -33,7 +33,7 @@ impl App {
         if self.modal != Modal::None {
             if matches!(
                 self.modal,
-                Modal::Settings | Modal::ModelUrl | Modal::ProviderKey
+                Modal::Settings | Modal::ModelUrl | Modal::ProviderKey | Modal::TypeSafeKey
             ) {
                 return self.settings_key(key);
             }

@@ -11,6 +11,13 @@ pub enum Modal {
     Agents,
     /// Actions on a sent message: edit, resend, copy.
     Message,
+    /// TypeSafe's key and toggles. Separate from the provider list because
+    /// nothing here can answer a prompt — offering it as a chat provider
+    /// would be offering something that does not exist.
+    TypeSafe,
+    /// Entering the TypeSafe key. A form so the value is masked as it is
+    /// typed, the same as the provider key.
+    TypeSafeKey,
     /// Editing a sent message before resending it.
     MessageEdit,
     Sessions,
@@ -41,6 +48,8 @@ impl Modal {
             Modal::Roles => " AGENT ROLE ",
             Modal::Agents => " AGENT ",
             Modal::Message => " MESSAGE ",
+            Modal::TypeSafe => " TYPESAFE ",
+            Modal::TypeSafeKey => "",
             Modal::MessageEdit => " EDIT PROMPT ",
             Modal::Sessions => " RESUME SESSION ",
             Modal::Providers => " PROVIDER ",
@@ -60,7 +69,11 @@ impl Modal {
     pub fn is_form(self) -> bool {
         matches!(
             self,
-            Modal::Settings | Modal::ModelUrl | Modal::ProviderKey | Modal::McpForm
+            Modal::Settings
+                | Modal::ModelUrl
+                | Modal::ProviderKey
+                | Modal::TypeSafeKey
+                | Modal::McpForm
         )
     }
 }

@@ -226,20 +226,129 @@ pub fn build_transcript(turns: &[StoredTurn]) -> String {
 /// Perform a compact on `session` using `provider`. Returns the summary text
 /// so callers can log or display it. Does nothing when the session has fewer
 /// than `keep_last + 2` turns (nothing meaningful to fold).
+/// A turn scoring at or above this is carried verbatim past the fold.
+/// Levels are 0..=3 and 2 means "still being worked on", so this rescues
+/// live work without rescuing everything.
+const STILL_LIVE_AT: f32 = 1.8;
+
+/// The most turns rescued from the fold. Rescuing everything would leave
+/// nothing to compact, which is the one outcome worse than compacting badly.
+const MAX_RESCUED: usize = 6;
+
+/// Score the turns about to be folded and return the indices worth keeping
+/// verbatim. Empty whenever there is no judgement to be had, which leaves
+/// compaction exactly as it was.
+async fn rescue_live_turns(
+    system_one: Option<&crate::systemone::SystemOne>,
+    goal: &str,
+    older: &[StoredTurn],
+) -> Vec<usize> {
+    let Some(system_one) = system_one else {
+        return Vec::new();
+    };
+    // Only the tail of the fold is worth asking about: a turn twenty back is
+    // being summarised for a reason.
+    let window = 10.min(older.len());
+    let start = older.len() - window;
+    let mut questions = serde_json::Map::new();
+    let mut state = serde_json::Map::new();
+    state.insert("goal".into(), goal.into());
+    for (offset, turn) in older[start..].iter().enumerate() {
+        let body = turn.message.content.chars().take(700).collect::<String>();
+        state.insert(format!("turn_{offset}"), body.into());
+        questions.insert(
+            format!("live_{offset}"),
+            serde_json::json!({
+                "type": "score",
+                "instructions": format!(
+                    "`goal` is what the user is working on. How live is `turn_{offset}` \
+                     for continuing that work right now?"
+                ),
+                "criteria": [
+                    "Finished and superseded; nothing in it will be referred to again",
+                    "Background only; the outcome matters but the detail does not",
+                    "Still being worked on; its specifics are needed to continue",
+                    "The current task; work would stall without it"
+                ]
+            }),
+        );
+    }
+    if questions.is_empty() {
+        return Vec::new();
+    }
+    let Some(answers) = system_one
+        .ask(
+            serde_json::Value::Object(state),
+            serde_json::Value::Object(questions),
+        )
+        .await
+    else {
+        return Vec::new();
+    };
+    let mut scored: Vec<(usize, f32)> = (0..window)
+        .filter_map(|offset| {
+            let score = answers.score(&format!("live_{offset}"))?;
+            (score.value >= STILL_LIVE_AT).then_some((start + offset, score.value))
+        })
+        .collect();
+    // Highest first, so the cap keeps the liveliest rather than the earliest.
+    scored.sort_by(|a, b| b.1.total_cmp(&a.1));
+    scored.truncate(MAX_RESCUED);
+    let mut indices: Vec<usize> = scored.into_iter().map(|(i, _)| i).collect();
+    // Back into transcript order: the model reads them as a conversation.
+    indices.sort_unstable();
+    indices
+}
+
 pub async fn compact(
     session: &mut Session,
     provider: &Provider,
     keep_last: usize,
 ) -> Result<Option<String>> {
+    compact_with(session, provider, keep_last, None).await
+}
+
+/// Compaction with an optional judge for which older turns are still live.
+///
+/// Without one this is the positional fold it has always been: the last
+/// `keep_last` turns verbatim, everything before them summarised. The cut is
+/// by age alone, so a turn from twenty minutes ago that the work still rests
+/// on is folded away along with everything genuinely finished.
+pub async fn compact_with(
+    session: &mut Session,
+    provider: &Provider,
+    keep_last: usize,
+    system_one: Option<&crate::systemone::SystemOne>,
+) -> Result<Option<String>> {
     if session.turns.len() < keep_last + 2 {
         return Ok(None);
     }
     let split = session.turns.len() - keep_last;
-    let (older, keep): (Vec<StoredTurn>, Vec<StoredTurn>) = {
+    let (mut older, keep): (Vec<StoredTurn>, Vec<StoredTurn>) = {
         let mut turns = std::mem::take(&mut session.turns);
         let keep = turns.split_off(split);
         (turns, keep)
     };
+
+    // The most recent user message says what the work is; scoring against it
+    // is what makes "still live" mean anything.
+    let goal = keep
+        .iter()
+        .chain(older.iter())
+        .rev()
+        .find(|t| t.message.role == MessageRole::User)
+        .map(|t| t.message.content.chars().take(500).collect::<String>())
+        .unwrap_or_default();
+    let rescued_indices = rescue_live_turns(system_one, &goal, &older).await;
+    let rescued: Vec<StoredTurn> = rescued_indices
+        .iter()
+        .filter_map(|i| older.get(*i).cloned())
+        .collect();
+    // A rescued turn is carried verbatim, so it must not also be summarised —
+    // the model would read the same work twice and treat it as two attempts.
+    for index in rescued_indices.iter().rev() {
+        older.remove(*index);
+    }
 
     // Prose plus condensed tool activity, built from the folded turns.
     let transcript = build_transcript(&older);
@@ -247,6 +356,7 @@ pub async fn compact(
     if transcript.trim().is_empty() {
         // Nothing to summarize. Restore and bail out cleanly.
         session.turns = older;
+        session.turns.extend(rescued);
         session.turns.extend(keep);
         return Ok(None);
     }
@@ -260,6 +370,7 @@ pub async fn compact(
     let summary = completion.text.trim().to_string();
     if summary.is_empty() {
         session.turns = older;
+        session.turns.extend(rescued);
         session.turns.extend(keep);
         return Ok(None);
     }
@@ -285,6 +396,7 @@ pub async fn compact(
         },
     };
     session.turns = vec![summary_turn];
+    session.turns.extend(rescued);
     session.turns.extend(keep);
     session.updated_at = now;
     Ok(Some(summary))
@@ -510,5 +622,58 @@ mod tests {
             "{transcript}"
         );
         assert!(transcript.contains("2 lines"), "{transcript}");
+    }
+}
+
+#[cfg(test)]
+mod rescue_tests {
+    use super::*;
+
+    fn turn(message: Message) -> StoredTurn {
+        StoredTurn {
+            id: uuid::Uuid::new_v4().to_string(),
+            created_at: Utc::now(),
+            message,
+        }
+    }
+
+    fn older(n: usize) -> Vec<StoredTurn> {
+        (0..n)
+            .map(|i| turn(Message::user(format!("turn {i}"))))
+            .collect()
+    }
+
+    /// The whole feature is opt-in. With no judge, nothing is rescued and
+    /// compaction is the positional fold it has always been.
+    #[tokio::test]
+    async fn no_judge_rescues_nothing() {
+        let turns = older(10);
+        assert!(
+            rescue_live_turns(None, "build the parser", &turns)
+                .await
+                .is_empty(),
+            "an unconfigured install must behave exactly as before"
+        );
+    }
+
+    /// A judge that cannot be reached is the same as no judge: the network is
+    /// not allowed to change what compaction does.
+    #[tokio::test]
+    async fn an_unreachable_judge_rescues_nothing() {
+        let config = crate::config::TypeSafeConfig {
+            api_key: "not-a-real-key".into(),
+            // Unroutable, so this fails fast rather than waiting.
+            base_url: "http://127.0.0.1:1/v1/systemone".into(),
+            timeout_ms: 300,
+            ..crate::config::TypeSafeConfig::default()
+        };
+        let judge = crate::systemone::SystemOne::new(&config).expect("a key means a client");
+        let turns = older(10);
+        assert!(
+            rescue_live_turns(Some(&judge), "build the parser", &turns)
+                .await
+                .is_empty(),
+            "a failed judgement must not change the fold"
+        );
     }
 }

@@ -1,4 +1,4 @@
-pub(crate) const COMMANDS: [(&str, &str); 19] = [
+pub(crate) const COMMANDS: [(&str, &str); 20] = [
     ("help", "Show every command"),
     ("new", "Start a fresh session"),
     ("resume", "Reopen a saved session in this workspace"),
@@ -8,6 +8,7 @@ pub(crate) const COMMANDS: [(&str, &str); 19] = [
     ("provider", "Edit provider settings"),
     ("attach", "Attach an image from the workspace"),
     ("theme", "Switch UI theme"),
+    ("typesafe", "TypeSafe key and context-saving features"),
     ("skills", "Browse and toggle discovered skills"),
     ("mcp", "Browse, toggle, or add MCP servers"),
     ("compact", "Summarise older turns to free context"),

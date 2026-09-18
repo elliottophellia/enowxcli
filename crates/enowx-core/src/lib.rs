@@ -9,6 +9,7 @@ pub mod config;
 pub mod discovery;
 pub mod event;
 pub mod format;
+pub mod gating;
 pub mod mcp;
 pub mod message;
 pub mod persist;
@@ -16,6 +17,7 @@ pub mod provider;
 pub mod role;
 pub mod routing;
 pub mod session;
+pub mod systemone;
 pub mod tools;
 
 pub use agent::{Agent, RunRequest};

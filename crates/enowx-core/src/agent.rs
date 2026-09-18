@@ -295,6 +295,33 @@ impl Agent {
     /// of delegating rather than handing over. Its token spend rolls up into
     /// the parent, because a branch whose cost is not counted makes the readout
     /// wrong rather than merely incomplete.
+    /// Move to the next model on the ladder, or None at the bottom.
+    ///
+    /// A tier drop is announced rather than made quietly: a cheaper model may
+    /// not be up to the task, and work that silently got worse is harder to
+    /// diagnose than work that failed.
+    async fn step_down(
+        &self,
+        ladder: &mut crate::provider::ModelLadder,
+        agent_config: &mut Config,
+        error: &anyhow::Error,
+        events: &mpsc::Sender<Event>,
+    ) -> Option<Provider> {
+        if !crate::provider::classify(error).another_model_helps() {
+            return None;
+        }
+        let previous = ladder.tier();
+        let step = ladder.next(&self.config)?;
+        let drop = crate::provider::tier_drop(previous, &step, error);
+        let _ = events
+            .send(Event::Notice {
+                message: drop.message(),
+            })
+            .await;
+        agent_config.model.default = step.model.clone();
+        Provider::from_config(agent_config).ok()
+    }
+
     async fn run_delegated(
         &self,
         parent: &mut Session,
@@ -444,8 +471,10 @@ impl Agent {
         if !model.is_empty() {
             agent_config.model.default = model;
         }
-        let provider = Provider::from_config(&agent_config)?;
-        let provider_model = agent_config.model.default.clone();
+        let mut provider = Provider::from_config(&agent_config)?;
+        let mut provider_model = agent_config.model.default.clone();
+        let mut ladder =
+            crate::provider::ModelLadder::new(&active.name, active.tier, &provider_model);
         self.warm_mcp_servers().await;
         let tools_registry = self.tools.read().await;
         let mut schemas = tools_registry.schemas_for_agent(&active.tools, Some(&self.discovery));
@@ -488,7 +517,12 @@ impl Agent {
         };
 
         let mut stop_reason = "stop".to_string();
-        for step in 0..self.config.agent.max_steps {
+        // Counts model calls the agent chose to make. A model swapped in by the
+        // ladder retries the same step, so it must not consume one — a turn
+        // that fell down two tiers would otherwise lose two of its steps to
+        // failures it did not cause.
+        let mut step = 0u32;
+        while step < self.config.agent.max_steps {
             if cancel.is_cancelled() {
                 stop_reason = "aborted".into();
                 break;
@@ -557,8 +591,24 @@ impl Agent {
                     match result {
                         Ok(completion) => completion,
                         Err(error) => {
-                            persist_interrupted(&mut session, &self.store, &assistant_id, &provider_model, &text, &reasoning, format!("{error:#}"))?;
-                            return Err(error);
+                            // Retries are spent. Another model may still
+                            // succeed where this one cannot — a capability
+                            // failure never will on a retry, and a capacity
+                            // one may have a sibling that is up.
+                            match self
+                                .step_down(&mut ladder, &mut agent_config, &error, events)
+                                .await
+                            {
+                                Some(next_provider) => {
+                                    provider = next_provider;
+                                    provider_model = agent_config.model.default.clone();
+                                    continue;
+                                }
+                                None => {
+                                    persist_interrupted(&mut session, &self.store, &assistant_id, &provider_model, &text, &reasoning, format!("{error:#}"))?;
+                                    return Err(ladder.exhausted(&error));
+                                }
+                            }
                         }
                     }
                 }
@@ -734,7 +784,8 @@ impl Agent {
                     }
                 }
             }
-            if step + 1 == self.config.agent.max_steps {
+            step += 1;
+            if step == self.config.agent.max_steps {
                 stop_reason = "step_limit".into();
                 let _ = events
                     .send(Event::Notice {

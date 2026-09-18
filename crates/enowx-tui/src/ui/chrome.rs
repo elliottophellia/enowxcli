@@ -36,8 +36,20 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
     if sidebar > 0 {
         let columns =
             Layout::horizontal([Constraint::Min(52), Constraint::Length(sidebar)]).split(parts[1]);
-        draw_composer_pane(frame, app, columns[0]);
         draw_sidebar(frame, app, columns[1]);
+        let band = draw_composer_pane(frame, app, columns[0]);
+        // Continue the composer's raised background behind the sidebar so the
+        // band reads as one strip across the window. Without it the lighter
+        // colour stopped at the divider and left a block beside the input.
+        if band > 0 && band <= columns[1].height {
+            let y = columns[1].y + columns[1].height - band;
+            // Start one column right of the divider so the rule keeps its own
+            // colour rather than being painted over.
+            frame.render_widget(
+                Block::default().style(Style::default().bg(app.theme.subtle)),
+                Rect::new(columns[1].x + 1, y, columns[1].width - 1, band),
+            );
+        }
     } else {
         draw_composer_pane(frame, app, parts[1]);
     }

@@ -455,3 +455,32 @@ impl TestApp {
         self.inner.tool_expanded.insert(id.to_string(), true);
     }
 }
+
+impl TestApp {
+    /// Background colour of each cell in a row, as hex, for spotting seams
+    /// where two panes meet.
+    pub fn row_backgrounds(&mut self, width: u16, height: u16, row: u16) -> Vec<String> {
+        use ratatui::backend::TestBackend;
+        use ratatui::style::Color;
+        use ratatui::Terminal;
+        let mut term = Terminal::new(TestBackend::new(width, height)).unwrap();
+        term.draw(|f| crate::ui::draw(f, &mut self.inner)).unwrap();
+        let buffer = term.backend().buffer().clone();
+        (0..width)
+            .map(|x| match buffer[(x, row)].bg {
+                Color::Rgb(r, g, b) => format!("{r:02x}{g:02x}{b:02x}"),
+                other => format!("{other:?}"),
+            })
+            .collect()
+    }
+}
+
+impl TestApp {
+    /// The text of one rendered row, unstyled.
+    pub fn row_text(&mut self, width: u16, height: u16, row: u16) -> String {
+        self.render_to_text(width, height)
+            .get(row as usize)
+            .cloned()
+            .unwrap_or_default()
+    }
+}

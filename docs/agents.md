@@ -1,8 +1,12 @@
 # Agents
 
 Design for replacing the three hardcoded roles with a router and a roster of
-specialists. Nothing here is implemented yet; this records the decisions and
-the reasoning so the work can be picked up without re-deriving them.
+specialists, and a record of why each decision went the way it did.
+
+**Status: implemented.** `agent_def.rs` holds the definitions, `discovery/
+agents.rs` loads them from disk, `routing.rs` holds the rules, and the run
+loop in `agent.rs` resolves an agent per turn. What remains is listed under
+[Open questions](#open-questions).
 
 > Not to be confused with `/AGENTS.md` at the repo root, which is an
 > instruction file for agents working *on this repository*. This document
@@ -208,37 +212,21 @@ auto_switch = true    # switch without asking
 Either way the user can force a switch (`/agent fe`), and forcing overrides
 whatever the router had decided.
 
-## What has to change in the code
+## What was built
 
-Ordered so each step is usable on its own.
+| Piece | Where |
+|---|---|
+| Agent definitions and the shipped roster | `agent_def.rs` |
+| Loading `.agents/agents/*.md` over the built-ins | `discovery/agents.rs` |
+| Who may switch to whom, contracts, scheduling | `routing.rs` |
+| `session.agent`, switch history, branch sessions, usage roll-up | `session.rs` |
+| Tier table, per-agent overrides, `model_for` | `config.rs` |
+| Per-turn agent resolution, handoff, delegation | `agent.rs` |
+| Roster, switch markers, active agent | `enowx-tui` |
+| `/agent` | `app/actions.rs` |
 
-1. **`Role` (enum) → `Agent` (data).** Everything else depends on it. Load
-   from `.agents/agents/*.md` through the existing discovery path. The three
-   current roles become shipped definitions, so nothing regresses.
-2. **`session.role` → `session.agent`, plus a switch history.** The transcript
-   has to show a change of agent; otherwise the answer silently changes voice
-   and the user cannot tell why.
-3. **`handoff(agent, reason)`** — same session, agent changes, history stays.
-4. **Branch sessions** — a sub-agent needs its own saved session so its
-   transcript is inspectable, without entering the router's context.
-5. **`delegate(agent, task, tier?, writes?, reads?)`** — runs a branch
-   session, returns a summary. Only the router holds handoff/delegate, except
-   that a specialist may call `librarian`. Branch usage rolls up into the
-   parent, or the cost readout is wrong by an order of magnitude.
-6. **Tier resolution** and the `[agent.tiers]` table.
-7. **`auto_switch`** and the confirmation prompt.
-8. **Handoff summaries** — the compactor writes the handover, so a new
-   specialist does not inherit stale file contents.
-9. **Parallel delegation** with enforced write contracts, serialising the
-   overlaps. Worth deferring until sequential delegation is proven — it
-   multiplies the ways a run can go wrong.
-10. **Compaction rewrite** — tool calls in the summary input, and the
-   `compactor` agent. Independent of 1–7 and worth doing early: it is the
-   largest single saving, and the current summariser is losing information
-   today.
-
-Steps 1–3 are usable without 4–7: agents from files plus handoff is already an
-improvement on three fixed roles.
+The old `Role` enum still exists: sessions written before this resolve their
+agent from it, so an existing session file still opens.
 
 ## Failure and fallback
 

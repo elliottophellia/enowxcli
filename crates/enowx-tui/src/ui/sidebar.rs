@@ -63,10 +63,14 @@ pub(super) fn draw_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         String::new()
     };
+    // The pager sits on the sidebar's own background. Painting it `subtle`
+    // put a lighter band across the bottom of the pane that belonged to
+    // neither the sidebar above it nor the window footer below, so the
+    // sidebar looked like it had a footer of its own.
     frame.render_widget(
         Paragraph::new(footer)
             .alignment(Alignment::Center)
-            .style(Style::default().fg(t.muted).bg(t.subtle)),
+            .style(Style::default().fg(t.muted).bg(t.panel)),
         rows[2],
     );
 }

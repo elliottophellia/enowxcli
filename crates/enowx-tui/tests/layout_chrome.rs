@@ -89,3 +89,51 @@ fn a_narrow_terminal_draws_no_divider() {
         );
     }
 }
+
+/// The footer belongs to the chat pane. Running it the full width put a
+/// lighter band under the sidebar that belonged to neither pane.
+#[test]
+fn the_footer_band_stops_at_the_divider() {
+    let mut app = TestApp::new();
+    app.push_assistant("content");
+    let rows = app.render_to_text(W, H);
+    let footer = rows
+        .iter()
+        .position(|r| r.contains("Orchestrator"))
+        .expect("the footer row");
+
+    let bgs = app.row_backgrounds(W, H, footer as u16);
+    let col = divider_column(&rows);
+    // Right of the divider must not carry the footer's raised background.
+    let right: Vec<&String> = bgs.iter().skip(col + 1).take(20).collect();
+    let footer_bg = &bgs[col - 5];
+    assert!(
+        right.iter().all(|bg| *bg != footer_bg),
+        "the footer band leaked past the divider: {right:?} vs {footer_bg:?}"
+    );
+}
+
+/// The sidebar's pager sits on the sidebar's own background, not on a lighter
+/// strip of its own — that read as a second footer inside the pane.
+#[test]
+fn the_sidebar_pager_shares_the_pane_background() {
+    let mut app = TestApp::new();
+    for i in 0..60 {
+        app.push_assistant(&format!("line {i}"));
+    }
+    let rows = app.render_to_text(W, H);
+    let pager = rows
+        .iter()
+        .position(|r| r.contains("page"))
+        .expect("the pager row");
+    // A row inside the sidebar's body, past the tab strip at its top.
+    let body = pager - 2;
+
+    let col = divider_column(&rows) + 6;
+    let pager_bg = app.row_backgrounds(W, H, pager as u16)[col].clone();
+    let body_bg = app.row_backgrounds(W, H, body as u16)[col].clone();
+    assert_eq!(
+        pager_bg, body_bg,
+        "the pager should share the sidebar's background, not a lighter strip"
+    );
+}

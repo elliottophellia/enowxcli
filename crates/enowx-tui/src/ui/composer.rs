@@ -1,12 +1,6 @@
 use super::*;
 
-/// Draws the transcript and the input field, and returns how many rows at the
-/// bottom of `area` the composer's raised band occupies.
-///
-/// The caller needs that height to continue the band across the sidebar: the
-/// composer only paints its own pane, so the lighter background stopped at the
-/// divider and left a visible block beside the input.
-pub(super) fn draw_composer_pane(frame: &mut Frame, app: &mut App, area: Rect) -> u16 {
+pub(super) fn draw_composer_pane(frame: &mut Frame, app: &mut App, area: Rect) {
     let t = app.theme;
     // The field spans the pane minus the prompt marker and one trailing column.
     let width = area.width.saturating_sub(3).max(1) as usize;
@@ -130,9 +124,6 @@ pub(super) fn draw_composer_pane(frame: &mut Frame, app: &mut App, area: Rect) -
             field.y + ((row - offset) as u16).min(field.height - 1),
         ));
     }
-    // The palette, attachment notice and input field all sit on the raised
-    // background; the caller continues it across the sidebar.
-    ph + ah + ih
 }
 
 fn colour_chips(source: &str, theme: &Theme) -> Line<'static> {

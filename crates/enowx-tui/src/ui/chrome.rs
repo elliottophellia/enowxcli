@@ -36,25 +36,39 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
     if sidebar > 0 {
         let columns =
             Layout::horizontal([Constraint::Min(52), Constraint::Length(sidebar)]).split(parts[1]);
+        draw_composer_pane(frame, app, columns[0]);
         draw_sidebar(frame, app, columns[1]);
-        let band = draw_composer_pane(frame, app, columns[0]);
-        // Continue the composer's raised background behind the sidebar so the
-        // band reads as one strip across the window. Without it the lighter
-        // colour stopped at the divider and left a block beside the input.
-        if band > 0 && band <= columns[1].height {
-            let y = columns[1].y + columns[1].height - band;
-            // Start one column right of the divider so the rule keeps its own
-            // colour rather than being painted over.
-            frame.render_widget(
-                Block::default().style(Style::default().bg(app.theme.subtle)),
-                Rect::new(columns[1].x + 1, y, columns[1].width - 1, band),
-            );
-        }
     } else {
         draw_composer_pane(frame, app, parts[1]);
     }
     if footer > 0 {
-        draw_footer(frame, app, parts[2]);
+        // The footer belongs to the chat pane, so it stops at the divider.
+        // Running it the full width put a lighter band under the sidebar that
+        // belonged to neither pane.
+        let footer_area = if sidebar > 0 {
+            Rect::new(
+                parts[2].x,
+                parts[2].y,
+                parts[2].width.saturating_sub(sidebar),
+                parts[2].height,
+            )
+        } else {
+            parts[2]
+        };
+        // Fill the strip beside it with the sidebar's own background so the
+        // row reads as a continuation of the pane above, not as a gap.
+        if sidebar > 0 {
+            frame.render_widget(
+                Block::default().style(Style::default().bg(app.theme.panel)),
+                Rect::new(
+                    footer_area.x + footer_area.width,
+                    parts[2].y,
+                    sidebar,
+                    parts[2].height,
+                ),
+            );
+        }
+        draw_footer(frame, app, footer_area);
         // Carry the pane divider through the footer to the frame. The
         // divider is the sidebar's left border, so it ended where the
         // sidebar did — one row short of the bottom — and a vertical rule
@@ -63,6 +77,8 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
         if sidebar > 0 {
             let x = parts[1].x + parts[1].width - sidebar;
             frame.render_widget(
+                // Sits on the footer's own background so the rule does not
+                // punch a lighter cell into the strip beside it.
                 Paragraph::new("│").style(
                     Style::default()
                         .fg(app.theme.border)

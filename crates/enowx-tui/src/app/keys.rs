@@ -191,16 +191,21 @@ impl App {
                 // (Cmd+V / Shift+Insert) flow through as a bracketed paste.
                 KeyCode::Char('v') => self.attach_from_clipboard(),
                 KeyCode::Char('b') => self.toggle_sidebar()?,
-                // Settings is otherwise only reachable through `/model`, which
-                // is not where anyone looks for an API key or a base URL.
+                // The command palette is otherwise only reachable by typing
+                // `/`, which assumes you know it exists. Ctrl+P is where most
+                // editors put the same thing.
                 KeyCode::Char('p') => {
-                    if self.busy {
-                        // Saving rebuilds the provider, so editing it while a
-                        // turn is in flight would swap the model underneath it.
-                        self.status =
-                            "stop the current turn before changing configuration".into();
+                    if self.input.starts_with('/') {
+                        // Already open: a second press closes it rather than
+                        // doing nothing, so the key toggles.
+                        self.input.clear();
+                        self.cursor = 0;
                     } else {
-                        self.open_settings();
+                        // Whatever was typed stays, after the slash, so the
+                        // shortcut never costs a half-written message.
+                        self.input.insert(0, '/');
+                        self.cursor = 1;
+                        self.palette_cursor = 0;
                     }
                 }
                 // Ctrl+Enter inserts a newline; many terminals report it as

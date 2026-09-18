@@ -389,7 +389,7 @@ impl App {
         // without the text flickering during a burst of activity.
         const TIPS: [&str; 7] = [
             "/help for commands",
-            "Ctrl+P opens settings",
+            "Ctrl+P opens the command palette",
             "Ctrl+B toggles sidebar",
             "/skills to browse skills",
             "/mcp to manage MCP servers",

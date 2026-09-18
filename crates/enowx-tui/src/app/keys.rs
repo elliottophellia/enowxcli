@@ -191,6 +191,18 @@ impl App {
                 // (Cmd+V / Shift+Insert) flow through as a bracketed paste.
                 KeyCode::Char('v') => self.attach_from_clipboard(),
                 KeyCode::Char('b') => self.toggle_sidebar()?,
+                // Settings is otherwise only reachable through `/model`, which
+                // is not where anyone looks for an API key or a base URL.
+                KeyCode::Char('p') => {
+                    if self.busy {
+                        // Saving rebuilds the provider, so editing it while a
+                        // turn is in flight would swap the model underneath it.
+                        self.status =
+                            "stop the current turn before changing configuration".into();
+                    } else {
+                        self.open_settings();
+                    }
+                }
                 // Ctrl+Enter inserts a newline; many terminals report it as
                 // Ctrl+J, so both reach the same handler.
                 KeyCode::Enter | KeyCode::Char('j') => {

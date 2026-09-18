@@ -635,3 +635,37 @@ impl TestApp {
         self.inner.run_command(line)
     }
 }
+
+impl TestApp {
+    /// Send a key the way the runtime does.
+    pub fn press(&mut self, code: crossterm::event::KeyCode, ctrl: bool) -> anyhow::Result<()> {
+        use crossterm::event::{KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+        self.inner.key(KeyEvent {
+            code,
+            modifiers: if ctrl {
+                KeyModifiers::CONTROL
+            } else {
+                KeyModifiers::NONE
+            },
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        })
+    }
+
+    pub fn settings_modal_open(&self) -> bool {
+        self.inner.modal == Modal::Settings
+    }
+
+    pub fn set_busy(&mut self, busy: bool) {
+        self.inner.busy = busy;
+    }
+
+    pub fn type_input(&mut self, text: &str) {
+        self.inner.input.push_str(text);
+        self.inner.cursor = self.inner.input.len();
+    }
+
+    pub fn input_text(&self) -> String {
+        self.inner.input.clone()
+    }
+}

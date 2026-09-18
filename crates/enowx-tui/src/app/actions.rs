@@ -26,7 +26,7 @@ impl App {
                 let mut text = String::from("Commands");
                 for (name, summary) in COMMANDS { text.push_str(&format!("\n  /{name:<10} {summary}")); }
                 text.push_str("\n\nKeys\n  Enter      Send message\n  Ctrl+J     Newline\n  Ctrl+R     Toggle reasoning\n  Ctrl+O     Toggle tool output\n  PgUp/PgDn  Scroll transcript\n  Esc        Clear input / close picker\n  Ctrl+C     Stop turn / quit");
-                text.push_str("\n  F1–F5      Sidebar tabs\n  Alt+←/→    Sidebar pages\n  Ctrl+B     Toggle sidebar\n  /theme     Choose palette");
+                text.push_str("\n  F1–F5      Sidebar tabs\n  Alt+←/→    Sidebar pages\n  Ctrl+B     Toggle sidebar\n  Ctrl+P     Open settings\n  /theme     Choose palette");
                 self.push(TranscriptKind::System, text);
             }
             "new" => self.new_session(),

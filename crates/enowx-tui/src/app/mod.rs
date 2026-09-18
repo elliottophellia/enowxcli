@@ -387,8 +387,9 @@ impl App {
     pub(crate) fn footer_tip(&self) -> &'static str {
         // Cycle every 6 seconds so a curious user sees more than one hint
         // without the text flickering during a burst of activity.
-        const TIPS: [&str; 6] = [
+        const TIPS: [&str; 7] = [
             "/help for commands",
+            "Ctrl+P opens settings",
             "Ctrl+B toggles sidebar",
             "/skills to browse skills",
             "/mcp to manage MCP servers",

@@ -125,6 +125,13 @@ fn parse_todo_state(s: &str) -> TodoState {
 /// Render a bullet-tree list of strings under the tool header. Uses `├─`
 /// for interior rows and `└─` for the last so the eye can quickly scan the
 /// items as one group.
+/// How many rows a tree body shows before folding the rest into a hint.
+///
+/// Matches the caps `write` and the diff already use. Without one, opening a
+/// repo-wide grep would materialise every hit — hundreds of lines the reader
+/// then has to scroll past, for a body that is only ever a spot check.
+pub(super) const TREE_PREVIEW_MAX: usize = 15;
+
 pub(super) fn render_tree(
     items: &[String],
     width: usize,
@@ -133,8 +140,9 @@ pub(super) fn render_tree(
     file_markers: &mut Vec<(usize, String)>,
 ) {
     let text_w = width.saturating_sub(5).max(1);
-    for (i, item) in items.iter().enumerate() {
-        let connector = if i + 1 == items.len() {
+    let shown = items.len().min(TREE_PREVIEW_MAX);
+    for (i, item) in items.iter().take(shown).enumerate() {
+        let connector = if i + 1 == shown && items.len() <= TREE_PREVIEW_MAX {
             "└─"
         } else {
             "├─"
@@ -158,6 +166,13 @@ pub(super) fn render_tree(
                     .add_modifier(Modifier::UNDERLINED),
             ),
         ]));
+    }
+    if items.len() > shown {
+        let extra = items.len() - shown;
+        lines.push(Line::styled(
+            format!("  └─ {extra} more"),
+            Style::default().fg(theme.muted),
+        ));
     }
 }
 

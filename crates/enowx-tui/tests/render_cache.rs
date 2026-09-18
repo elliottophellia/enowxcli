@@ -189,3 +189,52 @@ fn tool_header_rows_track_the_scroll_offset() {
         "an off-screen tool header must not register a clickable row, got {rows:?}"
     );
 }
+
+/// A tool result can be megabytes. The cache key must not read all of it on
+/// every frame, or the cost of the cache scales with the output it exists to
+/// avoid re-rendering — which is exactly what it did before the key was
+/// changed to hash the result's shape.
+#[test]
+fn a_huge_tool_result_does_not_slow_the_frame() {
+    use std::time::Instant;
+
+    fn frame_cost(calls: usize, payload: &str) -> std::time::Duration {
+        let mut app = TestApp::new();
+        for i in 0..calls {
+            app.push_tool(&format!("t{i}"), "grep", r#"{"pattern":"x"}"#, payload);
+        }
+        let _ = app.render_to_text(100, 40);
+        let start = Instant::now();
+        for _ in 0..20 {
+            let _ = app.render_to_text(100, 40);
+        }
+        start.elapsed() / 20
+    }
+
+    let payload: String = (0..2_000).map(|i| format!("src/a.rs:{i}:hit\n")).collect();
+    let few = frame_cost(10, &payload);
+    let many = frame_cost(200, &payload);
+
+    // Twenty times the payload must not cost anything like twenty times the
+    // frame. A generous bound keeps this from flaking on a loaded machine
+    // while still failing loudly if the key goes back to reading every byte.
+    assert!(
+        many < few * 6,
+        "frame cost should stay near-flat as results pile up: {few:?} -> {many:?}"
+    );
+}
+
+/// Appending to a running tool's output must still invalidate its row, or a
+/// streaming result would freeze at whatever was first cached.
+#[test]
+fn a_growing_tool_result_still_re_renders() {
+    let mut app = TestApp::new();
+    app.push_tool("t1", "bash", r#"{"command":"cargo test"}"#, "exit 0\nfirst");
+    let before = app.render_to_text(W, H);
+    app.push_tool("t1b", "bash", r#"{"command":"cargo test"}"#, "exit 0\nfirst\nsecond");
+    let after = app.render_to_text(W, H);
+    assert_ne!(
+        before, after,
+        "a longer result must produce a different frame"
+    );
+}

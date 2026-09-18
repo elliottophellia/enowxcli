@@ -448,3 +448,10 @@ impl TestApp {
         self.inner.modal == Modal::None
     }
 }
+
+impl TestApp {
+    /// Open a specific tool block, as clicking its header does.
+    pub fn expand_tool(&mut self, id: &str) {
+        self.inner.tool_expanded.insert(id.to_string(), true);
+    }
+}

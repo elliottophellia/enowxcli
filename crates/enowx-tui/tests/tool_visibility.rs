@@ -156,3 +156,42 @@ fn a_failed_call_opens_even_when_its_tool_is_collapsed_by_default() {
         "an error must be readable without a click, got {rows:?}"
     );
 }
+
+/// Opening a body is a spot check, not a dump. A repo-wide grep would
+/// otherwise materialise every hit, which is the cost the collapse exists to
+/// avoid — just deferred to the click.
+#[test]
+fn an_opened_tree_is_capped() {
+    let hits: String = (0..300)
+        .map(|i| format!("crates/a/src/f{i}.rs:{i}:fn handler\n"))
+        .collect();
+    let mut app = TestApp::new();
+    app.push_tool("t1", "grep", r#"{"pattern":"fn handler"}"#, &hits);
+    // grep is collapsed by policy; this is the click that opens it.
+    app.expand_tool("t1");
+    let rows = app.render_to_text(W, 200);
+    let shown = rows.iter().filter(|r| r.contains("src/f")).count();
+    assert!(
+        shown <= 16,
+        "an opened tree should show a sample, not 300 rows; showed {shown}"
+    );
+    assert!(
+        rows.iter().any(|r| r.contains("more")),
+        "the fold should say how much was left out, got {rows:?}"
+    );
+}
+
+/// A short result is shown whole — the cap must not truncate what already fits.
+#[test]
+fn a_short_tree_is_not_folded() {
+    let mut app = TestApp::new();
+    app.push_tool("t1", "grep", r#"{"pattern":"x"}"#, "a.rs:1:x\nb.rs:2:x");
+    app.expand_tool("t1");
+    let rows = app.render_to_text(W, H);
+    assert!(rows.iter().any(|r| r.contains("a.rs:1")));
+    assert!(rows.iter().any(|r| r.contains("b.rs:2")));
+    assert!(
+        !rows.iter().any(|r| r.contains("more")),
+        "nothing was left out, so nothing should be claimed"
+    );
+}

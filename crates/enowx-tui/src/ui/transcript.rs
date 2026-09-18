@@ -1532,7 +1532,18 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 id.hash(&mut hasher);
                 name.hash(&mut hasher);
                 args.hash(&mut hasher);
-                result.hash(&mut hasher);
+                // Hash the result's SHAPE, not its bytes. A tool result can
+                // be megabytes, and hashing all of it on every frame made the
+                // cache cost scale with the output it was meant to avoid
+                // re-rendering. Length plus the head and tail distinguishes a
+                // growing stream from a finished one, which is all the key
+                // needs to decide staleness.
+                result.len().hash(&mut hasher);
+                let bytes = result.as_bytes();
+                bytes[..bytes.len().min(256)].hash(&mut hasher);
+                if bytes.len() > 256 {
+                    bytes[bytes.len() - 256..].hash(&mut hasher);
+                }
                 running.hash(&mut hasher);
                 error.hash(&mut hasher);
                 // Must match the renderer exactly, or a row would be cached

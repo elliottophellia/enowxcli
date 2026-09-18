@@ -221,12 +221,16 @@ Ordered so each step is usable on its own.
 3. **`handoff(agent, reason)`** — same session, agent changes, history stays.
 4. **Branch sessions** — a sub-agent needs its own saved session so its
    transcript is inspectable, without entering the router's context.
-5. **`delegate(agent, task, tier?)`** — runs a branch session, returns a
-   summary. Only the router holds handoff/delegate; if every agent could
-   delegate, the call chain has no bound.
+5. **`delegate(agent, task, tier?, writes?, reads?)`** — runs a branch
+   session, returns a summary. Only the router holds handoff/delegate, except
+   that a specialist may call `librarian`. Branch usage rolls up into the
+   parent, or the cost readout is wrong by an order of magnitude.
 6. **Tier resolution** and the `[agent.tiers]` table.
 7. **`auto_switch`** and the confirmation prompt.
-8. **Compaction rewrite** — tool calls in the summary input, and the
+8. **Parallel delegation** with write contracts, serialising the overlaps.
+   Worth deferring until sequential delegation is proven — it multiplies the
+   ways a run can go wrong.
+9. **Compaction rewrite** — tool calls in the summary input, and the
    `compactor` agent. Independent of 1–7 and worth doing early: it is the
    largest single saving, and the current summariser is losing information
    today.
@@ -341,16 +345,98 @@ and the conversation pays the full quadratic cost. A large window is for
 holding one large file, not a reason to drag 800k of history through every
 turn. Users on large-context models should set this far lower.
 
+## Delegation rules
+
+### Depth
+
+One level: only the router delegates. A specialist that could delegate turns a
+task into a tree — three levels at a fanout of three is forty agents and
+~600,000 tokens, which no task justifies.
+
+One exception: **a specialist may call `librarian`.** It is read-only, so it
+cannot corrupt anything, and it exists precisely to keep a specialist's
+context clean — read twenty files, hand back ten excerpts. Forbidding it would
+push that reading into the specialist's own window, which is the cost the
+architecture is trying to avoid.
+
+So: router → specialist → librarian, and no other second hop.
+
+### When a sub-agent fails
+
+Five ways it ends badly, and they are not equivalent:
+
+| Failure | State afterwards |
+|---|---|
+| Wrong specialist chosen | Nothing changed — safe |
+| Model exhausted every tier | Nothing changed — safe |
+| Specialist declines the task | Nothing changed — safe |
+| **Ran out of steps** | **Partial: files already changed** |
+| **Interrupted** | **Partial: files may be half-written** |
+
+The first three are simply "pick differently". The last two are the dangerous
+ones: work is half done, and a router that treats them as "try again" will
+have a second specialist build on a state it knows nothing about.
+
+So a partial failure is retried **once**, with the same specialist, and the
+briefing carries what already changed:
+
+```
+Previous attempt ran out of steps. Already changed:
+  src/auth.rs   edited (+12/-4)
+  tests/auth.rs created
+Continue from there; do not redo work that is done.
+```
+
+Once. If it fails again the router stops and reports to the user, naming the
+files left in a partial state. Retrying further only stacks up more half-done
+edits, and each attempt makes the state harder to reason about.
+
+### Cost
+
+A branch session keeps its own usage, so without rolling it up the sidebar
+reports the router's spend alone: 3,000 tokens shown against 87,000 actually
+spent, off by **29×**. That is not an incomplete number, it is a wrong one.
+
+Branch usage rolls up into the parent. The total is what the sidebar shows;
+a per-agent breakdown is available for anyone who wants to see where it went.
+
+### Parallelism
+
+Sub-agents may run in parallel, but each one declares a **contract** up front:
+
+```
+delegate(agent="fe", task="…", writes=["src/ui/**"], reads=["src/api/types.rs"])
+```
+
+- **`writes`** — paths or globs it intends to change.
+- **`reads`** — paths it expects to read. Overlapping reads are fine.
+
+Overlapping *writes* are the only conflict. Those delegations are serialised —
+the second waits for the first — while everything else still runs together:
+
+```
+fe    → src/ui/**        ┐
+be    → src/api/**       ├ in parallel
+docs  → README.md        ┘
+
+test  → src/ui/**        ← overlaps fe, runs after it
+```
+
+Nothing is refused. A router that had its delegation rejected would have to
+re-plan, and it has no better information than the scheduler does.
+
+Declaring intent beats locking: a conflict is known before any work starts,
+rather than discovered halfway through when one agent has already written.
+
 ## Open questions
 
-- **Depth limit.** A sub-agent cannot delegate, which bounds the tree at one
-  level. Enough, or is two levels needed?
-- **Sub-agent failure.** A sub-agent that fails or is interrupted — does the
-  router see the error and retry with another specialist, or does it surface
-  to the user? (The model-level ladder above is settled; this is about the
-  agent level.)
-- **Cost accounting.** Session usage is per session; a delegation spends
-  tokens in a branch. The sidebar should probably show the total, which means
-  branch usage has to roll up into the parent.
-- **Concurrency.** Two independent sub-agents could run in parallel. Worth it,
-  or does it make the transcript unreadable?
+- **Contract enforcement.** A specialist declares `writes` but the tool layer
+  does not yet know about it. Is the declaration advisory, or should a write
+  outside it be refused the way an out-of-workspace path already is?
+- **Router prompt.** The tier guidance and the domain/cross-cutting tie-break
+  both live in the router's prompt, and neither is written. Without them the
+  router will reach for `strong` every time and pick a domain agent for
+  everything.
+- **Handoff and cost.** Handoff keeps one session, so its cost is already
+  counted. But a session that has changed agent three times has three prompts'
+  worth of history in it — is that worth compacting on switch?

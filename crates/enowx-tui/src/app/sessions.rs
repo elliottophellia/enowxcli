@@ -51,9 +51,14 @@ impl App {
             "Session belongs to {}",
             session.workspace.display()
         );
-        self.tokens_in = 0;
-        self.tokens_out = 0;
-        self.context_tokens = 0;
+        // Restore the counters the session recorded rather than zeroing them:
+        // the transcript comes back showing work that plainly consumed
+        // tokens, so a 0/1,000,000 gauge beside it is simply wrong. Sessions
+        // written before usage was persisted carry zeros, which is honest —
+        // the numbers were never captured.
+        self.tokens_in = session.usage.input_tokens;
+        self.tokens_out = session.usage.output_tokens;
+        self.context_tokens = session.usage.context_tokens;
         self.tool_counts.clear();
         self.session_id = Some(session.id.clone());
         self.title = session.title;

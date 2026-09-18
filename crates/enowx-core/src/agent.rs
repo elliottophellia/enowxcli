@@ -410,11 +410,25 @@ impl Agent {
                 }
             };
 
+            // Accumulate into the session as well as reporting it, so the
+            // totals survive a restart: the transcript was always restored,
+            // but the gauges next to it came back at zero.
+            session.usage.input_tokens = session
+                .usage
+                .input_tokens
+                .saturating_add(completion.usage.input_tokens);
+            session.usage.output_tokens = session
+                .usage
+                .output_tokens
+                .saturating_add(completion.usage.output_tokens);
+            // The context gauge shows the LAST call's prompt, not a running
+            // total — it is "how full is the window now".
+            session.usage.context_tokens = completion.usage.input_tokens;
             let _ = events
                 .send(Event::Usage {
-                    input_tokens: completion.usage.input_tokens,
-                    output_tokens: completion.usage.output_tokens,
-                    context_tokens: completion.usage.input_tokens,
+                    input_tokens: session.usage.input_tokens,
+                    output_tokens: session.usage.output_tokens,
+                    context_tokens: session.usage.context_tokens,
                     context_window: self.config.model.context_window,
                 })
                 .await;

@@ -38,7 +38,27 @@ pub struct Session {
     pub updated_at: DateTime<Utc>,
     #[serde(default)]
     pub workspace: PathBuf,
+    /// Token accounting for the conversation so far. Persisted so resuming a
+    /// session restores its context gauge and cost readout instead of showing
+    /// zeros next to a transcript that plainly used tokens.
+    #[serde(default)]
+    pub usage: SessionUsage,
     pub turns: Vec<StoredTurn>,
+}
+
+/// Running totals for one session.
+///
+/// `context_tokens` is the last call's prompt size — what the context gauge
+/// shows — while the token counts accumulate across the whole session, which
+/// is what the cost readout is derived from.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionUsage {
+    #[serde(default)]
+    pub input_tokens: u32,
+    #[serde(default)]
+    pub output_tokens: u32,
+    #[serde(default)]
+    pub context_tokens: u32,
 }
 
 impl Session {
@@ -51,6 +71,7 @@ impl Session {
             created_at: now,
             updated_at: now,
             workspace: PathBuf::new(),
+            usage: SessionUsage::default(),
             turns: Vec::new(),
         }
     }
@@ -150,6 +171,10 @@ struct Header {
     updated_at: DateTime<Utc>,
     #[serde(default)]
     workspace: PathBuf,
+    /// Absent in files written before usage was persisted; `default` keeps
+    /// those loadable, just with zeroed counters.
+    #[serde(default)]
+    usage: SessionUsage,
 }
 
 impl Default for SessionStore {
@@ -179,6 +204,7 @@ impl SessionStore {
             created_at: session.created_at,
             updated_at: session.updated_at,
             workspace: session.workspace.clone(),
+            usage: session.usage,
         };
         out.push_str(&serde_json::to_string(&header)?);
         out.push('\n');
@@ -215,6 +241,7 @@ impl SessionStore {
             created_at: header.created_at,
             updated_at: header.updated_at,
             workspace: header.workspace,
+            usage: header.usage,
             turns,
         })
     }
@@ -358,5 +385,90 @@ mod tests {
         assert!(replay[2].content.contains("Result unavailable"));
         // The partial text is still visible in stored history for the user.
         assert_eq!(session.turns.len(), 3);
+    }
+}
+
+#[cfg(test)]
+mod usage_persistence_tests {
+    use super::*;
+
+    fn store() -> (SessionStore, tempdir::Guard) {
+        let guard = tempdir::Guard::new();
+        (SessionStore::new(guard.path().to_path_buf()), guard)
+    }
+
+    #[test]
+    fn usage_survives_a_save_and_load() {
+        let (store, _guard) = store();
+        let mut session = Session::new(Role::Orchestrator);
+        session.usage = SessionUsage {
+            input_tokens: 12_345,
+            output_tokens: 678,
+            context_tokens: 9_012,
+        };
+        store.save(&session).expect("save");
+        let loaded = store.load(&session.id).expect("load");
+        assert_eq!(
+            loaded.usage, session.usage,
+            "the counters shown beside a resumed transcript come from here"
+        );
+    }
+
+    /// Files written before usage was persisted must still load, with zeroed
+    /// counters rather than an error — every existing session is one of these.
+    #[test]
+    fn a_session_without_usage_still_loads() {
+        let (store, guard) = store();
+        let id = "11111111-2222-3333-4444-555555555555";
+        let header = format!(
+            r#"{{"id":"{id}","title":"old","role":"orchestrator","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z","workspace":"/tmp"}}"#
+        );
+        std::fs::write(guard.path().join(format!("{id}.jsonl")), header + "\n").unwrap();
+        let loaded = store.load(id).expect("a pre-usage session must still open");
+        assert_eq!(loaded.usage, SessionUsage::default());
+        assert_eq!(loaded.title, "old");
+    }
+
+    /// The context gauge shows how full the window is now, so it tracks the
+    /// last call rather than accumulating.
+    #[test]
+    fn context_is_the_latest_prompt_while_totals_accumulate() {
+        let mut usage = SessionUsage::default();
+        for prompt in [1_000u32, 2_500, 4_000] {
+            usage.input_tokens = usage.input_tokens.saturating_add(prompt);
+            usage.output_tokens = usage.output_tokens.saturating_add(100);
+            usage.context_tokens = prompt;
+        }
+        assert_eq!(usage.input_tokens, 7_500, "input accumulates");
+        assert_eq!(usage.output_tokens, 300, "output accumulates");
+        assert_eq!(usage.context_tokens, 4_000, "context is the last prompt");
+    }
+
+    mod tempdir {
+        pub struct Guard(std::path::PathBuf);
+        impl Guard {
+            pub fn new() -> Self {
+                // A timestamp alone collides when tests start in the same
+                // nanosecond under the parallel runner; the counter makes the
+                // name unique within the process.
+                use std::sync::atomic::{AtomicU64, Ordering};
+                static SEQ: AtomicU64 = AtomicU64::new(0);
+                let path = std::env::temp_dir().join(format!(
+                    "enx-session-test-{}-{}",
+                    std::process::id(),
+                    SEQ.fetch_add(1, Ordering::Relaxed)
+                ));
+                std::fs::create_dir_all(&path).unwrap();
+                Self(path)
+            }
+            pub fn path(&self) -> &std::path::Path {
+                &self.0
+            }
+        }
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
     }
 }

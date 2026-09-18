@@ -19,7 +19,11 @@ fn an_unknown_agent_is_refused_with_the_alternatives() {
     let msg = format!("{err:#}");
     assert!(msg.contains("frontend"), "{msg}");
     assert!(msg.contains("fe"), "the real name should be offered: {msg}");
-    assert_eq!(app.active_agent(), before, "a refused switch changes nothing");
+    assert_eq!(
+        app.active_agent(),
+        before,
+        "a refused switch changes nothing"
+    );
 }
 
 #[test]

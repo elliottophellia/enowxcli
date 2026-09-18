@@ -151,9 +151,7 @@ impl ToolRegistry {
     /// this refuses it if the model calls it anyway. Both are needed — a model
     /// can name a tool it was never shown.
     pub fn agent_allows(allowed_tools: &[String], name: &str) -> bool {
-        name == "skill_read"
-            || name.starts_with("mcp__")
-            || allowed_tools.iter().any(|t| t == name)
+        name == "skill_read" || name.starts_with("mcp__") || allowed_tools.iter().any(|t| t == name)
     }
 
     pub fn schemas(&self, role: Role, discovery: Option<&Discovery>) -> Vec<Value> {

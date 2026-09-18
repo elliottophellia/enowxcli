@@ -140,4 +140,3 @@ fn a_failed_row_shows_its_status() {
         "the exit code should render in the failure colour"
     );
 }
-

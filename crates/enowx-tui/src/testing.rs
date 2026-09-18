@@ -164,7 +164,11 @@ impl TestApp {
 
     /// How many blocks currently hold a cached rendering.
     pub fn cached_block_count(&self) -> usize {
-        self.inner.render_cache.iter().filter(|c| c.is_some()).count()
+        self.inner
+            .render_cache
+            .iter()
+            .filter(|c| c.is_some())
+            .count()
     }
 
     pub fn push_user(&mut self, text: &str) {
@@ -685,5 +689,27 @@ impl TestApp {
 
     pub fn theme_name(&self) -> String {
         self.inner.theme.name.to_owned()
+    }
+}
+
+impl TestApp {
+    pub fn palette_open(&self) -> bool {
+        self.inner.modal == Modal::Commands
+    }
+
+    pub fn palette_row_count(&self) -> usize {
+        self.inner.palette_rows().len()
+    }
+
+    /// The command the palette has highlighted.
+    pub fn palette_selection(&self) -> Option<String> {
+        self.inner
+            .palette_rows()
+            .get(self.inner.modal_cursor)
+            .map(|(name, _)| (*name).to_owned())
+    }
+
+    pub fn press_key(&mut self, code: crossterm::event::KeyCode) -> anyhow::Result<()> {
+        self.press(code, false)
     }
 }

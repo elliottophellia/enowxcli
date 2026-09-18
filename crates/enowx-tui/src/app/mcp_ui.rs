@@ -72,9 +72,7 @@ impl App {
         self.status = if server.source == enowx_core::discovery::user_mcp_path() {
             format!("editing {name}")
         } else {
-            format!(
-                "editing {name} — saving copies it into your own config",
-            )
+            format!("editing {name} — saving copies it into your own config",)
         };
     }
 

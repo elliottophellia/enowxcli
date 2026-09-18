@@ -85,7 +85,6 @@ fn ascii_paragraphs_still_break_on_spaces() {
     }
 }
 
-
 /// Wrapping by char count fits half as much text per row as the panel allows,
 /// so a CJK paragraph that should occupy N rows takes ~2N. This asserts the
 /// rows are actually FULL, which is what distinguishes a width-aware wrap from
@@ -96,7 +95,10 @@ fn cjk_rows_are_filled_to_the_panel_width() {
     let mut app = TestApp::new();
     app.push_assistant(&"日本語のテキストです".repeat(12));
     let rows = app.render_to_text(W, H);
-    let body: Vec<&String> = rows.iter().filter(|r| r.contains('日') || r.contains('テ')).collect();
+    let body: Vec<&String> = rows
+        .iter()
+        .filter(|r| r.contains('日') || r.contains('テ'))
+        .collect();
     assert!(body.len() >= 2, "expected a multi-row paragraph");
     // Every row but the last should use most of the available width.
     for row in &body[..body.len() - 1] {

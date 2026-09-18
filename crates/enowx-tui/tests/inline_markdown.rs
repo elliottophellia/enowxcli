@@ -152,10 +152,7 @@ fn code_inside_italic_and_strikethrough_is_parsed_too() {
 #[test]
 fn emphasis_can_nest() {
     let got = plain("**bold with *italic* nested**");
-    assert!(
-        got.contains("bold with italic nested"),
-        "got {got:?}"
-    );
+    assert!(got.contains("bold with italic nested"), "got {got:?}");
     assert!(!got.contains('*'), "no asterisks should survive: {got:?}");
 }
 

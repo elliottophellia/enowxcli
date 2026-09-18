@@ -49,7 +49,6 @@ impl Tok {
             base
         }
     }
-
 }
 
 /// The comment and string conventions of one language family. Grouping by
@@ -69,13 +68,78 @@ pub struct Syntax {
 }
 
 const C_LIKE_KEYWORDS: &[&str] = &[
-    "as", "async", "await", "break", "case", "catch", "class", "const", "continue", "default",
-    "defer", "do", "else", "enum", "export", "extends", "extern", "false", "final", "finally",
-    "fn", "for", "from", "func", "function", "go", "goto", "if", "impl", "implements", "import",
-    "in", "instanceof", "interface", "let", "loop", "match", "mod", "move", "mut", "new", "nil",
-    "null", "package", "priv", "pub", "public", "private", "protected", "ref", "return", "self",
-    "static", "struct", "super", "switch", "this", "throw", "trait", "true", "try", "type",
-    "typeof", "union", "unsafe", "use", "var", "void", "where", "while", "with", "yield",
+    "as",
+    "async",
+    "await",
+    "break",
+    "case",
+    "catch",
+    "class",
+    "const",
+    "continue",
+    "default",
+    "defer",
+    "do",
+    "else",
+    "enum",
+    "export",
+    "extends",
+    "extern",
+    "false",
+    "final",
+    "finally",
+    "fn",
+    "for",
+    "from",
+    "func",
+    "function",
+    "go",
+    "goto",
+    "if",
+    "impl",
+    "implements",
+    "import",
+    "in",
+    "instanceof",
+    "interface",
+    "let",
+    "loop",
+    "match",
+    "mod",
+    "move",
+    "mut",
+    "new",
+    "nil",
+    "null",
+    "package",
+    "priv",
+    "pub",
+    "public",
+    "private",
+    "protected",
+    "ref",
+    "return",
+    "self",
+    "static",
+    "struct",
+    "super",
+    "switch",
+    "this",
+    "throw",
+    "trait",
+    "true",
+    "try",
+    "type",
+    "typeof",
+    "union",
+    "unsafe",
+    "use",
+    "var",
+    "void",
+    "where",
+    "while",
+    "with",
+    "yield",
 ];
 
 const PY_KEYWORDS: &[&str] = &[
@@ -143,10 +207,7 @@ const DATA: Syntax = Syntax {
 pub fn lookup(lang: &str) -> Option<Syntax> {
     let lang = lang.trim().to_ascii_lowercase();
     // A fence can carry more than the language (```rust,no_run or ```js title=x).
-    let lang = lang
-        .split([',', ' ', ':'])
-        .next()
-        .unwrap_or("");
+    let lang = lang.split([',', ' ', ':']).next().unwrap_or("");
     Some(match lang {
         "rust" | "rs" | "go" | "golang" | "c" | "h" | "cpp" | "cc" | "hpp" | "c++" | "java"
         | "kt" | "kotlin" | "swift" | "scala" | "cs" | "csharp" | "js" | "jsx" | "mjs" | "cjs"
@@ -216,11 +277,7 @@ pub fn highlight(line: &str, syntax: &Syntax, state: &mut State) -> Vec<(String,
         let rest: String = chars[i..].iter().collect();
 
         // Line comment runs to end of line.
-        if let Some(marker) = syntax
-            .line_comment
-            .iter()
-            .find(|m| rest.starts_with(**m))
-        {
+        if let Some(marker) = syntax.line_comment.iter().find(|m| rest.starts_with(**m)) {
             let _ = marker;
             flush!();
             out.push((rest, Tok::Comment));

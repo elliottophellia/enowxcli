@@ -19,7 +19,12 @@ fn body_visible(tool: &str, args: &str, result: &str, needle: &str) -> bool {
 #[test]
 fn glob_does_not_dump_its_paths() {
     assert!(
-        !body_visible("glob", r#"{"pattern":"*.md"}"#, "AGENTS.md\nREADME.md", "AGENTS.md"),
+        !body_visible(
+            "glob",
+            r#"{"pattern":"*.md"}"#,
+            "AGENTS.md\nREADME.md",
+            "AGENTS.md"
+        ),
         "the paths only restate the pattern that produced them"
     );
 }
@@ -53,7 +58,12 @@ fn grep_does_not_dump_its_hits() {
 #[test]
 fn bash_does_not_dump_its_output() {
     assert!(
-        !body_visible("bash", r#"{"command":"ls"}"#, "exit 0\nalpha\nbeta", "alpha"),
+        !body_visible(
+            "bash",
+            r#"{"command":"ls"}"#,
+            "exit 0\nalpha\nbeta",
+            "alpha"
+        ),
         "even `ls` in a large tree spills hundreds of lines"
     );
 }

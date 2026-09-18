@@ -106,7 +106,9 @@ fn errors_stay_red() {
     app.push_error("connection refused");
     let styled = app.render_to_styled(W, H);
     assert!(
-        styled.iter().any(|(text, red)| text.contains("error") && *red),
+        styled
+            .iter()
+            .any(|(text, red)| text.contains("error") && *red),
         "the error label must render in the theme's red"
     );
 }
@@ -165,7 +167,9 @@ fn retries_are_red_not_plain_text() {
     app.push_retry("connection refused", 2, 10);
     let styled = app.render_to_styled(W, H);
     assert!(
-        styled.iter().any(|(text, red)| text.contains("retry") && *red),
+        styled
+            .iter()
+            .any(|(text, red)| text.contains("retry") && *red),
         "a retry must read as a failure, not as ordinary output"
     );
 }

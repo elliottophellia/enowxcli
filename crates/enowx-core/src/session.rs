@@ -637,8 +637,14 @@ mod agent_tests {
         let sw = &s.switches[0];
         assert_eq!(sw.from, "router");
         assert_eq!(sw.to, "fe");
-        assert_eq!(sw.at_turn, 1, "the marker belongs after the turn it follows");
-        assert!(!sw.reason.is_empty(), "a switch with no reason reads as a glitch");
+        assert_eq!(
+            sw.at_turn, 1,
+            "the marker belongs after the turn it follows"
+        );
+        assert!(
+            !sw.reason.is_empty(),
+            "a switch with no reason reads as a glitch"
+        );
     }
 
     /// Re-selecting the current agent is a no-op; otherwise the transcript
@@ -675,7 +681,10 @@ mod agent_tests {
         let branch = parent.branch("fe");
         assert_eq!(branch.parent.as_deref(), Some(parent.id.as_str()));
         assert_eq!(branch.agent, "fe");
-        assert!(branch.turns.is_empty(), "a sub-agent starts from a briefing");
+        assert!(
+            branch.turns.is_empty(),
+            "a sub-agent starts from a briefing"
+        );
         assert_eq!(
             branch.usage,
             SessionUsage::default(),

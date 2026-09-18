@@ -16,6 +16,11 @@ pub enum Modal {
     Settings,
     Themes,
     Attach,
+    /// Floating list of every command, searchable. Distinct from the
+    /// inline list that appears above the composer when the input starts
+    /// with `/`: that one is for people who know the name they want, this is
+    /// for looking.
+    Commands,
     Skills,
     Mcp,
     McpForm,
@@ -26,6 +31,7 @@ pub enum Modal {
 impl Modal {
     pub fn title(self) -> &'static str {
         match self {
+            Modal::Commands => " COMMANDS ",
             Modal::Roles => " AGENT ROLE ",
             Modal::Sessions => " RESUME SESSION ",
             Modal::Providers => " PROVIDER ",

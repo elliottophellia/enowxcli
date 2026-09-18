@@ -142,10 +142,18 @@ fn lines_to_ansi(lines: Vec<ratatui::text::Line<'static>>) -> Vec<String> {
                 if let Some(fg) = span.style.fg {
                     out.push_str(&sgr(fg, 38));
                 }
-                if span.style.add_modifier.contains(ratatui::style::Modifier::BOLD) {
+                if span
+                    .style
+                    .add_modifier
+                    .contains(ratatui::style::Modifier::BOLD)
+                {
                     out.push_str("\x1b[1m");
                 }
-                if span.style.add_modifier.contains(ratatui::style::Modifier::ITALIC) {
+                if span
+                    .style
+                    .add_modifier
+                    .contains(ratatui::style::Modifier::ITALIC)
+                {
                     out.push_str("\x1b[3m");
                 }
                 out.push_str(&span.content);

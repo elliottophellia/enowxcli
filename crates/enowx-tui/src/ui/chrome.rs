@@ -81,11 +81,8 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
                 // It marks the sidebar's edge, and painting it `subtle` left
                 // one lighter cell standing proud of the dark column below —
                 // a single-cell leak, but the eye finds it immediately.
-                Paragraph::new("│").style(
-                    Style::default()
-                        .fg(app.theme.border)
-                        .bg(app.theme.panel),
-                ),
+                Paragraph::new("│")
+                    .style(Style::default().fg(app.theme.border).bg(app.theme.panel)),
                 Rect::new(x, parts[2].y, 1, parts[2].height),
             );
         }

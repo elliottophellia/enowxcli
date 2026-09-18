@@ -18,6 +18,10 @@ pub(super) fn draw_popup(frame: &mut Frame, app: &mut App) -> bool {
             draw_skills(frame, app);
             true
         }
+        Modal::Commands => {
+            draw_commands(frame, app);
+            true
+        }
         Modal::Mcp => {
             draw_mcp(frame, app);
             true
@@ -464,5 +468,64 @@ fn draw_quit_confirm(frame: &mut Frame, app: &mut App) {
             no_style,
         )])]),
         no_rect,
+    );
+}
+
+/// The command palette: every command, searchable.
+///
+/// Separate from the inline list above the composer. That one serves someone
+/// typing a name they already know; this one is for looking, so it searches
+/// summaries too and gets the room to show them.
+fn draw_commands(frame: &mut Frame, app: &mut App) {
+    let rows = app.palette_rows();
+    if !rows.is_empty() && app.modal_cursor >= rows.len() {
+        app.modal_cursor = rows.len() - 1;
+    }
+    let area = frame.area();
+    let width = 74;
+    let height = ((rows.len() as u16) + 5)
+        .min(area.height.saturating_sub(2))
+        .max(8);
+    let popup = popup_rect(area, width, height);
+    frame.render_widget(Clear, popup);
+    let block = frame_block(app);
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let layout = Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).split(inner);
+    search_row(app, layout[0], frame, "↑↓ move · Enter run · Esc close");
+
+    if rows.is_empty() {
+        frame.render_widget(
+            Paragraph::new("  no command matches").style(Style::default().fg(app.theme.muted)),
+            layout[1],
+        );
+        return;
+    }
+
+    let items: Vec<ListItem> = rows
+        .iter()
+        .map(|(name, summary)| {
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    format!("  /{name:<10}"),
+                    Style::default()
+                        .fg(app.theme.accent)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled((*summary).to_string(), Style::default().fg(app.theme.muted)),
+            ]))
+        })
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(app.modal_cursor));
+    frame.render_stateful_widget(
+        List::new(items).highlight_style(
+            Style::default()
+                .bg(app.theme.active_tab)
+                .add_modifier(Modifier::BOLD),
+        ),
+        layout[1],
+        &mut state,
     );
 }

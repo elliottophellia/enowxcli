@@ -986,7 +986,9 @@ mod diagnosis_tests {
     fn the_mid_stream_cap_never_raises_a_budget() {
         let mid = mark_mid_stream(err("context_length_exceeded"), true);
         assert_eq!(retry_budget_for_error(&mid), 1);
-        assert!(!mark_mid_stream(err("boom"), false).to_string().contains("mid-stream"));
+        assert!(!mark_mid_stream(err("boom"), false)
+            .to_string()
+            .contains("mid-stream"));
     }
 
     /// Only capacity and capability are worth carrying to another model: a
@@ -1032,7 +1034,10 @@ mod diagnosis_tests {
     #[test]
     fn a_same_tier_model_is_tried_before_dropping_a_tier() {
         let mut config = ladder_config();
-        config.agent.models.insert("fe".into(), "override/fe".into());
+        config
+            .agent
+            .models
+            .insert("fe".into(), "override/fe".into());
         // `fe` is already running on the tier model, so the override is the
         // other model at this level.
         let mut ladder = ModelLadder::new("fe", Tier::Strong, "tier/strong");

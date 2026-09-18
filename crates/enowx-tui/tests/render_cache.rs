@@ -13,7 +13,10 @@ fn assert_cache_matches_cold(app: &mut TestApp, context: &str) {
     let warm = app.render_to_text(W, H);
     app.clear_render_cache();
     let cold = app.render_to_text(W, H);
-    assert_eq!(warm, cold, "cached render diverged from cold render: {context}");
+    assert_eq!(
+        warm, cold,
+        "cached render diverged from cold render: {context}"
+    );
 }
 
 #[test]
@@ -50,7 +53,10 @@ fn a_width_change_invalidates_every_block() {
 
     let narrow = app.render_to_text(60, H);
     let wide = app.render_to_text(100, H);
-    assert_ne!(narrow, wide, "a resize must actually re-lay-out the transcript");
+    assert_ne!(
+        narrow, wide,
+        "a resize must actually re-lay-out the transcript"
+    );
 
     // Back to the original width: must equal a cold render at that width.
     let narrow_again = app.render_to_text(60, H);
@@ -119,7 +125,9 @@ fn scrolled_frames_match_a_cold_render() {
     let mut app = TestApp::new();
     for i in 0..40 {
         app.push_user(&format!("question {i}"));
-        app.push_assistant(&format!("answer {i} with a bit of text to take up a row or two"));
+        app.push_assistant(&format!(
+            "answer {i} with a bit of text to take up a row or two"
+        ));
     }
     let _ = app.render_to_text(W, H);
     let max = app.max_scroll();
@@ -231,7 +239,12 @@ fn a_growing_tool_result_still_re_renders() {
     let mut app = TestApp::new();
     app.push_tool("t1", "bash", r#"{"command":"cargo test"}"#, "exit 0\nfirst");
     let before = app.render_to_text(W, H);
-    app.push_tool("t1b", "bash", r#"{"command":"cargo test"}"#, "exit 0\nfirst\nsecond");
+    app.push_tool(
+        "t1b",
+        "bash",
+        r#"{"command":"cargo test"}"#,
+        "exit 0\nfirst\nsecond",
+    );
     let after = app.render_to_text(W, H);
     assert_ne!(
         before, after,

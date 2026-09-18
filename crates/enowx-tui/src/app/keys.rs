@@ -108,6 +108,37 @@ impl App {
                     _ => {}
                 }
             }
+            if self.modal == Modal::Commands {
+                match key.code {
+                    KeyCode::Esc => {
+                        self.modal = Modal::None;
+                        self.modal_search.clear();
+                        return Ok(());
+                    }
+                    KeyCode::Up => {
+                        self.modal_cursor = self.modal_cursor.saturating_sub(1);
+                        return Ok(());
+                    }
+                    KeyCode::Down => {
+                        if self.modal_cursor + 1 < self.palette_rows().len() {
+                            self.modal_cursor += 1;
+                        }
+                        return Ok(());
+                    }
+                    KeyCode::Backspace => {
+                        self.modal_search.pop();
+                        // A narrower list can leave the cursor past its end.
+                        self.modal_cursor = 0;
+                        return Ok(());
+                    }
+                    KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        self.modal_search.push(c);
+                        self.modal_cursor = 0;
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+            }
             if self.modal == Modal::Skills || self.modal == Modal::Mcp {
                 match key.code {
                     KeyCode::Esc => {
@@ -208,23 +239,10 @@ impl App {
                 // (Cmd+V / Shift+Insert) flow through as a bracketed paste.
                 KeyCode::Char('v') => self.attach_from_clipboard(),
                 KeyCode::Char('b') => self.toggle_sidebar()?,
-                // The command palette is otherwise only reachable by typing
-                // `/`, which assumes you know it exists. Ctrl+P is where most
-                // editors put the same thing.
-                KeyCode::Char('p') => {
-                    if self.input.starts_with('/') {
-                        // Already open: a second press closes it rather than
-                        // doing nothing, so the key toggles.
-                        self.input.clear();
-                        self.cursor = 0;
-                    } else {
-                        // Whatever was typed stays, after the slash, so the
-                        // shortcut never costs a half-written message.
-                        self.input.insert(0, '/');
-                        self.cursor = 1;
-                        self.palette_cursor = 0;
-                    }
-                }
+                // Typing `/` still shows the inline list above the composer,
+                // which serves someone who knows the name they want. This is
+                // for looking: a floating list that searches summaries too.
+                KeyCode::Char('p') => self.open_palette(),
                 // Ctrl+Enter inserts a newline; many terminals report it as
                 // Ctrl+J, so both reach the same handler.
                 KeyCode::Enter | KeyCode::Char('j') => {

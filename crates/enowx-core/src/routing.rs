@@ -51,10 +51,9 @@ impl Refusal {
     /// bare "not allowed" invites the same call again with a different typo.
     pub fn message(&self) -> String {
         match self {
-            Self::UnknownAgent { name, known } => format!(
-                "no agent named `{name}`. Available: {}",
-                known.join(", ")
-            ),
+            Self::UnknownAgent { name, known } => {
+                format!("no agent named `{name}`. Available: {}", known.join(", "))
+            }
             Self::NotPermitted { from, to } => format!(
                 "`{from}` may not delegate to `{to}`. Only the router delegates freely; \
                  a specialist may call `librarian` and nothing else. Do the work yourself \
@@ -624,9 +623,11 @@ mod wire_tests {
 
     #[test]
     fn a_handoff_parses() {
-        let switch =
-            parse_switch("handoff", &json!({"agent": "be", "reason": "it is an API bug"}))
-                .expect("parses");
+        let switch = parse_switch(
+            "handoff",
+            &json!({"agent": "be", "reason": "it is an API bug"}),
+        )
+        .expect("parses");
         assert_eq!(
             switch,
             Switch::Handoff {

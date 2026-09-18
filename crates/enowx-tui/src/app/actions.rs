@@ -1,6 +1,50 @@
 use super::*;
 
 impl App {
+    /// Commands matching the modal's search box.
+    ///
+    /// Matches the summary as well as the name, so someone who remembers what
+    /// a command does but not what it is called still finds it — which is the
+    /// reason to open a palette rather than type the name.
+    pub(crate) fn palette_rows(&self) -> Vec<(&'static str, &'static str)> {
+        let needle = self.modal_search.trim().to_ascii_lowercase();
+        COMMANDS
+            .iter()
+            .copied()
+            .filter(|(name, summary)| {
+                needle.is_empty()
+                    || name.to_ascii_lowercase().contains(&needle)
+                    || summary.to_ascii_lowercase().contains(&needle)
+            })
+            .collect()
+    }
+
+    /// Run whichever command the palette has highlighted.
+    pub(crate) fn accept_palette_row(&mut self) -> Result<()> {
+        let rows = self.palette_rows();
+        let Some((name, _)) = rows.get(self.modal_cursor).copied() else {
+            return Ok(());
+        };
+        self.modal = Modal::None;
+        self.modal_search.clear();
+        self.modal_cursor = 0;
+        // Commands taking an argument need one typed, so those land in the
+        // composer rather than running with nothing.
+        if matches!(name, "model" | "agent" | "role" | "resume" | "attach") {
+            self.input = format!("/{name} ");
+            self.cursor = self.input.len();
+            return Ok(());
+        }
+        self.run_command(&format!("/{name}"))
+    }
+
+    pub(crate) fn open_palette(&mut self) {
+        self.modal = Modal::Commands;
+        self.modal_cursor = 0;
+        self.modal_search.clear();
+        self.modal_error.clear();
+    }
+
     pub(crate) fn command_matches(&self) -> Vec<(&'static str, &'static str)> {
         if !self.input.starts_with('/') || self.input.contains(char::is_whitespace) {
             return Vec::new();
@@ -17,7 +61,12 @@ impl App {
         let (name, args) = command.split_once(' ').unwrap_or((command, ""));
         // A running turn belongs to the agent that started it; swapping
         // underneath it would attribute its results to the wrong one.
-        if self.busy && matches!(name, "new" | "resume" | "provider" | "role" | "model" | "agent") {
+        if self.busy
+            && matches!(
+                name,
+                "new" | "resume" | "provider" | "role" | "model" | "agent"
+            )
+        {
             self.status = "Stop the current turn before changing session or configuration".into();
             return Ok(());
         }
@@ -205,6 +254,7 @@ impl App {
                 }
             }
             Modal::Skills => return self.read_selected_skill(),
+            Modal::Commands => return self.accept_palette_row(),
             Modal::Mcp => return self.accept_mcp_row(),
             Modal::McpForm => return self.submit_mcp_form(),
             Modal::QuitConfirm => {

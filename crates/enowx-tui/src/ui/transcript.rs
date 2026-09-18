@@ -353,7 +353,14 @@ pub(crate) fn render_markdown(
             continue;
         }
         if in_code {
-            emit_code_line(lines, raw, width, code_syntax.as_ref(), &mut code_state, theme);
+            emit_code_line(
+                lines,
+                raw,
+                width,
+                code_syntax.as_ref(),
+                &mut code_state,
+                theme,
+            );
             i += 1;
             continue;
         }
@@ -1116,10 +1123,7 @@ fn emit_code_line(
                 run_end += 1;
             }
             let body: String = cells[run_start..run_end].iter().map(|(c, _)| *c).collect();
-            spans.push(Span::styled(
-                body,
-                tok.style(theme).bg(theme.subtle),
-            ));
+            spans.push(Span::styled(body, tok.style(theme).bg(theme.subtle)));
             run_start = run_end;
         }
         spans.push(Span::styled(
@@ -1190,139 +1194,133 @@ fn render_block(
     tool_headers: &mut Vec<(String, usize)>,
     file_links: &mut Vec<(usize, String)>,
 ) {
-
-        match &block.kind {
-            TranscriptKind::User => {
-                user_card(lines, &block.text, width, theme);
-            }
-            TranscriptKind::Assistant => {
-                render_markdown(&block.text, width, lines, theme);
-            }
-            TranscriptKind::Reasoning if show_reasoning => {
-                card(
-                    lines,
-                    "THOUGHT TRACE",
-                    &block.text,
-                    width,
-                    theme.accent2,
-                    theme,
-                );
-            }
-            TranscriptKind::Reasoning => return,
-            TranscriptKind::Tool {
-                id,
-                name,
-                args,
-                result,
-                running,
-                error,
-                started,
-            } => {
-                use crate::ui::tool::{classify, elapsed_note, render_diff, ToolBody, ToolRender};
-                let icon = if *running {
-                    ("›", theme.yellow)
-                } else if *error {
-                    ("✗", theme.red)
-                } else {
-                    ("✓", theme.green)
-                };
-                // A tool that has been running a while should say so, rather
-                // than looking identical at one second and at two minutes.
-                let waiting = if *running {
-                    started.as_ref().and_then(elapsed_note)
-                } else {
-                    None
-                };
-                let render = classify(name, args, result);
-                let default_expand = crate::ui::tool::opens_by_default(name, show_tool_output);
-                let expanded = tool_expanded.get(id).copied().unwrap_or(default_expand);
-                match render {
-                    ToolRender::Summary(parts) => {
-                        // Register a file marker for tools whose argument is a
-                        // path, so a click opens it.
-                        register_summary_file_link(
-                            name,
-                            args,
-                            &format!("{} {}", parts.verb, parts.arg),
-                            lines.len(),
-                            file_links,
-                        );
-                        lines.push(tool_row(
-                            &parts,
-                            None,
-                            icon,
-                            waiting.as_deref(),
-                            width,
-                            theme,
-                        ));
-                    }
-                    ToolRender::Detail {
-                        header,
-                        subtitle,
-                        body,
-                    } => {
-                        let chevron = if expanded { "▾" } else { "▸" };
-                        let header_y_marker = lines.len();
-                        lines.push(tool_row(
-                            &header,
-                            Some(chevron),
-                            icon,
-                            waiting.as_deref(),
-                            width,
-                            theme,
-                        ));
-                        tool_headers.push((id.clone(), header_y_marker));
-                        // Header path (write, bash) is also a link target.
-                        register_detail_file_link(
-                            name,
-                            args,
-                            header_y_marker,
-                            file_links,
-                        );
-                        if expanded || *error {
-                            if let Some(sub) = subtitle {
-                                for wrapped in textwrap::wrap(&sub, width.saturating_sub(4).max(1))
-                                {
-                                    lines.push(Line::from(vec![
-                                        Span::styled("    ", Style::default().fg(theme.muted)),
-                                        Span::styled(
-                                            wrapped.into_owned(),
-                                            Style::default().fg(theme.muted),
-                                        ),
-                                    ]));
-                                }
+    match &block.kind {
+        TranscriptKind::User => {
+            user_card(lines, &block.text, width, theme);
+        }
+        TranscriptKind::Assistant => {
+            render_markdown(&block.text, width, lines, theme);
+        }
+        TranscriptKind::Reasoning if show_reasoning => {
+            card(
+                lines,
+                "THOUGHT TRACE",
+                &block.text,
+                width,
+                theme.accent2,
+                theme,
+            );
+        }
+        TranscriptKind::Reasoning => return,
+        TranscriptKind::Tool {
+            id,
+            name,
+            args,
+            result,
+            running,
+            error,
+            started,
+        } => {
+            use crate::ui::tool::{classify, elapsed_note, render_diff, ToolBody, ToolRender};
+            let icon = if *running {
+                ("›", theme.yellow)
+            } else if *error {
+                ("✗", theme.red)
+            } else {
+                ("✓", theme.green)
+            };
+            // A tool that has been running a while should say so, rather
+            // than looking identical at one second and at two minutes.
+            let waiting = if *running {
+                started.as_ref().and_then(elapsed_note)
+            } else {
+                None
+            };
+            let render = classify(name, args, result);
+            let default_expand = crate::ui::tool::opens_by_default(name, show_tool_output);
+            let expanded = tool_expanded.get(id).copied().unwrap_or(default_expand);
+            match render {
+                ToolRender::Summary(parts) => {
+                    // Register a file marker for tools whose argument is a
+                    // path, so a click opens it.
+                    register_summary_file_link(
+                        name,
+                        args,
+                        &format!("{} {}", parts.verb, parts.arg),
+                        lines.len(),
+                        file_links,
+                    );
+                    lines.push(tool_row(
+                        &parts,
+                        None,
+                        icon,
+                        waiting.as_deref(),
+                        width,
+                        theme,
+                    ));
+                }
+                ToolRender::Detail {
+                    header,
+                    subtitle,
+                    body,
+                } => {
+                    let chevron = if expanded { "▾" } else { "▸" };
+                    let header_y_marker = lines.len();
+                    lines.push(tool_row(
+                        &header,
+                        Some(chevron),
+                        icon,
+                        waiting.as_deref(),
+                        width,
+                        theme,
+                    ));
+                    tool_headers.push((id.clone(), header_y_marker));
+                    // Header path (write, bash) is also a link target.
+                    register_detail_file_link(name, args, header_y_marker, file_links);
+                    if expanded || *error {
+                        if let Some(sub) = subtitle {
+                            for wrapped in textwrap::wrap(&sub, width.saturating_sub(4).max(1)) {
+                                lines.push(Line::from(vec![
+                                    Span::styled("    ", Style::default().fg(theme.muted)),
+                                    Span::styled(
+                                        wrapped.into_owned(),
+                                        Style::default().fg(theme.muted),
+                                    ),
+                                ]));
                             }
-                            match body {
-                                // `Formatted` carries text the classifier
-                                // rewrote (pretty-printed JSON), so it draws
-                                // exactly like `Plain` — the only difference
-                                // is that it owns its buffer.
-                                ToolBody::Plain(_) | ToolBody::Formatted(_) => {
-                                    let text: &str = match &body {
-                                        ToolBody::Plain(t) => t,
-                                        ToolBody::Formatted(t) => t.as_str(),
-                                        _ => unreachable!("guarded by the arm pattern"),
-                                    };
-                                    // Parse ANSI SGR so `ls --color`,
-                                    // `grep --color`, and other TUI-aware
-                                    // programs render with their real
-                                    // colors instead of leaking `[m]`
-                                    // fragments. Non-bash Plain bodies
-                                    // (MCP proxy, generic tool) go through
-                                    // the same path — safe: they either
-                                    // have no escapes or the parser drops
-                                    // them.
-                                    let bg = theme.subtle;
-                                    let border_style = Style::default().fg(theme.accent).bg(bg);
-                                    let pieces = crate::ansi::parse(text);
-                                    let mut current: Vec<Span<'static>> = Vec::new();
-                                    let mut current_w: usize = 0;
-                                    // Layout: `│ content …` → 2 col gutter
-                                    // (`│ `) + body + right pad to full width.
-                                    let max_body_w = width.saturating_sub(3).max(1);
-                                    let flush = |lines: &mut Vec<Line<'static>>,
-                                                 current: &mut Vec<Span<'static>>,
-                                                 current_w: &mut usize| {
+                        }
+                        match body {
+                            // `Formatted` carries text the classifier
+                            // rewrote (pretty-printed JSON), so it draws
+                            // exactly like `Plain` — the only difference
+                            // is that it owns its buffer.
+                            ToolBody::Plain(_) | ToolBody::Formatted(_) => {
+                                let text: &str = match &body {
+                                    ToolBody::Plain(t) => t,
+                                    ToolBody::Formatted(t) => t.as_str(),
+                                    _ => unreachable!("guarded by the arm pattern"),
+                                };
+                                // Parse ANSI SGR so `ls --color`,
+                                // `grep --color`, and other TUI-aware
+                                // programs render with their real
+                                // colors instead of leaking `[m]`
+                                // fragments. Non-bash Plain bodies
+                                // (MCP proxy, generic tool) go through
+                                // the same path — safe: they either
+                                // have no escapes or the parser drops
+                                // them.
+                                let bg = theme.subtle;
+                                let border_style = Style::default().fg(theme.accent).bg(bg);
+                                let pieces = crate::ansi::parse(text);
+                                let mut current: Vec<Span<'static>> = Vec::new();
+                                let mut current_w: usize = 0;
+                                // Layout: `│ content …` → 2 col gutter
+                                // (`│ `) + body + right pad to full width.
+                                let max_body_w = width.saturating_sub(3).max(1);
+                                let flush =
+                                    |lines: &mut Vec<Line<'static>>,
+                                     current: &mut Vec<Span<'static>>,
+                                     current_w: &mut usize| {
                                         let pad = max_body_w.saturating_sub(*current_w);
                                         let mut row: Vec<Span<'static>> = Vec::new();
                                         row.push(Span::styled("│ ", border_style));
@@ -1334,141 +1332,130 @@ fn render_block(
                                         lines.push(Line::from(row));
                                         *current_w = 0;
                                     };
-                                    for piece in pieces {
-                                        let style = piece.style.bg(bg);
-                                        for segment in piece.text.split_inclusive('\n') {
-                                            let is_nl = segment.ends_with('\n');
-                                            let visible: String = if is_nl {
-                                                segment[..segment.len() - 1].to_string()
-                                            } else {
-                                                segment.to_string()
-                                            };
-                                            let vw = visible.chars().count();
-                                            let room = max_body_w.saturating_sub(current_w);
-                                            let (shown, overflow) = if vw > room {
-                                                let mut s: String = visible
-                                                    .chars()
-                                                    .take(room.saturating_sub(1).max(1))
-                                                    .collect();
-                                                s.push('…');
-                                                (s, true)
-                                            } else {
-                                                (visible, false)
-                                            };
-                                            let shown_w = shown.chars().count();
-                                            current.push(Span::styled(shown, style));
-                                            current_w += shown_w;
-                                            if is_nl || overflow {
-                                                flush(lines, &mut current, &mut current_w);
-                                            }
+                                for piece in pieces {
+                                    let style = piece.style.bg(bg);
+                                    for segment in piece.text.split_inclusive('\n') {
+                                        let is_nl = segment.ends_with('\n');
+                                        let visible: String = if is_nl {
+                                            segment[..segment.len() - 1].to_string()
+                                        } else {
+                                            segment.to_string()
+                                        };
+                                        let vw = visible.chars().count();
+                                        let room = max_body_w.saturating_sub(current_w);
+                                        let (shown, overflow) = if vw > room {
+                                            let mut s: String = visible
+                                                .chars()
+                                                .take(room.saturating_sub(1).max(1))
+                                                .collect();
+                                            s.push('…');
+                                            (s, true)
+                                        } else {
+                                            (visible, false)
+                                        };
+                                        let shown_w = shown.chars().count();
+                                        current.push(Span::styled(shown, style));
+                                        current_w += shown_w;
+                                        if is_nl || overflow {
+                                            flush(lines, &mut current, &mut current_w);
                                         }
                                     }
-                                    if !current.is_empty() {
-                                        flush(lines, &mut current, &mut current_w);
-                                    }
                                 }
-                                ToolBody::Diff {
-                                    path,
-                                    old,
-                                    new,
-                                    start_line,
-                                } => {
-                                    render_diff(
-                                        &path,
-                                        &old,
-                                        &new,
-                                        start_line,
-                                        width,
-                                        lines,
-                                        theme,
-                                        file_links,
-                                    );
+                                if !current.is_empty() {
+                                    flush(lines, &mut current, &mut current_w);
                                 }
-                                ToolBody::Preview { content, total } => {
-                                    crate::ui::tool::render_preview(
-                                        &content, total, width, lines, theme,
-                                    );
-                                }
-                                ToolBody::Tree { items } => {
-                                    crate::ui::tool::render_tree(
-                                        &items,
-                                        width,
-                                        lines,
-                                        theme,
-                                        file_links,
-                                    );
-                                }
-                                ToolBody::Todo { items } => {
-                                    crate::ui::tool::render_todo(&items, width, lines, theme);
-                                }
+                            }
+                            ToolBody::Diff {
+                                path,
+                                old,
+                                new,
+                                start_line,
+                            } => {
+                                render_diff(
+                                    &path, &old, &new, start_line, width, lines, theme, file_links,
+                                );
+                            }
+                            ToolBody::Preview { content, total } => {
+                                crate::ui::tool::render_preview(
+                                    &content, total, width, lines, theme,
+                                );
+                            }
+                            ToolBody::Tree { items } => {
+                                crate::ui::tool::render_tree(
+                                    &items, width, lines, theme, file_links,
+                                );
+                            }
+                            ToolBody::Todo { items } => {
+                                crate::ui::tool::render_todo(&items, width, lines, theme);
                             }
                         }
                     }
                 }
             }
-            TranscriptKind::Notice => {
-                let mut inner: Vec<Line<'static>> = Vec::new();
-                render_markdown(&block.text, width, &mut inner, theme);
-                for line in inner {
-                    lines.push(line);
-                }
-            }
-            TranscriptKind::Retry => {
-                // Red like an error, because it is one — the turn simply has
-                // not given up yet. `retry N/M` replaces the per-attempt
-                // messages that used to stack, one per backoff step.
-                let label = if retry_max > 0 {
-                    format!("retry {retry_attempt}/{retry_max}")
-                } else {
-                    "retry".to_string()
-                };
-                lines.push(Line::styled(
-                    label,
-                    Style::default().fg(theme.red).add_modifier(Modifier::BOLD),
-                ));
-                for line in textwrap::wrap(&block.text, width.saturating_sub(3)) {
-                    lines.push(Line::styled(
-                        format!("│ {line}"),
-                        Style::default().fg(theme.red),
-                    ));
-                }
-            }
-            TranscriptKind::Error => {
-                // `×N` says the same failure is still arriving. Without it the
-                // collapse would look like the error happened once.
-                let label = if error_repeats > 1 {
-                    format!("error ×{error_repeats}")
-                } else {
-                    "error".to_string()
-                };
-                lines.push(Line::styled(
-                    label,
-                    Style::default().fg(theme.red).add_modifier(Modifier::BOLD),
-                ));
-                for line in textwrap::wrap(&block.text, width.saturating_sub(3)) {
-                    lines.push(Line::styled(
-                        format!("│ {line}"),
-                        Style::default().fg(theme.red),
-                    ));
-                }
-            }
-            TranscriptKind::System => {
-                for line in block.text.lines() {
-                    lines.push(Line::styled(
-                        line.to_string(),
-                        Style::default().fg(theme.muted),
-                    ));
-                }
+        }
+        TranscriptKind::Notice => {
+            let mut inner: Vec<Line<'static>> = Vec::new();
+            render_markdown(&block.text, width, &mut inner, theme);
+            for line in inner {
+                lines.push(line);
             }
         }
-        // Tool rows stack directly on top of each other: a blank line between
-        // each one turned a run of ten calls into twenty rows of mostly empty
-        // space. The separator before and after the whole run is added during
-        // assembly, so the group still reads as distinct from the prose.
-        if !matches!(block.kind, TranscriptKind::Tool { .. }) {
-            lines.push(Line::default());
+        TranscriptKind::Retry => {
+            // Red like an error, because it is one — the turn simply has
+            // not given up yet. `retry N/M` replaces the per-attempt
+            // messages that used to stack, one per backoff step.
+            let label = if retry_max > 0 {
+                format!("retry {retry_attempt}/{retry_max}")
+            } else {
+                "retry".to_string()
+            };
+            lines.push(Line::styled(
+                label,
+                Style::default().fg(theme.red).add_modifier(Modifier::BOLD),
+            ));
+            for line in textwrap::wrap(&block.text, width.saturating_sub(3)) {
+                lines.push(Line::styled(
+                    format!("│ {line}"),
+                    Style::default().fg(theme.red),
+                ));
+            }
+        }
+        TranscriptKind::Error => {
+            // `×N` says the same failure is still arriving. Without it the
+            // collapse would look like the error happened once.
+            let label = if error_repeats > 1 {
+                format!("error ×{error_repeats}")
+            } else {
+                "error".to_string()
+            };
+            lines.push(Line::styled(
+                label,
+                Style::default().fg(theme.red).add_modifier(Modifier::BOLD),
+            ));
+            for line in textwrap::wrap(&block.text, width.saturating_sub(3)) {
+                lines.push(Line::styled(
+                    format!("│ {line}"),
+                    Style::default().fg(theme.red),
+                ));
+            }
+        }
+        TranscriptKind::System => {
+            for line in block.text.lines() {
+                lines.push(Line::styled(
+                    line.to_string(),
+                    Style::default().fg(theme.muted),
+                ));
+            }
         }
     }
+    // Tool rows stack directly on top of each other: a blank line between
+    // each one turned a run of ten calls into twenty rows of mostly empty
+    // space. The separator before and after the whole run is added during
+    // assembly, so the group still reads as distinct from the prose.
+    if !matches!(block.kind, TranscriptKind::Tool { .. }) {
+        lines.push(Line::default());
+    }
+}
 
 /// The text of one handover marker: who took over, and why.
 ///
@@ -1595,8 +1582,7 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 error.hash(&mut hasher);
                 // Must match the renderer exactly, or a row would be cached
                 // in one state and drawn in the other.
-                let default_expand =
-                    crate::ui::tool::opens_by_default(name, show_tool_output);
+                let default_expand = crate::ui::tool::opens_by_default(name, show_tool_output);
                 (
                     true,
                     app.tool_expanded.get(id).copied().unwrap_or(default_expand),
@@ -1726,7 +1712,11 @@ fn tool_row(
     }
     // A failing row's count is part of the failure, so it takes the icon's
     // colour rather than the neutral one.
-    let right_style = if parts.status.is_some() { Style::default().fg(icon.1) } else { dim };
+    let right_style = if parts.status.is_some() {
+        Style::default().fg(icon.1)
+    } else {
+        dim
+    };
 
     let verb = trim(&parts.verb, VERB_COLUMN);
     let verb_pad = VERB_COLUMN.saturating_sub(unicode_width_of(&verb));

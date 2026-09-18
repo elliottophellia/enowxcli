@@ -12,7 +12,10 @@ fn main() {
         .position(|r| r.contains("Orchestrator"))
         .expect("footer row") as u16;
     // The divider column, from a body row.
-    let body = rows.iter().position(|r| r.matches('│').count() >= 3).unwrap();
+    let body = rows
+        .iter()
+        .position(|r| r.matches('│').count() >= 3)
+        .unwrap();
     let col = rows[body]
         .char_indices()
         .filter(|(_, c)| *c == '│')

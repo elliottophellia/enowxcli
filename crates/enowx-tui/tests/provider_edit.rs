@@ -29,7 +29,10 @@ fn editing_the_base_url_keeps_every_other_field() {
     assert_eq!(base, "https://ai.enowx.id/v2", "the edit should apply");
     assert_eq!(name, "enowx", "provider name must survive");
     assert_eq!(preset, "custom", "preset must survive");
-    assert_eq!(models, "https://ai.enowx.id/v1/models", "models URL must survive");
+    assert_eq!(
+        models, "https://ai.enowx.id/v1/models",
+        "models URL must survive"
+    );
     assert_eq!(key, "sk-secret", "the API key must not be cleared");
 }
 
@@ -43,7 +46,10 @@ fn editing_the_api_key_keeps_the_model() {
     let (_, _, _, _, key) = app.config_provider();
     let (model, window) = app.config_model();
     assert_eq!(key, "sk-rotated");
-    assert_eq!(model, "cbc/deepseek-v4.1-flash", "model must not be cleared");
+    assert_eq!(
+        model, "cbc/deepseek-v4.1-flash",
+        "model must not be cleared"
+    );
     assert_eq!(window, 128_000, "context window must not be reset");
 }
 
@@ -70,7 +76,10 @@ fn the_form_opens_prefilled_from_the_current_config() {
     let mut app = seeded();
     app.open_settings();
     assert_eq!(app.settings_field("base_url"), "https://ai.enowx.id/v1");
-    assert_eq!(app.settings_field("models_url"), "https://ai.enowx.id/v1/models");
+    assert_eq!(
+        app.settings_field("models_url"),
+        "https://ai.enowx.id/v1/models"
+    );
     assert_eq!(app.settings_field("api_key"), "sk-secret");
     assert_eq!(app.settings_field("model"), "cbc/deepseek-v4.1-flash");
 }
@@ -182,7 +191,10 @@ fn reselecting_custom_keeps_the_endpoint_and_key() {
         "picking Custom again must not blank the endpoint the user configured"
     );
     assert_eq!(app.settings_field("api_key"), "sk-secret");
-    assert_eq!(app.settings_field("models_url"), "https://ai.enowx.id/v1/models");
+    assert_eq!(
+        app.settings_field("models_url"),
+        "https://ai.enowx.id/v1/models"
+    );
     assert_eq!(app.settings_field("provider"), "enowx");
 }
 

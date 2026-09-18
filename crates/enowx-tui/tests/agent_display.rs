@@ -45,7 +45,8 @@ fn the_agent_tab_lists_the_roster() {
             "{name} should be in the roster the sidebar draws from"
         );
         assert!(
-            rows.iter().any(|row| row.split_whitespace().any(|w| w == name)),
+            rows.iter()
+                .any(|row| row.split_whitespace().any(|w| w == name)),
             "the AGENT tab should name `{name}`"
         );
     }

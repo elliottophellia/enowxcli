@@ -4,7 +4,7 @@ use enowx_tui::testing::TestApp;
 fn main() {
     let mut app = TestApp::new();
     app.push_user("hallo");
-    
+
     // The exact sequence from a real backoff: one message per attempt.
     let msg = "provider stream ended without a finish reason; no tools executed";
     for attempt in 2..=6 {

@@ -414,7 +414,11 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
                 None => {
                     let n = result.lines().count();
                     ToolRender::Detail {
-                        header: RowParts::new(label.clone(), String::new(), counted(n, "line", "lines")),
+                        header: RowParts::new(
+                            label.clone(),
+                            String::new(),
+                            counted(n, "line", "lines"),
+                        ),
                         subtitle: None,
                         body: ToolBody::Plain(result),
                     }
@@ -636,9 +640,7 @@ pub(super) fn render_diff(
             DiffOp::Del(_) => blend2(bg, theme.red),
             DiffOp::Keep(_) => row_bg,
         };
-        let emph_style = content_st
-            .bg(emph_bg)
-            .add_modifier(Modifier::BOLD);
+        let emph_style = content_st.bg(emph_bg).add_modifier(Modifier::BOLD);
         let changed: Vec<(usize, usize)> = match (op, pair.get(op_idx).and_then(|p| p.as_ref())) {
             (DiffOp::Keep(_), _) | (_, None) => Vec::new(),
             (_, Some(counterpart)) => {
@@ -686,10 +688,7 @@ pub(super) fn render_diff(
                 body_style,
                 emph_style,
             ));
-            spans.push(Span::styled(
-                " ".repeat(pad),
-                Style::default().bg(row_bg),
-            ));
+            spans.push(Span::styled(" ".repeat(pad), Style::default().bg(row_bg)));
             lines.push(Line::from(spans));
             chunk_start += chunk.len();
         }
@@ -796,10 +795,7 @@ fn lcs_diff(a: &[&str], b: &[&str]) -> Vec<DiffOp> {
 fn blend(base: ratatui::style::Color, accent: ratatui::style::Color) -> ratatui::style::Color {
     const STRENGTH: u16 = 22; // percent of `accent` in the result
     match (base, accent) {
-        (
-            ratatui::style::Color::Rgb(br, bg_, bb),
-            ratatui::style::Color::Rgb(ar, ag, ab),
-        ) => {
+        (ratatui::style::Color::Rgb(br, bg_, bb), ratatui::style::Color::Rgb(ar, ag, ab)) => {
             let mix = |b: u8, a: u8| -> u8 {
                 ((b as u16 * (100 - STRENGTH) + a as u16 * STRENGTH) / 100) as u8
             };
@@ -948,16 +944,10 @@ fn pair_replacements(ops: &[&DiffOp]) -> Vec<Option<String>> {
 /// Stronger tint for the words that actually changed, layered over the row's
 /// own tint so the emphasis reads as "more of the same colour" rather than a
 /// different one.
-fn blend2(
-    base: ratatui::style::Color,
-    accent: ratatui::style::Color,
-) -> ratatui::style::Color {
+fn blend2(base: ratatui::style::Color, accent: ratatui::style::Color) -> ratatui::style::Color {
     const STRENGTH: u16 = 46;
     match (base, accent) {
-        (
-            ratatui::style::Color::Rgb(br, bg_, bb),
-            ratatui::style::Color::Rgb(ar, ag, ab),
-        ) => {
+        (ratatui::style::Color::Rgb(br, bg_, bb), ratatui::style::Color::Rgb(ar, ag, ab)) => {
             let mix = |b: u8, a: u8| -> u8 {
                 ((b as u16 * (100 - STRENGTH) + a as u16 * STRENGTH) / 100) as u8
             };
@@ -1077,11 +1067,13 @@ mod tests {
 
     #[test]
     fn pairing_matches_deletions_to_their_replacements() {
-        let ops = [DiffOp::Keep("ctx".into()),
+        let ops = [
+            DiffOp::Keep("ctx".into()),
             DiffOp::Del("old one".into()),
             DiffOp::Del("old two".into()),
             DiffOp::Add("new one".into()),
-            DiffOp::Add("new two".into())];
+            DiffOp::Add("new two".into()),
+        ];
         let refs: Vec<&DiffOp> = ops.iter().collect();
         let pairs = pair_replacements(&refs);
         assert_eq!(pairs[0], None, "kept lines have no counterpart");
@@ -1093,9 +1085,11 @@ mod tests {
 
     #[test]
     fn unbalanced_hunk_leaves_extras_unpaired() {
-        let ops = [DiffOp::Del("a".into()),
+        let ops = [
+            DiffOp::Del("a".into()),
             DiffOp::Del("b".into()),
-            DiffOp::Add("c".into())];
+            DiffOp::Add("c".into()),
+        ];
         let refs: Vec<&DiffOp> = ops.iter().collect();
         let pairs = pair_replacements(&refs);
         assert_eq!(pairs[0], Some("c".to_string()));
@@ -1129,8 +1123,8 @@ fn split_exit_line(result: &str) -> (Option<&str>, &str) {
         None => (rest, ""),
     };
     // `signal` is what the tool reports when a command was killed.
-    let looks_like_code = !code.is_empty()
-        && (code == "signal" || code.chars().all(|c| c.is_ascii_digit()));
+    let looks_like_code =
+        !code.is_empty() && (code == "signal" || code.chars().all(|c| c.is_ascii_digit()));
     if looks_like_code {
         (Some(code), body)
     } else {
@@ -1234,7 +1228,11 @@ mod tool_view_tests {
 
     #[test]
     fn a_failing_command_shows_its_exit_code_in_the_header() {
-        let header = header_of("bash", r#"{"command":"cargo test"}"#, "exit 101\nfailures:\n  a");
+        let header = header_of(
+            "bash",
+            r#"{"command":"cargo test"}"#,
+            "exit 101\nfailures:\n  a",
+        );
         assert!(
             header.contains("exit 101"),
             "a non-zero exit belongs in the header, got {header:?}"
@@ -1245,10 +1243,7 @@ mod tool_view_tests {
     #[test]
     fn a_successful_command_does_not_mention_its_exit_code() {
         let header = header_of("bash", r#"{"command":"ls"}"#, "exit 0\na\nb");
-        assert!(
-            !header.contains("exit"),
-            "exit 0 is noise, got {header:?}"
-        );
+        assert!(!header.contains("exit"), "exit 0 is noise, got {header:?}");
     }
 
     #[test]
@@ -1370,7 +1365,8 @@ mod search_view_tests {
     /// produced a lowercase summary row and the other a capitalised tree.
     #[test]
     fn grep_looks_the_same_at_one_hit_and_many() {
-        let (one, one_expandable) = render("grep", r#"{"pattern":"fn main"}"#, "src/main.rs:1:fn main");
+        let (one, one_expandable) =
+            render("grep", r#"{"pattern":"fn main"}"#, "src/main.rs:1:fn main");
         let (many, many_expandable) = render(
             "grep",
             r#"{"pattern":"fn main"}"#,
@@ -1386,7 +1382,10 @@ mod search_view_tests {
     #[test]
     fn counts_are_grammatical() {
         let (one, _) = render("grep", r#"{"pattern":"x"}"#, "a.rs:1:x");
-        assert!(one.contains("1 hit") && !one.contains("1 hits"), "got {one:?}");
+        assert!(
+            one.contains("1 hit") && !one.contains("1 hits"),
+            "got {one:?}"
+        );
         let (two, _) = render("grep", r#"{"pattern":"x"}"#, "a.rs:1:x\nb.rs:1:x");
         assert!(two.contains("2 hits"), "got {two:?}");
     }
@@ -1404,7 +1403,10 @@ mod search_view_tests {
         let (g, _) = render("glob", r#"{"pattern":"**/*.rs"}"#, "a.rs\nb.rs");
         let (r, _) = render("grep", r#"{"pattern":"fn"}"#, "a.rs:1:fn\nb.rs:1:fn");
         assert!(g.starts_with("glob ") && r.starts_with("grep "));
-        assert!(g.contains(" · 2 matches") && r.contains(" · 2 hits"), "got {g:?} / {r:?}");
+        assert!(
+            g.contains(" · 2 matches") && r.contains(" · 2 hits"),
+            "got {g:?} / {r:?}"
+        );
     }
 }
 

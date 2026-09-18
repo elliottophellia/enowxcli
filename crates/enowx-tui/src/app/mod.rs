@@ -35,6 +35,15 @@ pub(crate) struct App {
     pub(crate) session_id: Option<String>,
     pub(crate) title: String,
     pub(crate) role: Role,
+    /// Which agent currently holds the session. Empty means "whatever the
+    /// legacy role maps to" — the loop has not been migrated yet, so this is
+    /// resolved through `App::active_agent` rather than being assumed set.
+    pub(crate) agent_name: String,
+    /// Handovers to mark in the transcript, each pinned to the block it
+    /// precedes rather than to `AgentSwitch::at_turn`. A turn expands into
+    /// several blocks — reasoning, prose, one per tool call — so a turn index
+    /// alone cannot say where the rule belongs once the transcript is built.
+    pub(crate) switch_markers: Vec<(usize, enowx_core::session::AgentSwitch)>,
     pub(crate) busy: bool,
     pub(crate) cancel: Option<CancellationToken>,
     pub(crate) events: Option<mpsc::Receiver<Event>>,
@@ -173,6 +182,10 @@ impl App {
             session_id: None,
             title: String::new(),
             role: Role::Orchestrator,
+            // A fresh session has no agent recorded yet, so the starting
+            // agent is whatever core resolves the default role to.
+            agent_name: enowx_core::Session::new(Role::Orchestrator).agent_or_default(),
+            switch_markers: Vec::new(),
             busy: false,
             cancel: None,
             events: None,
@@ -293,6 +306,33 @@ impl App {
         SPINNER[frame as usize % SPINNER.len()]
     }
 
+    /// Which agent holds the session right now.
+    ///
+    /// A plain read: `agent_name` is resolved through core's
+    /// `Session::agent_or_default` whenever it can change, so the footer and
+    /// sidebar do not each pay for that resolution on every frame.
+    pub(crate) fn active_agent(&self) -> &str {
+        &self.agent_name
+    }
+
+    /// Adopt a session's agent and handover history.
+    ///
+    /// The resolution from the legacy `role` stays in core so there is one
+    /// copy of it to keep right once the loop stops setting `role` at all.
+    pub(crate) fn adopt_agent(&mut self, session: &enowx_core::Session) {
+        self.agent_name = session.agent_or_default();
+    }
+
+    /// Change the legacy role, keeping the displayed agent in step.
+    ///
+    /// While the loop still selects work by role, the role IS the agent; the
+    /// two would otherwise disagree in the footer the moment someone ran
+    /// `/role`.
+    pub(crate) fn set_role(&mut self, role: Role) {
+        self.role = role;
+        self.adopt_agent(&enowx_core::Session::new(role));
+    }
+
     /// Model name shown in the composer footer.
     pub(crate) fn model_label(&self) -> String {
         let m = self.config.model.default.trim();
@@ -350,6 +390,8 @@ impl App {
 
     pub(crate) fn new_session(&mut self) {
         self.blocks.clear();
+        self.switch_markers.clear();
+        self.adopt_agent(&enowx_core::Session::new(self.role));
         self.session_id = None;
         self.title.clear();
         self.tokens_in = 0;

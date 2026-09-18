@@ -443,3 +443,215 @@ mod tests {
         assert!(!contract_permits(&contract, "src/other.rs"));
     }
 }
+
+/// Wire schemas for the routing tools.
+///
+/// These are not ordinary `Tool` implementations: executing one changes which
+/// agent holds the session, or runs a whole nested turn. Both are outside what
+/// a `ToolCtx` can reach, so the loop intercepts them by name before dispatch
+/// rather than registering them with the others.
+pub fn routing_schemas(may_handoff: bool) -> Vec<serde_json::Value> {
+    use serde_json::json;
+    let delegate = json!({
+        "type": "function",
+        "function": {
+            "name": "delegate",
+            "description":
+                "Give a piece of work to a specialist. It starts from your briefing \
+                 alone, works in its own context, and returns a summary. Its context \
+                 is then discarded, so this is the cheap way to use a specialist.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "agent": {"type": "string", "description": "which specialist"},
+                    "task": {
+                        "type": "string",
+                        "description":
+                            "the briefing; the specialist sees nothing else, so state \
+                             the goal, the constraints, and what done looks like"
+                    },
+                    "tier": {
+                        "type": "string",
+                        "description":
+                            "cheap | balanced | strong. Start one lower than feels \
+                             right; the ladder promotes on failure."
+                    },
+                    "writes": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description":
+                            "paths or globs this work will change. Enforced: a write \
+                             outside them is refused. Too narrow blocks the specialist, \
+                             too wide blocks work that could have run alongside."
+                    },
+                    "reads": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "paths it expects to read; overlaps are harmless"
+                    }
+                },
+                "required": ["agent", "task"]
+            }
+        }
+    });
+    if !may_handoff {
+        return vec![delegate];
+    }
+    vec![
+        delegate,
+        json!({
+            "type": "function",
+            "function": {
+                "name": "handoff",
+                "description":
+                    "Give the whole request to a specialist. It inherits the \
+                     conversation and carries on to the end; you step out. Use this \
+                     only when the entire request is one specialist's job — if it is \
+                     a piece of something larger, delegate instead.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "agent": {"type": "string"},
+                        "reason": {
+                            "type": "string",
+                            "description":
+                                "why this specialist; shown to the user, who otherwise \
+                                 sees the voice change for no stated reason"
+                        }
+                    },
+                    "required": ["agent", "reason"]
+                }
+            }
+        }),
+    ]
+}
+
+/// Whether `name` is one of the routing tools the loop intercepts.
+pub fn is_routing_tool(name: &str) -> bool {
+    name == "handoff" || name == "delegate"
+}
+
+/// Read a routing call's arguments into a `Switch`.
+///
+/// Returns None when the shape is wrong; the loop reports that to the model as
+/// an ordinary tool error so it can correct the call.
+pub fn parse_switch(name: &str, args: &serde_json::Value) -> Option<Switch> {
+    let text = |key: &str| {
+        args.get(key)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_owned()
+    };
+    let list = |key: &str| -> Vec<String> {
+        args.get(key)
+            .and_then(serde_json::Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .map(|s| s.trim().to_owned())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    match name {
+        "handoff" => Some(Switch::Handoff {
+            to: text("agent"),
+            reason: text("reason"),
+        }),
+        "delegate" => Some(Switch::Delegate(Delegation {
+            to: text("agent"),
+            task: text("task"),
+            tier: args
+                .get("tier")
+                .and_then(serde_json::Value::as_str)
+                .and_then(Tier::parse),
+            writes: list("writes"),
+            reads: list("reads"),
+        })),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod wire_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_router_is_offered_both_tools() {
+        let names: Vec<String> = routing_schemas(true)
+            .iter()
+            .map(|s| s["function"]["name"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(names, vec!["delegate", "handoff"]);
+    }
+
+    /// A specialist may call the librarian, but it cannot hand the session
+    /// over — the user is talking to it, not to whoever it would pick.
+    #[test]
+    fn a_specialist_is_offered_delegate_only() {
+        let names: Vec<String> = routing_schemas(false)
+            .iter()
+            .map(|s| s["function"]["name"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(names, vec!["delegate"]);
+    }
+
+    #[test]
+    fn a_delegation_parses_with_its_contract() {
+        let switch = parse_switch(
+            "delegate",
+            &json!({
+                "agent": "fe",
+                "task": "fix the layout",
+                "tier": "cheap",
+                "writes": ["src/ui/**", ""],
+                "reads": ["src/types.rs"]
+            }),
+        )
+        .expect("parses");
+        let Switch::Delegate(d) = switch else {
+            panic!("expected a delegation")
+        };
+        assert_eq!(d.to, "fe");
+        assert_eq!(d.tier, Some(Tier::Cheap));
+        assert_eq!(d.writes, vec!["src/ui/**"], "blank entries are dropped");
+        assert_eq!(d.reads, vec!["src/types.rs"]);
+    }
+
+    #[test]
+    fn a_handoff_parses() {
+        let switch =
+            parse_switch("handoff", &json!({"agent": "be", "reason": "it is an API bug"}))
+                .expect("parses");
+        assert_eq!(
+            switch,
+            Switch::Handoff {
+                to: "be".into(),
+                reason: "it is an API bug".into()
+            }
+        );
+    }
+
+    /// Missing fields yield empty strings rather than failing to parse, so the
+    /// refusal that follows can name what was actually wrong.
+    #[test]
+    fn a_malformed_call_still_parses_into_something_refusable() {
+        let switch = parse_switch("delegate", &json!({"agent": "fe"})).expect("parses");
+        let Switch::Delegate(d) = switch else {
+            panic!("expected a delegation")
+        };
+        assert!(d.task.is_empty());
+    }
+
+    #[test]
+    fn an_unknown_tool_is_not_a_switch() {
+        assert!(parse_switch("read", &json!({})).is_none());
+        assert!(!is_routing_tool("read"));
+        assert!(is_routing_tool("handoff"));
+        assert!(is_routing_tool("delegate"));
+    }
+}

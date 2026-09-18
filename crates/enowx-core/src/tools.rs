@@ -180,6 +180,27 @@ impl ToolRegistry {
             .collect()
     }
 
+    /// Dispatch a call against an agent's declared surface.
+    ///
+    /// The second of the two filters — the schema list is the first. Both are
+    /// needed: a model can name a tool it was never shown, and refusing it
+    /// here is what makes the declared surface a boundary rather than a hint.
+    pub async fn execute_for_agent(
+        &self,
+        allowed_tools: &[String],
+        ctx: &ToolCtx,
+        name: &str,
+        args: Value,
+    ) -> ToolOutput {
+        if !Self::agent_allows(allowed_tools, name) {
+            return ToolOutput::error(format!(
+                "tool `{name}` is not available to this agent. Available: {}",
+                allowed_tools.join(", ")
+            ));
+        }
+        self.dispatch(ctx, name, args).await
+    }
+
     pub async fn execute(&self, role: Role, ctx: &ToolCtx, name: &str, args: Value) -> ToolOutput {
         // Every role may reach discovered MCP tools and the on-demand skill
         // reader; the built-in tool set stays gated by the role's allowlist.
@@ -190,6 +211,14 @@ impl ToolRegistry {
                 role.label()
             ));
         }
+        self.dispatch(ctx, name, args).await
+    }
+
+    /// Validate arguments against the tool's schema and run it.
+    ///
+    /// Shared by the role and agent entry points so the two gates differ only
+    /// in who is allowed to call what, never in how a call is validated.
+    async fn dispatch(&self, ctx: &ToolCtx, name: &str, args: Value) -> ToolOutput {
         let Some(tool) = self.tools.get(name) else {
             return ToolOutput::error(format!("unknown tool `{name}`"));
         };

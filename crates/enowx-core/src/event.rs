@@ -54,6 +54,18 @@ pub enum Event {
     Notice {
         message: String,
     },
+    /// The session changed hands. The transcript shows it, because a reply
+    /// that silently changes voice reads as the model behaving oddly rather
+    /// than as a different agent answering.
+    AgentSwitched {
+        to: String,
+        reason: String,
+    },
+    /// A sub-agent finished; its transcript lives in its own branch session.
+    DelegationFinished {
+        agent: String,
+        summary: String,
+    },
     /// A transient upstream failure that is being retried. Separate from
     /// `Notice` because the UI collapses these into one line — a backoff
     /// sequence otherwise emits a near-identical message per attempt and

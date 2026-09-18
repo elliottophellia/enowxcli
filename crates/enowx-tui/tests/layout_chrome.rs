@@ -97,9 +97,12 @@ fn the_footer_band_stops_at_the_divider() {
     let mut app = TestApp::new();
     app.push_assistant("content");
     let rows = app.render_to_text(W, H);
+    // The footer names the active agent; searched from the bottom because
+    // the sidebar's roster lists that name too.
+    let agent = app.active_agent();
     let footer = rows
         .iter()
-        .position(|r| r.contains("Orchestrator"))
+        .rposition(|r| r.contains(&agent))
         .expect("the footer row");
 
     let bgs = app.row_backgrounds(W, H, footer as u16);

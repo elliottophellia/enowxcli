@@ -1470,11 +1470,67 @@ fn render_block(
         }
     }
 
+/// The text of one handover marker: who took over, and why.
+///
+/// The reason is the whole point — a reply that changes voice with no stated
+/// cause reads as the model misbehaving rather than as a different agent
+/// answering. A switch recorded without one still shows the names.
+fn switch_marker_text(switch: &enowx_core::session::AgentSwitch) -> String {
+    let reason = switch.reason.trim();
+    if reason.is_empty() {
+        format!("{} → {}", switch.from, switch.to)
+    } else {
+        format!("{} → {} · {}", switch.from, switch.to, reason)
+    }
+}
+
+/// A dim rule carrying the handover, drawn across the transcript's width.
+///
+/// Dim and rule-shaped so it reads as punctuation between two agents' work
+/// rather than as something either of them said.
+fn switch_marker(lines: &mut Vec<Line<'static>>, text: &str, width: usize, theme: &Theme) {
+    lines.push(Line::default());
+    // Two rule characters and the spaces around the label; below that the
+    // label alone is worth more than a rule that has no room to read as one.
+    let label = trim(text, width.saturating_sub(6).max(1));
+    let rule = width.saturating_sub(label.width() + 3);
+    lines.push(Line::from(vec![
+        Span::styled("── ", Style::default().fg(theme.faint)),
+        Span::styled(
+            label,
+            Style::default()
+                .fg(theme.muted)
+                .add_modifier(Modifier::ITALIC),
+        ),
+        Span::styled(
+            format!(" {}", "─".repeat(rule.saturating_sub(1))),
+            Style::default().fg(theme.faint),
+        ),
+    ]));
+    lines.push(Line::default());
+}
+
 /// Bring `app.render_cache` in line with `app.blocks`, re-rendering only the
 /// entries whose key changed.
 fn refresh_render_cache(app: &mut App, width: usize) {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
+
+    // Handovers are drawn as part of the block they precede rather than
+    // spliced in at assembly, so their rows are counted by the same pass that
+    // sizes the transcript — a marker outside the cache would shift the
+    // scroll offset without the scrollbar knowing.
+    let mut markers_for: Vec<Vec<String>> = vec![Vec::new(); app.blocks.len()];
+    let mut trailing: Vec<String> = Vec::new();
+    for (at, switch) in &app.switch_markers {
+        let text = switch_marker_text(switch);
+        match markers_for.get_mut(*at) {
+            Some(slot) => slot.push(text),
+            // Recorded past the end: the handover happened but the new agent
+            // has not answered yet, so it hangs off the bottom.
+            None => trailing.push(text),
+        }
+    }
 
     let theme = app.theme;
     let show_reasoning = app.show_reasoning;
@@ -1485,10 +1541,20 @@ fn refresh_render_cache(app: &mut App, width: usize) {
 
     app.render_cache.resize(app.blocks.len(), None);
 
+    let last = app.blocks.len().saturating_sub(1);
+    // Indexes three collections in step — blocks, their markers, and the cache
+    // — so an iterator over any one of them would still need the index.
+    #[allow(clippy::needless_range_loop)]
     for idx in 0..app.blocks.len() {
         let block = &app.blocks[idx];
+        let before = std::mem::take(&mut markers_for[idx]);
+        let after: &[String] = if idx == last { &trailing } else { &[] };
         let mut hasher = DefaultHasher::new();
         block.text.hash(&mut hasher);
+        // The marker rows live inside this block's cached lines, so a change
+        // to them has to invalidate it or the rule would freeze on screen.
+        before.hash(&mut hasher);
+        after.hash(&mut hasher);
         // Hash every field that alters what is drawn. A tool's `result` grows
         // while it streams, so it has to be part of the key.
         let (is_tool, expanded) = match &block.kind {
@@ -1552,7 +1618,10 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 (false, false)
             }
         };
-        let skipped = matches!(block.kind, TranscriptKind::Reasoning) && !show_reasoning;
+        let hidden = matches!(block.kind, TranscriptKind::Reasoning) && !show_reasoning;
+        // A hidden block that carries a handover still has to draw, or
+        // collapsing reasoning would silently swallow the marker with it.
+        let skipped = hidden && before.is_empty() && after.is_empty();
         let key = crate::ui::BlockKey {
             content: hasher.finish(),
             width,
@@ -1571,7 +1640,14 @@ fn refresh_render_cache(app: &mut App, width: usize) {
         let mut lines: Vec<Line<'static>> = Vec::new();
         let mut tool_headers: Vec<(String, usize)> = Vec::new();
         let mut file_links: Vec<(usize, String)> = Vec::new();
-        if !skipped {
+        for text in before.iter().take(0) {
+            switch_marker(&mut lines, text, width, &theme);
+        }
+        // Markers occupy rows above the block, so the click offsets the
+        // renderer records are relative to the wrong line until they are
+        // shifted past them.
+        let offset = lines.len();
+        if !hidden {
             render_block(
                 block,
                 width,
@@ -1586,6 +1662,15 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 &mut tool_headers,
                 &mut file_links,
             );
+        }
+        for (_, at) in tool_headers.iter_mut() {
+            *at += offset;
+        }
+        for (at, _) in file_links.iter_mut() {
+            *at += offset;
+        }
+        for text in after {
+            switch_marker(&mut lines, text, width, &theme);
         }
         app.render_cache[idx] = Some(crate::ui::BlockRender {
             key,

@@ -162,6 +162,55 @@ fn row(lines: &mut Vec<Line<'static>>, label: &str, value: &str, width: usize, t
     }
 }
 
+/// One roster entry: the name on its own row, the description indented under
+/// it on the next.
+///
+/// The description is truncated rather than wrapped. At the sidebar's 38–60
+/// columns most of these run to two or three rows when wrapped, and a roster
+/// of sixteen then scrolls past forty rows of prose the user is not reading —
+/// the list exists to be scanned for a name, not read.
+fn agent_entry(
+    lines: &mut Vec<Line<'static>>,
+    agent: &enowx_core::AgentDef,
+    active: bool,
+    width: usize,
+    theme: &Theme,
+) {
+    let marker = if active { "▸ " } else { "  " };
+    let mut name = vec![
+        Span::styled(
+            marker.to_owned(),
+            Style::default().fg(if active { theme.accent } else { theme.faint }),
+        ),
+        Span::styled(
+            trim(&agent.name, width.saturating_sub(9).max(1)),
+            if active {
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme.text)
+            },
+        ),
+    ];
+    // The active agent is also named in full above; the tag is what makes it
+    // findable in a list of sixteen without reading back up the pane.
+    if active {
+        name.push(Span::styled(
+            "  active".to_owned(),
+            Style::default().fg(theme.green),
+        ));
+    }
+    lines.push(Line::from(name));
+    let description = agent.description.trim();
+    if !description.is_empty() {
+        lines.push(Line::styled(
+            format!("    {}", trim(description, width.saturating_sub(4).max(1))),
+            Style::default().fg(theme.muted),
+        ));
+    }
+}
+
 fn heading(lines: &mut Vec<Line<'static>>, title: &str, width: usize, theme: &Theme) {
     if !lines.is_empty() {
         lines.push(Line::default());
@@ -383,7 +432,9 @@ fn sidebar_lines(app: &App, width: usize) -> Vec<Line<'static>> {
             row(&mut lines, "Tool", "skill_read", width, t);
         }
         3 => {
-            heading(&mut lines, "PRIMARY AGENT", width, t);
+            let active = app.active_agent();
+            heading(&mut lines, "ACTIVE AGENT", width, t);
+            row(&mut lines, "Agent", active, width, t);
             row(&mut lines, "State", app.activity.label(), width, t);
             row(&mut lines, "Model", &app.config.model.default, width, t);
             row(
@@ -415,10 +466,11 @@ fn sidebar_lines(app: &App, width: usize) -> Vec<Line<'static>> {
                 row(&mut lines, &label, scope, width, t);
             }
 
-            heading(&mut lines, "ACTIVE ROLE", width, t);
-            for role in ROLES {
-                let state = if role == app.role { "active" } else { "idle" };
-                row(&mut lines, role.label(), state, width, t);
+            heading(&mut lines, "ROSTER", width, t);
+            let roster = &app.discovery.agents;
+            row(&mut lines, "Agents", &roster.len().to_string(), width, t);
+            for agent in roster {
+                agent_entry(&mut lines, agent, agent.name == active, width, t);
             }
         }
         _ => {

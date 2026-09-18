@@ -30,7 +30,7 @@ impl App {
             "new" => self.new_session(),
             "resume" => self.open_sessions()?,
             "role" if !args.trim().is_empty() => {
-                self.role = Role::parse(args).ok_or_else(|| anyhow::anyhow!("Unknown role: {args}"))?;
+                self.set_role(Role::parse(args).ok_or_else(|| anyhow::anyhow!("Unknown role: {args}"))?);
                 self.status = format!("role: {}", self.role.label());
             }
             "role" => self.open_roles(),
@@ -116,7 +116,7 @@ impl App {
             Modal::ProviderKey => return self.connect_preset(),
             Modal::Roles => {
                 if let Some(role) = ROLES.get(self.modal_cursor).copied() {
-                    self.role = role;
+                    self.set_role(role);
                     self.status = format!("role: {}", role.label());
                 }
                 self.modal = Modal::None;

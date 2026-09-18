@@ -148,6 +148,83 @@ impl Agent {
         *self.mcp_clients.lock().await = clients;
     }
 
+    /// The agent holding `session`, falling back to the router.
+    ///
+    /// A session naming an agent that has since been deleted from disk would
+    /// otherwise have no prompt at all; routing from the router is a better
+    /// failure than running with an empty system message.
+    fn active_agent(&self, session: &Session) -> crate::agent_def::AgentDef {
+        let wanted = session.agent_or_default();
+        let roster = &self.discovery.agents;
+        roster
+            .iter()
+            .find(|a| a.name == wanted)
+            .or_else(|| roster.iter().find(|a| a.name == "router"))
+            .cloned()
+            .unwrap_or_else(|| {
+                crate::agent_def::builtin_agents()
+                    .into_iter()
+                    .find(|a| a.name == "router")
+                    .expect("the router always ships")
+            })
+    }
+
+    /// Assemble an agent's system prompt: shared rules, the agent's own
+    /// instructions, and — for anyone who may delegate — the roster it routes
+    /// to.
+    ///
+    /// The roster is only included for agents that can act on it. A specialist
+    /// reading a list of colleagues it may not call would just be noise in its
+    /// window.
+    fn agent_prompt(&self, agent: &crate::agent_def::AgentDef, workspace: &str) -> String {
+        let mut prompt = format!(
+            "You are a tool-using engineering agent. Workspace root: {workspace}\n\
+             \n\
+             Rules that hold for every agent:\n\
+             - Use tools to establish facts. Never claim you read a file, ran a command, or fetched a page unless the tool result is in this conversation.\n\
+             - Paths are relative to the workspace root. Reads and writes outside it are refused.\n\
+             - Prefer one precise tool call over several speculative ones. Stop calling tools once you can answer.\n\
+             - When a tool fails, read the error and change approach instead of repeating the same call.\n\
+             - Answer in the user's language. Be concrete: exact paths, symbols, and commands.\n\
+             \n\
+             You are `{}`.\n{}\n",
+            agent.name, agent.prompt
+        );
+        if agent.delegation != crate::agent_def::Delegation::None {
+            prompt.push_str(&self.roster_block(agent));
+        }
+        if let Some(extra) = self
+            .discovery
+            .system_prompt_with_disabled(&self.config.ui.disabled_skills)
+        {
+            prompt.push('\n');
+            prompt.push_str(&extra);
+        }
+        prompt
+    }
+
+    /// The one-line-per-agent listing a delegating agent chooses from.
+    ///
+    /// Descriptions are written to be matched against a request rather than
+    /// read, which is what keeps the whole roster to a couple of hundred
+    /// tokens — about two file reads, against a session that will spend tens
+    /// of thousands.
+    fn roster_block(&self, asking: &crate::agent_def::AgentDef) -> String {
+        let mut out = String::from("\nAgents you may delegate to:\n");
+        for agent in &self.discovery.agents {
+            // Never offer an agent the asker cannot actually reach, or itself.
+            if agent.name == asking.name
+                || agent.name == "compactor"
+                || agent.name == "router"
+                || !asking.delegation.may_call(&agent.name)
+            {
+                continue;
+            }
+            out.push_str(&format!("- {}: {}\n", agent.name, agent.description));
+        }
+        out
+    }
+
     pub fn discovery(&self) -> Arc<Discovery> {
         self.discovery.clone()
     }
@@ -209,6 +286,71 @@ impl Agent {
                 Err(error)
             }
         }
+    }
+
+    /// Run one delegation in a branch session and return its summary.
+    ///
+    /// The branch keeps its own transcript so the work can be inspected, while
+    /// only the summary reaches the caller's context — that is the whole point
+    /// of delegating rather than handing over. Its token spend rolls up into
+    /// the parent, because a branch whose cost is not counted makes the readout
+    /// wrong rather than merely incomplete.
+    async fn run_delegated(
+        &self,
+        parent: &mut Session,
+        delegation: &crate::routing::Delegation,
+        events: &mpsc::Sender<Event>,
+        cancel: CancellationToken,
+    ) -> String {
+        let mut branch = parent.branch(&delegation.to);
+        if let Err(error) = self.store.save(&branch) {
+            return format!("could not start the delegation: {error:#}");
+        }
+        let request = RunRequest {
+            prompt: delegation.task.clone(),
+            session_id: Some(branch.id.clone()),
+            role: parent.role,
+            attachments: Vec::new(),
+        };
+        // The sub-agent's own events are not forwarded: the caller sees a
+        // summary, and interleaving two agents' tool calls in one transcript
+        // is unreadable. The branch session holds the detail.
+        let (sink, mut drain) = mpsc::channel::<Event>(64);
+        tokio::spawn(async move { while drain.recv().await.is_some() {} });
+
+        let outcome = Box::pin(self.run_inner(request, &sink, cancel)).await;
+
+        // Reload: the nested run owns the branch on disk from here.
+        if let Ok(finished) = self.store.load(&branch.id) {
+            branch = finished;
+        }
+        parent.absorb_usage(&branch.usage);
+
+        let summary = match outcome {
+            Ok(()) => branch_summary(&branch),
+            Err(error) => {
+                // Whether files were already changed decides what the caller
+                // may safely do next, so the report says which — a caller that
+                // treats a partial failure as "try again" has the next
+                // specialist building on a state it knows nothing about.
+                let touched = files_touched(&branch);
+                if touched.is_empty() {
+                    format!("failed before changing anything: {error:#}")
+                } else {
+                    format!(
+                        "PARTIAL FAILURE: {error:#}\nAlready changed: {}\nDo not redo this work.",
+                        touched.join(", ")
+                    )
+                }
+            }
+        };
+        let _ = events
+            .send(Event::DelegationFinished {
+                agent: delegation.to.clone(),
+                summary: summary.clone(),
+            })
+            .await;
+        summary
     }
 
     async fn run_inner(
@@ -294,13 +436,31 @@ impl Agent {
             })
             .await;
 
-        let provider = Provider::from_config(&self.config)?;
-        let provider_model = self.config.model.default.clone();
-        let role = session.role;
+        // Resolve the agent before the provider: which model to build depends
+        // on which agent is working, and on the tier that agent declares.
+        let active = self.active_agent(&session);
+        let model = self.config.model_for(&active.name, active.tier);
+        let mut agent_config = self.config.clone();
+        if !model.is_empty() {
+            agent_config.model.default = model;
+        }
+        let provider = Provider::from_config(&agent_config)?;
+        let provider_model = agent_config.model.default.clone();
         self.warm_mcp_servers().await;
         let tools_registry = self.tools.read().await;
-        let schemas = tools_registry.schemas(role, Some(&self.discovery));
-        let mut prompt = role.system_prompt(&workspace.to_string_lossy());
+        let mut schemas = tools_registry.schemas_for_agent(&active.tools, Some(&self.discovery));
+        if active.delegation != crate::agent_def::Delegation::None {
+            // Only the router hands the session over; a specialist the user is
+            // already talking to may delegate a piece of work but not pass the
+            // conversation on to someone the user did not ask for.
+            let may_handoff = active.delegation == crate::agent_def::Delegation::Router;
+            schemas.extend(crate::routing::routing_schemas(may_handoff));
+        }
+        // Set when a routing call is accepted during a step, and acted on once
+        // the step's tool results are recorded — switching mid-loop would
+        // leave the current turn's results attributed to the wrong agent.
+        let mut pending_switch: Option<crate::routing::Switch> = None;
+        let mut prompt = self.agent_prompt(&active, &workspace.to_string_lossy());
         if let Some(extra) = self
             .discovery
             .system_prompt_with_disabled(&self.config.ui.disabled_skills)
@@ -468,10 +628,38 @@ impl Agent {
                     ))
                 } else {
                     match serde_json::from_str::<serde_json::Value>(&call.arguments) {
+                        Ok(args @ serde_json::Value::Object(_))
+                            if crate::routing::is_routing_tool(&call.name) =>
+                        {
+                            // Routing calls are intercepted rather than
+                            // dispatched: one changes which agent holds the
+                            // session, the other runs a whole nested turn, and
+                            // neither is reachable from a `ToolCtx`.
+                            match crate::routing::parse_switch(&call.name, &args) {
+                                Some(switch) => {
+                                    match crate::routing::authorise(
+                                        &active,
+                                        &switch,
+                                        &self.discovery.agents,
+                                    ) {
+                                        Ok(()) => {
+                                            pending_switch = Some(switch);
+                                            ToolOutput::ok(
+                                                "accepted; the session continues with that agent",
+                                            )
+                                        }
+                                        Err(refusal) => ToolOutput::error(refusal.message()),
+                                    }
+                                }
+                                None => ToolOutput::error("malformed routing call"),
+                            }
+                        }
                         Ok(args @ serde_json::Value::Object(_)) => {
                             let mut ctx = tool_ctx.clone();
                             ctx.call_id = call.id.clone();
-                            tools_registry.execute(role, &ctx, &call.name, args).await
+                            tools_registry
+                                .execute_for_agent(&active.tools, &ctx, &call.name, args)
+                                .await
                         }
                         Ok(_) => ToolOutput::error("tool arguments must be a JSON object"),
                         Err(error) => {
@@ -502,6 +690,49 @@ impl Agent {
             if cancel.is_cancelled() {
                 stop_reason = "aborted".into();
                 break;
+            }
+            // A routing call accepted during this step takes effect now that
+            // the step's results are recorded.
+            if let Some(switch) = pending_switch.take() {
+                match switch {
+                    crate::routing::Switch::Handoff { to, reason } => {
+                        session.switch_agent(&to, &reason);
+                        self.store.save(&session)?;
+                        let _ = events
+                            .send(Event::AgentSwitched {
+                                to: to.clone(),
+                                reason,
+                            })
+                            .await;
+                        // The handover ends this turn: the incoming agent needs
+                        // its own system prompt, and that is set when the next
+                        // turn assembles. Continuing here would run the new
+                        // agent under the old one's instructions.
+                        stop_reason = "handoff".into();
+                        break;
+                    }
+                    crate::routing::Switch::Delegate(delegation) => {
+                        let summary = self
+                            .run_delegated(&mut session, &delegation, events, cancel.clone())
+                            .await;
+                        session.push(Message {
+                            role: MessageRole::User,
+                            content: format!(
+                                "[delegation to `{}` finished]\n{summary}",
+                                delegation.to
+                            ),
+                            reasoning: None,
+                            tool_calls: Vec::new(),
+                            attachments: Vec::new(),
+                            tool_call_id: None,
+                            interrupted: false,
+                            error: None,
+                            model: None,
+                            message_id: None,
+                        });
+                        self.store.save(&session)?;
+                    }
+                }
             }
             if step + 1 == self.config.agent.max_steps {
                 stop_reason = "step_limit".into();
@@ -546,4 +777,44 @@ fn persist_interrupted(
         message_id: Some(message_id.to_string()),
     });
     store.save(session)
+}
+
+/// What a finished branch reports back: the specialist's own last word.
+///
+/// The specialist has the whole context, so its closing message is the
+/// summary — no extra model call is needed to produce one.
+fn branch_summary(branch: &Session) -> String {
+    branch
+        .turns
+        .iter()
+        .rev()
+        .find(|t| {
+            matches!(t.message.role, MessageRole::Assistant) && !t.message.content.trim().is_empty()
+        })
+        .map(|t| t.message.content.trim().to_owned())
+        .unwrap_or_else(|| "finished without a report".to_owned())
+}
+
+/// Files a branch changed, read from its tool calls.
+///
+/// Taken from the calls rather than the prose so the list is what actually
+/// happened, not what the model said happened.
+fn files_touched(branch: &Session) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for turn in &branch.turns {
+        for call in &turn.message.tool_calls {
+            if !matches!(call.name.as_str(), "write" | "edit") {
+                continue;
+            }
+            let Ok(args) = serde_json::from_str::<serde_json::Value>(&call.arguments) else {
+                continue;
+            };
+            if let Some(path) = args.get("path").and_then(serde_json::Value::as_str) {
+                if !out.iter().any(|p| p == path) {
+                    out.push(path.to_owned());
+                }
+            }
+        }
+    }
+    out
 }

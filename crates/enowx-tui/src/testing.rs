@@ -248,6 +248,79 @@ impl TestApp {
     }
 }
 
+/// Agent roster and handover display.
+impl TestApp {
+    /// Open a sidebar tab by index, as F1–F5 do.
+    pub fn select_sidebar_tab(&mut self, index: usize) {
+        self.inner.select_tab(index);
+    }
+
+    /// Page the sidebar forward, as Alt+→ does.
+    pub fn page_sidebar_next(&mut self) {
+        self.inner.page_sidebar(true);
+    }
+
+    pub fn active_agent(&self) -> String {
+        self.inner.active_agent().to_owned()
+    }
+
+    /// Hand the session over, the way the loop's `AgentSwitched` event does.
+    /// The marker lands above whatever block is pushed next.
+    pub fn switch_agent(&mut self, to: &str, reason: &str) {
+        self.inner.apply_event(enowx_core::Event::AgentSwitched {
+            to: to.into(),
+            reason: reason.into(),
+        });
+    }
+
+    /// Names in the roster the sidebar draws from.
+    pub fn roster_names(&self) -> Vec<String> {
+        self.inner
+            .discovery
+            .agents
+            .iter()
+            .map(|a| a.name.clone())
+            .collect()
+    }
+
+    /// Replay a saved session carrying handovers, so the placement of a
+    /// marker recorded against `at_turn` can be asserted end to end.
+    pub fn resume_with_switches(
+        &mut self,
+        turns: &[(&str, &str)],
+        switches: &[(&str, &str, &str, usize)],
+    ) -> anyhow::Result<()> {
+        use enowx_core::message::Message;
+        use enowx_core::session::AgentSwitch;
+        use enowx_core::Session;
+
+        let mut session = Session::new(self.inner.role);
+        session.workspace = std::fs::canonicalize(self.inner.config.workspace())?;
+        for (role, text) in turns {
+            session.push(match *role {
+                "user" => Message::user(*text),
+                "assistant" => Message::assistant(*text),
+                other => panic!("unsupported turn role {other}"),
+            });
+        }
+        session.switches = switches
+            .iter()
+            .map(|(from, to, reason, at_turn)| AgentSwitch {
+                from: (*from).to_string(),
+                to: (*to).to_string(),
+                reason: (*reason).to_string(),
+                at_turn: *at_turn,
+            })
+            .collect();
+        if let Some(last) = session.switches.last() {
+            session.agent = last.to.clone();
+        }
+        let id = session.id.clone();
+        self.inner.store.save(&session)?;
+        self.inner.resume(&id)
+    }
+}
+
 impl TestApp {
     /// Whether the transcript is following new output. Flipped off when the
     /// user scrolls up, back on when they return to the last line.

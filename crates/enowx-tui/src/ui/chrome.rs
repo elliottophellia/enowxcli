@@ -136,7 +136,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     let t = app.theme;
     frame.render_widget(Block::default().style(Style::default().bg(t.subtle)), area);
 
-    // LEFT: spinner (busy only) + role + model. Idle just shows role + model.
+    // LEFT: spinner (busy only) + agent + model. Idle just shows agent + model.
     let mut left_spans: Vec<Span<'static>> = Vec::new();
     if app.busy {
         left_spans.push(Span::styled(
@@ -154,7 +154,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         ));
     }
     left_spans.push(Span::styled(
-        app.role.label().to_string(),
+        app.active_agent().to_owned(),
         Style::default()
             .fg(t.accent)
             .add_modifier(ratatui::style::Modifier::BOLD),

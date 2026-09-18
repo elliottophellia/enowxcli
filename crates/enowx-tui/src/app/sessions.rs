@@ -61,13 +61,28 @@ impl App {
         self.context_tokens = session.usage.context_tokens;
         self.tool_counts.clear();
         self.session_id = Some(session.id.clone());
-        self.title = session.title;
+        self.adopt_agent(&session);
+        self.title = session.title.clone();
         self.role = session.role;
         self.blocks.clear();
+        self.switch_markers.clear();
         self.events = None;
         self.auto_scroll = true;
+        // A switch names the turn it happened at, but a turn expands into
+        // several blocks, so the marker is pinned to the first block a turn
+        // produces as the replay reaches it.
+        let mut switches = session.switches.iter().peekable();
         let mut tool_blocks: HashMap<String, usize> = HashMap::new();
-        for turn in session.turns {
+        for (turn_index, turn) in session.turns.iter().enumerate() {
+            while switches
+                .peek()
+                .is_some_and(|switch| switch.at_turn <= turn_index)
+            {
+                let switch = switches.next().expect("peeked");
+                self.switch_markers
+                    .push((self.blocks.len(), switch.clone()));
+            }
+            let turn = turn.clone();
             match turn.message.role {
                 MessageRole::User => {
                     let mut display = turn.message.content.clone();
@@ -136,6 +151,13 @@ impl App {
                 }
                 MessageRole::System => self.push(TranscriptKind::System, turn.message.content),
             }
+        }
+        // A handover recorded after the last turn — the usual case, since a
+        // switch is written before the new agent has answered — still belongs
+        // in the transcript, at the bottom.
+        for switch in switches {
+            self.switch_markers
+                .push((self.blocks.len(), switch.clone()));
         }
         self.status = format!("resumed {}", &session.id[..8]);
         Ok(())

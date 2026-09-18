@@ -164,6 +164,27 @@ impl App {
                 );
             }
             Event::Notice { message } => self.push(TranscriptKind::Notice, message),
+            Event::AgentSwitched { to, reason } => {
+                // Pinned to where the transcript has reached rather than to a
+                // turn index: the block list is what the marker is drawn
+                // against, and a live switch lands between two blocks.
+                self.switch_markers.push((
+                    self.blocks.len(),
+                    enowx_core::session::AgentSwitch {
+                        from: self.agent_name.clone(),
+                        to: to.clone(),
+                        reason,
+                        at_turn: self.blocks.len(),
+                    },
+                ));
+                self.agent_name = to;
+            }
+            Event::DelegationFinished { agent, summary } => {
+                self.push(
+                    TranscriptKind::Notice,
+                    format!("{agent} finished\n{summary}"),
+                );
+            }
             Event::Retry {
                 message,
                 attempt,

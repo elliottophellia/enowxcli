@@ -228,7 +228,13 @@ impl App {
                 task,
                 session_id,
             } => {
-                self.push(TranscriptKind::Notice, format!("{agent} started\n{task}"));
+                self.push(
+                    TranscriptKind::Brief {
+                        agent: agent.clone(),
+                        id: session_id.clone(),
+                    },
+                    task.clone(),
+                );
                 self.logs.push(
                     crate::logs::LogKind::Agent,
                     format!("delegate → {agent}: {task}"),

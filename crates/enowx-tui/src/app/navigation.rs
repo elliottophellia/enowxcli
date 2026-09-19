@@ -136,11 +136,19 @@ impl App {
                     .find(|(rect, _)| rect.contains(position))
                     .map(|(r, id)| (*r, id.clone()))
                 {
-                    let current = self
-                        .tool_expanded
-                        .get(&id)
-                        .copied()
-                        .unwrap_or(self.show_tool_output);
+                    // A brief is closed by default whatever the tool-output
+                    // toggle says, so asking that toggle for its current
+                    // state made the first click a no-op: `!true` closed a
+                    // row that was already closed.
+                    let is_brief = self.blocks.iter().any(|block| {
+                        matches!(&block.kind, TranscriptKind::Brief { id: block_id, .. } if *block_id == id)
+                    });
+                    let default = if is_brief {
+                        false
+                    } else {
+                        self.show_tool_output
+                    };
+                    let current = self.tool_expanded.get(&id).copied().unwrap_or(default);
                     self.tool_expanded.insert(id, !current);
                 } else if let Some(index) = self
                     .delegation_rects

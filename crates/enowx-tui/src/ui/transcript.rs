@@ -1230,6 +1230,40 @@ fn render_block(
             );
         }
         TranscriptKind::Reasoning => return,
+        TranscriptKind::Brief { agent, id } => {
+            // Closed by default. The brief is written for the sub-agent —
+            // forty lines of instructions, exclusions and acceptance criteria
+            // — and printing it in full buries the conversation it belongs
+            // to. The row says who was sent what; the text is one click away.
+            let expanded = tool_expanded.get(id).copied().unwrap_or(false);
+            let body: Vec<&str> = block.text.lines().collect();
+            let parts = crate::ui::tool::RowParts {
+                verb: "delegate".into(),
+                arg: agent.clone(),
+                metric: format!("{} line brief", body.len()),
+                status: None,
+            };
+            tool_headers.push((id.clone(), lines.len()));
+            lines.push(tool_row(
+                &parts,
+                Some(if expanded { "▾" } else { "▸" }),
+                ("◆", theme.accent),
+                None,
+                width,
+                theme,
+            ));
+            if expanded {
+                for line in body {
+                    lines.push(Line::styled(
+                        format!(
+                            "  {}",
+                            crate::text::trim(line, width.saturating_sub(2).max(1))
+                        ),
+                        Style::default().fg(theme.muted),
+                    ));
+                }
+            }
+        }
         TranscriptKind::Tool {
             id,
             name,
@@ -1605,6 +1639,19 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                     true,
                     app.tool_expanded.get(id).copied().unwrap_or(default_expand),
                 )
+            }
+            TranscriptKind::Brief { agent, id } => {
+                // Clicking the row toggles it, so the key has to carry that
+                // state — otherwise the cached closed row is served again and
+                // the click looks ignored.
+                std::mem::discriminant(&block.kind).hash(&mut hasher);
+                agent.hash(&mut hasher);
+                id.hash(&mut hasher);
+                // Not `is_tool`: that flag closes the gap between
+                // consecutive tool rows, and a brief is punctuation between
+                // the conversation and a sub-agent's work — it needs its
+                // space.
+                (false, app.tool_expanded.get(id).copied().unwrap_or(false))
             }
             other => {
                 std::mem::discriminant(other).hash(&mut hasher);

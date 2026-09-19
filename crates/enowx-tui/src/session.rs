@@ -17,6 +17,15 @@ pub(crate) enum TranscriptKind {
         started: Option<std::time::Instant>,
     },
     Notice,
+    /// The task handed to a sub-agent. Closed by default: it is written for
+    /// the sub-agent, not for the reader, and a full brief is forty lines of
+    /// instructions that push the conversation off screen.
+    Brief {
+        agent: String,
+        /// The branch session, so the row can be clicked open the same way a
+        /// tool result is.
+        id: String,
+    },
     /// A transient upstream failure being retried. Rendered like an error —
     /// it IS one, the turn just has not given up yet — but as a single line
     /// that updates in place, because a backoff sequence emits one of these

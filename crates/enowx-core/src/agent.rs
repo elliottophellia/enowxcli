@@ -345,7 +345,6 @@ impl Agent {
         parent: &mut Session,
         delegation: &crate::routing::Delegation,
         events: &mpsc::Sender<Event>,
-        cancel: CancellationToken,
     ) -> String {
         let mut branch = parent.branch(&delegation.to);
         if let Err(error) = self.store.save(&branch) {
@@ -388,7 +387,20 @@ impl Agent {
         let (sink, mut drain) = mpsc::channel::<Event>(64);
         tokio::spawn(async move { while drain.recv().await.is_some() {} });
 
-        let outcome = Box::pin(self.run_inner(request, &sink, cancel)).await;
+        // Its own token, NOT a child of the caller's.
+        //
+        // Stopping the turn stops the agent the user is talking to. A
+        // sub-agent is not that agent: the user cannot send it anything,
+        // cannot steer it, and only the calling agent decides what it does.
+        // Cancelling it from the outside left it dead mid-task and the caller
+        // holding a `NO REPORT` for work that was interrupted rather than
+        // failed — indistinguishable, from the report, from a sub-agent that
+        // simply gave up.
+        //
+        // It still ends: its own step limit, its own errors, and the caller
+        // waits for it either way.
+        let own = CancellationToken::new();
+        let outcome = Box::pin(self.run_inner(request, &sink, own)).await;
 
         // Reload: the nested run owns the branch on disk from here.
         if let Ok(finished) = self.store.load(&branch.id) {
@@ -911,9 +923,7 @@ impl Agent {
                         break;
                     }
                     crate::routing::Switch::Delegate(delegation) => {
-                        let summary = self
-                            .run_delegated(&mut session, &delegation, events, cancel.clone())
-                            .await;
+                        let summary = self.run_delegated(&mut session, &delegation, events).await;
                         session.push(Message {
                             role: MessageRole::User,
                             content: format!(

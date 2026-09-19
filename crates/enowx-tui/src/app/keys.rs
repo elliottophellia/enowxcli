@@ -10,6 +10,15 @@ impl App {
             && matches!(key.code, KeyCode::Char('c'))
             && self.busy
         {
+            // Looking at a sub-agent's transcript, Ctrl+C means "get me out of
+            // here" before it means "stop the turn". Stopping the conversation
+            // from inside a window that is not the conversation is not what
+            // the key is being pressed for, and the sub-agent on screen is not
+            // something the user drives anyway.
+            if self.viewing.is_some() {
+                self.leave_delegation();
+                return Ok(());
+            }
             self.interrupt();
             return Ok(());
         }

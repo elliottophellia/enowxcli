@@ -403,3 +403,53 @@ fn the_count_is_what_arrived_not_the_whole_conversation() {
         "five earlier messages are not news: {footer}"
     );
 }
+
+/// A sub-agent is not something the user drives: they cannot send it a
+/// message and cannot steer it. So keys pressed while looking at one act on
+/// the window, not on the work.
+#[test]
+fn ctrl_c_while_viewing_leaves_rather_than_stopping_the_turn() {
+    let mut app = TestApp::new();
+    app.push_user("MAIN-CONVERSATION");
+    let cancel = app.start_fake_turn();
+    app.add_delegation("fe", "write it", &[("assistant", "BRANCH-WORK")]);
+    app.open_delegation(0).expect("open it");
+
+    app.press(KeyCode::Char('c'), true).expect("ctrl+c");
+    assert!(
+        app.viewing_agent().is_none(),
+        "it should take the user out of the branch"
+    );
+    assert!(
+        !cancel.is_cancelled(),
+        "and must not stop the conversation from inside a window that is not it"
+    );
+
+    // Back on the main conversation, it means what it always did.
+    app.press(KeyCode::Char('c'), true).expect("ctrl+c again");
+    assert!(
+        cancel.is_cancelled(),
+        "a second press, now on the conversation, stops the turn"
+    );
+}
+
+/// Typing a message while viewing belongs to the conversation. There is no
+/// way to send anything to a sub-agent, by design.
+#[test]
+fn there_is_no_way_to_message_a_sub_agent() {
+    let mut app = TestApp::new();
+    app.push_user("MAIN-CONVERSATION");
+    app.add_delegation("fe", "write it", &[("assistant", "BRANCH-WORK")]);
+    app.open_delegation(0).expect("open it");
+    app.type_input("stop doing that");
+    app.leave_viewing_as_send_would();
+    assert!(
+        app.viewing_agent().is_none(),
+        "sending returns to the conversation first"
+    );
+    assert_eq!(
+        app.input_text(),
+        "stop doing that",
+        "and the message is still the user's to send there"
+    );
+}

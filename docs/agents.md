@@ -428,6 +428,26 @@ reintroduces exactly the conflict the declaration ruled out.
 A refused write does not kill the delegation. The specialist keeps running and
 can ask for a wider contract; only the one call fails.
 
+## A sub-agent is not a participant
+
+The user talks to one agent. A sub-agent is work that agent chose to hand
+out: there is no way to send it a message, no way to steer it, and it takes
+its instructions from the calling agent alone.
+
+That has to hold for the keys too. Ctrl+C means "stop what I asked for",
+which is the conversation — and cancelling a sub-agent from outside left it
+dead mid-task while the caller was handed a `NO REPORT` that could not be
+told apart from one that had genuinely given up. So a delegation runs on its
+own cancellation token, not a child of the caller's: stopping the turn stops
+the turn, and the sub-agent already under way finishes and reports. The
+cancelled turn makes no further model call, and starts no new delegation.
+
+While a sub-agent's transcript is open, Ctrl+C and Esc both mean "leave this
+window", and sending a message returns to the conversation first. Nothing
+typed there can reach the sub-agent, which is the point.
+
+What still ends a sub-agent: its own step limit, and its own errors.
+
 ## A delegation owes a report
 
 The caller sees nothing a sub-agent does — its events are dropped on purpose,

@@ -15,14 +15,10 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
         .style(Style::default().bg(app.theme.panel));
     let inner = border.inner(area);
     frame.render_widget(border, area);
-    // Three rows: the breadcrumb, the keys that apply now, and the rule.
-    let header = if inner.height >= 12 {
-        3
-    } else if inner.height >= 10 {
-        2
-    } else {
-        0
-    };
+    // One row plus its rule. The keys that apply now moved to the status bar:
+    // two rows of chrome at the top and two at the bottom is four rows of a
+    // short terminal spent on the frame.
+    let header = if inner.height >= 10 { 2 } else { 0 };
     let footer = if inner.height >= 10 { 1 } else { 0 };
     let parts = Layout::vertical([
         Constraint::Length(header),
@@ -124,8 +120,9 @@ fn draw_title(frame: &mut Frame, app: &App, area: Rect) {
         .to_string_lossy()
         .into_owned();
 
-    // The badge: reversed rather than coloured, so it reads as a label
-    // attached to the window rather than as another piece of status.
+    // The agent and its state live in the status bar, which is where the eye
+    // already goes for them. Repeating them here said the same thing twice
+    // and left neither line able to say anything else.
     let mut left = vec![
         Span::styled(
             " ❯_ ENX ",
@@ -135,43 +132,25 @@ fn draw_title(frame: &mut Frame, app: &App, area: Rect) {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw("  "),
+        Span::styled(project, Style::default().fg(t.text)),
     ];
-
-    let mut crumb = |icon: &str, label: String, colour: ratatui::style::Color| {
-        left.push(Span::styled(
-            format!("{icon} "),
-            Style::default().fg(colour),
-        ));
-        left.push(Span::styled(label, Style::default().fg(t.text)));
-        left.push(Span::styled("  ", Style::default().fg(t.faint)));
-    };
-    crumb("◆", project, t.accent);
-    crumb("●", app.active_agent().to_owned(), t.green);
-    let model = app.model_label();
-    if !model.is_empty() && model != "no model" {
-        crumb("⛁", model, t.accent2);
-    }
-    // The session's own name, once it has one — a resumed session is
-    // otherwise indistinguishable from a fresh one.
     if !app.title.is_empty() {
-        left.push(Span::styled("› ", Style::default().fg(t.faint)));
+        left.push(Span::styled("  ›  ", Style::default().fg(t.faint)));
         left.push(Span::styled(
-            crate::text::trim(&app.title, 28),
+            crate::text::trim(&app.title, 40),
             Style::default().fg(t.muted),
         ));
     }
 
-    let right = if app.busy {
-        Line::from(vec![
-            Span::styled(format!("{} ", app.spinner()), Style::default().fg(t.yellow)),
-            Span::styled(
-                crate::app::fmt_elapsed(app.turn_started.elapsed().as_secs()),
-                Style::default().fg(t.yellow),
-            ),
-        ])
-    } else {
-        Line::from(Span::styled("? /help", Style::default().fg(t.faint)))
-    };
+    let model = app.model_label();
+    let right = Line::from(Span::styled(
+        if model.is_empty() {
+            "no model".to_owned()
+        } else {
+            model
+        },
+        Style::default().fg(t.faint),
+    ));
 
     draw_split_line(
         frame,
@@ -180,43 +159,7 @@ fn draw_title(frame: &mut Frame, app: &App, area: Rect) {
         Rect::new(area.x + 1, area.y, area.width.saturating_sub(2), 1),
     );
 
-    // Second row: the keys that apply right now. A fixed list would be
-    // reference material; this changes with what is on screen.
     if area.height >= 2 {
-        let hints: &[(&str, &str)] = if app.viewing.is_some() {
-            &[("Esc", "back"), ("↑↓", "scroll"), ("F4", "agents")]
-        } else if app.busy {
-            &[
-                ("Ctrl+C", "stop"),
-                ("Ctrl+P", "commands"),
-                ("F1–F5", "tabs"),
-            ]
-        } else {
-            &[
-                ("Ctrl+P", "commands"),
-                ("Ctrl+↑", "edit last"),
-                ("F1–F5", "tabs"),
-                ("/", "run a command"),
-            ]
-        };
-        let mut spans: Vec<Span<'static>> = Vec::new();
-        for (key, what) in hints {
-            spans.push(Span::styled(
-                (*key).to_owned(),
-                Style::default().fg(t.muted).add_modifier(Modifier::BOLD),
-            ));
-            spans.push(Span::styled(
-                format!(" {what}   "),
-                Style::default().fg(t.faint),
-            ));
-        }
-        frame.render_widget(
-            Paragraph::new(Line::from(spans)).style(Style::default().bg(t.subtle)),
-            Rect::new(area.x + 1, area.y + 1, area.width.saturating_sub(2), 1),
-        );
-    }
-    // The rule sits under the whole header, not through the hints.
-    if area.height >= 3 {
         frame.render_widget(
             Paragraph::new("─".repeat(area.width as usize))
                 .style(Style::default().fg(t.border).bg(t.subtle)),
@@ -339,29 +282,42 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         ));
     }
 
-    // RIGHT: what the session has used, then the rotating tip.
+    // RIGHT: the keys, and the session's spend when there is room for it.
+    // `draw_split_line` drops the whole right side rather than truncating it,
+    // so the counts are added only when they will not push the keys off —
+    // the sidebar already carries them in full.
     let mut right_spans: Vec<Span<'static>> = Vec::new();
-    if app.context_window > 0 && app.context_tokens > 0 {
+    // The footer stops at the pane divider, so this is the chat pane's width
+    // rather than the window's — a window wide enough for a sidebar leaves
+    // the footer about sixty columns.
+    let roomy = area.width >= 66;
+    if roomy && app.context_window > 0 && app.context_tokens > 0 {
         let pct = (app.context_tokens as u64 * 100 / app.context_window.max(1) as u64).min(999);
         right_spans.push(Span::styled(
-            format!("ctx {pct}% "),
+            format!("ctx {pct}%  "),
             Style::default().fg(if pct >= 85 { t.red } else { t.faint }),
         ));
     }
-    if app.tokens_in > 0 || app.tokens_out > 0 {
+    // The keys that apply right now, where the tip used to rotate. A tip is
+    // read once; a key is looked up, and looking it up is the reason to keep
+    // a row of chrome at all.
+    let hints: &[(&str, &str)] = if app.viewing.is_some() {
+        &[("Esc", "back")]
+    } else if app.busy {
+        &[("Ctrl+C", "stop")]
+    } else {
+        &[("Ctrl+P", "commands"), ("/", "run one")]
+    };
+    for (key, what) in hints {
         right_spans.push(Span::styled(
-            format!(
-                "↓{} ↑{} ",
-                crate::text::thousands(app.tokens_in as u64),
-                crate::text::thousands(app.tokens_out as u64)
-            ),
+            (*key).to_owned(),
+            Style::default().fg(t.muted).add_modifier(Modifier::BOLD),
+        ));
+        right_spans.push(Span::styled(
+            format!(" {what}  "),
             Style::default().fg(t.faint),
         ));
     }
-    right_spans.push(Span::styled(
-        app.footer_tip().to_string(),
-        Style::default().fg(t.muted),
-    ));
 
     draw_split_line(frame, Line::from(left_spans), Line::from(right_spans), area);
 }

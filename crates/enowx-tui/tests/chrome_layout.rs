@@ -17,18 +17,43 @@ fn header(app: &mut TestApp) -> String {
     screen(app)[1].clone()
 }
 
+/// The rule under the header, which carries the pane names.
+fn pane_rule(app: &mut TestApp) -> String {
+    screen(app)[2].clone()
+}
+
 fn status_bar(app: &mut TestApp) -> String {
     let rows = screen(app);
     rows[rows.len() - 2].clone()
 }
 
-/// The header says what the next keystroke acts on: workspace, then agent.
+/// The header names where the work is happening. The agent and its state
+/// live in the status bar — saying them in both places left neither line
+/// able to say anything else.
 #[test]
-fn the_header_names_the_workspace_and_agent() {
+fn the_header_names_the_workspace() {
     let mut app = TestApp::new();
     let text = header(&mut app);
     assert!(text.contains("ENX"), "the badge: {text}");
-    assert!(text.contains("router"), "the agent answering: {text}");
+    assert!(text.contains("ws"), "the workspace: {text}");
+    assert!(
+        !text.contains("router"),
+        "the agent belongs to the status bar, not both: {text}"
+    );
+}
+
+/// One row, not three. Chrome at the top and bottom competes with the
+/// conversation for a short terminal.
+#[test]
+fn the_header_is_one_row_plus_its_rule() {
+    let mut app = TestApp::new();
+    let rows = screen(&mut app);
+    assert!(rows[1].contains("ENX"), "the header: {}", rows[1]);
+    assert!(
+        rows[2].contains('─'),
+        "then straight to the rule: {}",
+        rows[2]
+    );
 }
 
 /// A pid and three coloured dots were what used to be here. Neither is
@@ -44,30 +69,11 @@ fn the_header_does_not_carry_decoration() {
     );
 }
 
-/// The second row offers keys, and which keys depends on what is on screen —
-/// a fixed list would be reference material rather than help.
-#[test]
-fn the_hint_row_follows_the_state() {
-    let mut app = TestApp::new();
-    let idle = screen(&mut app)[2].clone();
-    assert!(
-        idle.contains("Ctrl+P"),
-        "the palette is always useful: {idle}"
-    );
-
-    app.start_fake_turn();
-    let busy = screen(&mut app)[2].clone();
-    assert!(
-        busy.contains("Ctrl+C"),
-        "while working, stopping is the key that matters: {busy}"
-    );
-}
-
 /// Each pane is named on the rule above it rather than in a row of its own.
 #[test]
 fn the_panes_are_named_on_the_rule() {
     let mut app = TestApp::new();
-    let rule = screen(&mut app)[3].clone();
+    let rule = pane_rule(&mut app);
     assert!(rule.contains("CHAT"), "the conversation side: {rule}");
     // Whichever tab is selected — TOKENS is the one a fresh session opens on.
     assert!(rule.contains("TOKENS"), "and the sidebar's tab: {rule}");
@@ -79,7 +85,7 @@ fn the_panes_are_named_on_the_rule() {
 fn the_pane_label_follows_the_selected_tab() {
     let mut app = TestApp::new();
     app.select_sidebar_tab(4);
-    let rule = screen(&mut app)[3].clone();
+    let rule = pane_rule(&mut app);
     assert!(rule.contains("LOGS"), "the tab that is showing: {rule}");
     assert!(
         !rule.contains("AGENT"),
@@ -102,35 +108,61 @@ fn the_status_bar_leads_with_the_state() {
     assert!(!busy.contains("READY"), "and not both at once: {busy}");
 }
 
-/// Token spend belongs in the status bar: it is the number that decides
-/// whether to compact, and it changes on every turn.
+/// How full the context window is decides whether to compact, so it belongs
+/// where it is seen without opening a tab. The raw token counts do not: the
+/// sidebar carries those in full, and the keys matter more than a number
+/// nobody acts on directly.
 #[test]
-fn the_status_bar_shows_what_the_session_has_used() {
+fn the_status_bar_shows_how_full_the_context_is() {
     let mut app = TestApp::new();
     app.deliver_usage(12_481, 240, 12_481, 128_000);
     let text = status_bar(&mut app);
-    assert!(text.contains("12,481"), "tokens in: {text}");
-    assert!(text.contains("240"), "and out: {text}");
-    assert!(text.contains("ctx"), "and how full the window is: {text}");
+    assert!(text.contains("ctx"), "how full the window is: {text}");
+    assert!(text.contains('%'), "as a proportion: {text}");
 }
 
-/// The composer says what it will do with what is typed. A `/` is a command,
-/// not a message, and the difference decides what Enter does.
+/// On a narrow window the keys win. `draw_split_line` drops the whole right
+/// side rather than truncating it, so a count added there would take the
+/// keys with it.
 #[test]
-fn the_composer_says_what_it_will_send() {
+fn the_keys_survive_a_narrow_window() {
+    let mut app = TestApp::new();
+    app.deliver_usage(12_481, 240, 12_481, 128_000);
+    let rows = app.render_to_text(80, 20);
+    let text = rows[rows.len() - 2].clone();
+    assert!(
+        text.contains("Ctrl+P"),
+        "the keys are the point of the row: {text}"
+    );
+}
+
+/// The composer is a prompt marker and a field. A label saying "MESSAGE" on
+/// every frame restated what the marker already says, and a label that is
+/// always there stops being read.
+#[test]
+fn the_composer_is_bare_until_it_has_something_to_say() {
     let mut app = TestApp::new();
     let rows = screen(&mut app);
-    let label = rows
-        .iter()
-        .find(|row| row.contains("MESSAGE"))
-        .expect("a composer label");
-    assert!(label.contains('─'), "on the rule: {label}");
+    assert!(
+        !rows.iter().any(|row| row.contains("MESSAGE")),
+        "nothing to announce: {rows:#?}"
+    );
+    assert!(
+        rows.iter().any(|row| row.contains('❯')),
+        "just the prompt: {rows:#?}"
+    );
+}
 
-    app.type_input("/help");
+/// A message typed while the model is working is queued, not sent, and that
+/// is worth a word.
+#[test]
+fn the_composer_says_when_a_message_will_be_queued() {
+    let mut app = TestApp::new();
+    app.start_fake_turn();
     let rows = screen(&mut app);
     assert!(
-        rows.iter().any(|row| row.contains("COMMAND")),
-        "typing a slash should say so: {rows:?}"
+        rows.iter().any(|row| row.contains("QUEUED")),
+        "a turn is running, so Enter does not send now: {rows:#?}"
     );
 }
 

@@ -106,6 +106,9 @@ fn draw_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
     );
     // Full names need ~44 columns; below that the number alone still identifies
     // the tab and keeps every target the same clickable width.
+    // Bare numbers are unreadable as a strip — nothing says what tab 3 is —
+    // so the words stay for as long as they fit at all. The pane label above
+    // names only the selected one.
     let compact = area.width < 44;
     for (index, (key, name)) in TABS.iter().enumerate() {
         let start = area.x + area.width * index as u16 / 5;

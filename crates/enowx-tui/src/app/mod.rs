@@ -498,23 +498,6 @@ impl App {
             m.to_string()
         }
     }
-
-    /// Rotating tip for the idle composer footer so it never reads as blank.
-    pub(crate) fn footer_tip(&self) -> &'static str {
-        // Cycle every 6 seconds so a curious user sees more than one hint
-        // without the text flickering during a burst of activity.
-        const TIPS: [&str; 7] = [
-            "/help for commands",
-            "Ctrl+P opens the command palette",
-            "Ctrl+B toggles sidebar",
-            "/skills to browse skills",
-            "/mcp to manage MCP servers",
-            "/compact frees context",
-            "F1–F5 switch sidebar tabs",
-        ];
-        let slot = (self.activity_since.elapsed().as_secs() / 6) as usize;
-        TIPS[slot % TIPS.len()]
-    }
 }
 
 /// Format an elapsed second count as `s` / `m s` / `h m` so a long turn does

@@ -86,16 +86,17 @@ pub(super) fn draw_composer_pane(frame: &mut Frame, app: &mut App, area: Rect) {
             .style(Style::default().bg(t.subtle)),
         rows[3],
     );
-    // A label on the rule, the same as the panes carry: it says what the
-    // composer will do with what is typed, which changes with the state.
-    if rows[3].width > 30 {
-        let (label, colour) = if app.busy {
-            (" SENDS AFTER THIS TURN ", t.yellow)
-        } else if app.input.starts_with('/') {
-            (" COMMAND ", t.accent2)
-        } else {
-            (" MESSAGE ", t.faint)
-        };
+    // Only when the composer is about to do something other than send a
+    // message. "MESSAGE" on every frame restated what the `❯` already says,
+    // and a label that is always there stops being read.
+    let label = if app.busy {
+        Some((" QUEUED ", t.yellow))
+    } else if !app.attachments.is_empty() {
+        Some((" WITH IMAGES ", t.accent2))
+    } else {
+        None
+    };
+    if let Some((label, colour)) = label.filter(|_| rows[3].width > 30) {
         frame.render_widget(
             Paragraph::new(Line::styled(
                 label,
@@ -117,13 +118,11 @@ pub(super) fn draw_composer_pane(frame: &mut Frame, app: &mut App, area: Rect) {
         area.width.saturating_sub(3),
         ih.saturating_sub(FRAME),
     );
+    // The marker colours to say a command is being typed; it does not change
+    // glyph. The `/` the user typed is already the first character in the
+    // field, and a second one beside it reads as a typo.
     frame.render_widget(
-        Paragraph::new(if app.input.starts_with('/') {
-            "/"
-        } else {
-            "❯"
-        })
-        .style(
+        Paragraph::new("❯").style(
             Style::default()
                 .fg(if app.input.starts_with('/') {
                     t.accent2

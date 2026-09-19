@@ -32,6 +32,55 @@ impl App {
         }
     }
 
+    /// Route a paste to wherever the user is typing.
+    ///
+    /// Lives here rather than in the runtime's event match so it can be
+    /// tested: the branch that used to decide this listed the form modals by
+    /// hand, and a form missing from that list silently dropped every paste.
+    pub(crate) fn paste(&mut self, text: &str) {
+        if self.modal.is_form() {
+            self.paste_into_form(text);
+        } else if self.modal == Modal::None {
+            let clean = crate::text::sanitize_paste(text);
+            let cursor = self.cursor.min(self.input.len());
+            self.input.insert_str(cursor, &clean);
+            self.cursor = cursor + clean.len();
+        }
+        // Any other modal is a list, with nothing to paste into.
+    }
+
+    /// Insert pasted text into whichever form field is being edited.
+    ///
+    /// The MCP form keeps its own fields rather than `SETTINGS_FIELDS`, so
+    /// routing every form's paste through the settings draft would write a
+    /// pasted command into the provider name.
+    pub(crate) fn paste_into_form(&mut self, text: &str) {
+        // A pasted key or URL is a single line; control characters in it are
+        // either terminal noise or an attempt to move the cursor mid-paste.
+        let text: String = text.chars().filter(|c| !c.is_control()).collect();
+        if text.is_empty() {
+            return;
+        }
+        if self.modal == Modal::McpForm {
+            // Transport is a cycled choice, not a text field: pasting into it
+            // would write into whatever slot its accessor happens to borrow.
+            if crate::modal::MCP_FORM_FIELDS[self.mcp_field]
+                == crate::modal::McpFormField::Transport
+            {
+                return;
+            }
+            // This form appends as you type rather than tracking a cursor, so
+            // a paste lands the same way.
+            self.mcp_field_mut().push_str(&text);
+            return;
+        }
+        let field = SETTINGS_FIELDS[self.modal_cursor];
+        self.settings_changed(field);
+        let cursor = self.field_cursor.min(self.settings.value(field).len());
+        self.settings.value_mut(field).insert_str(cursor, &text);
+        self.field_cursor = cursor + text.len();
+    }
+
     pub(crate) fn settings_key(&mut self, key: KeyEvent) -> Result<()> {
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             match key.code {

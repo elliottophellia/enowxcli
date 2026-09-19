@@ -31,10 +31,7 @@ impl App {
             return Ok(());
         }
         if self.modal != Modal::None {
-            if matches!(
-                self.modal,
-                Modal::Settings | Modal::ModelUrl | Modal::ProviderKey | Modal::TypeSafeKey
-            ) {
+            if self.modal.is_form() && self.modal != Modal::McpForm {
                 return self.settings_key(key);
             }
             if self.modal == Modal::QuitConfirm {

@@ -61,6 +61,7 @@ impl Modal {
             Modal::Mcp => " MCP SERVERS ",
             Modal::McpForm => " ADD MCP SERVER ",
             Modal::QuitConfirm => " QUIT ENX ",
+            // Forms draw their own heading, so the generic title is empty.
             Modal::None | Modal::Settings | Modal::ModelUrl | Modal::ProviderKey => "",
         }
     }

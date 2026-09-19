@@ -841,3 +841,32 @@ impl TestApp {
         self.inner.config.typesafe.api_key.clone()
     }
 }
+
+impl TestApp {
+    /// A bracketed paste, routed exactly as the runtime routes one.
+    pub fn paste(&mut self, text: &str) {
+        self.inner.paste(text);
+    }
+
+    pub fn provider_key_draft(&self) -> String {
+        self.inner.settings.api_key.clone()
+    }
+
+    pub fn mcp_draft_command(&self) -> String {
+        self.inner.mcp_draft.command.clone()
+    }
+}
+
+impl TestApp {
+    /// The settings field the form is currently editing.
+    pub fn settings_field_value(&self) -> String {
+        self.inner
+            .settings
+            .value(crate::modal::SETTINGS_FIELDS[self.inner.modal_cursor])
+            .to_owned()
+    }
+
+    pub fn open_mcp_form(&mut self) {
+        self.inner.modal = Modal::McpForm;
+    }
+}

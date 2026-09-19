@@ -1,9 +1,4 @@
-use crate::{
-    app::App,
-    modal::{Modal, SETTINGS_FIELDS},
-    session::TranscriptKind,
-    ui::draw,
-};
+use crate::{app::App, modal::Modal, session::TranscriptKind, ui::draw};
 use anyhow::Result;
 use crossterm::{
     cursor::Show,
@@ -93,19 +88,12 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
                         }
                     }
                 }
-                TerminalEvent::Paste(text)
-                    if matches!(
-                        app.modal,
-                        Modal::Settings | Modal::ModelUrl | Modal::ProviderKey
-                    ) =>
-                {
-                    let field = SETTINGS_FIELDS[app.modal_cursor];
-                    let text: String = text.chars().filter(|c| !c.is_control()).collect();
-                    app.settings_changed(field);
-                    app.settings
-                        .value_mut(field)
-                        .insert_str(app.field_cursor, &text);
-                    app.field_cursor += text.len();
+                // Every text-field modal, asked as a question rather than
+                // listed: a form added to `is_form` but missed here would
+                // silently refuse to accept a paste, which is what kept the
+                // TypeSafe key from being pasted at all.
+                TerminalEvent::Paste(text) if app.modal.is_form() => {
+                    app.paste(&text);
                 }
                 TerminalEvent::Paste(text) if app.modal == Modal::None => {
                     // A drag-and-drop reaches us as one or more file paths.
@@ -120,9 +108,7 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
                         // Normalize CR/CRLF to LF, drop other control chars,
                         // and expand tabs so a paste from Warp/iTerm cannot
                         // slip an out-of-band cursor movement into the field.
-                        let clean = crate::text::sanitize_paste(&text);
-                        app.input.insert_str(app.cursor, &clean);
-                        app.cursor += clean.len();
+                        app.paste(&text);
                     }
                 }
                 TerminalEvent::Mouse(mouse) => {

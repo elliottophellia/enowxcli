@@ -956,3 +956,30 @@ impl TestApp {
         }
     }
 }
+
+impl TestApp {
+    /// Append turns to a branch on disk, as a running sub-agent would.
+    pub fn grow_branch(&mut self, session_id: &str, turns: &[(&str, &str)]) {
+        use enowx_core::message::Message;
+        let mut branch = self.inner.store.load(session_id).expect("load the branch");
+        for (role, text) in turns {
+            branch.push(match *role {
+                "user" => Message::user(*text),
+                "assistant" => Message::assistant(*text),
+                other => panic!("unsupported role {other}"),
+            });
+        }
+        self.inner.store.save(&branch).expect("save the branch");
+    }
+
+    /// Force the next refresh to happen rather than waiting out its interval.
+    pub fn expire_refresh_timer(&mut self) {
+        if let Some(viewing) = self.inner.viewing.as_mut() {
+            viewing.last_refresh = std::time::Instant::now() - std::time::Duration::from_secs(10);
+        }
+    }
+
+    pub fn refresh_viewed_delegation(&mut self) {
+        self.inner.refresh_viewed_delegation();
+    }
+}

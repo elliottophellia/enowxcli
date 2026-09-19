@@ -59,6 +59,15 @@ pub(crate) struct Viewing {
     pub(crate) auto_scroll: bool,
     /// The agent whose branch is on screen.
     pub(crate) agent: String,
+    /// Which delegation is being viewed, so its state can be read back.
+    pub(crate) index: usize,
+    /// Branch session on disk, re-read while the sub-agent is still writing
+    /// to it.
+    pub(crate) session_id: String,
+    /// When it was last re-read. A running branch grows, and a transcript
+    /// frozen at the moment it was opened is the thing that makes a working
+    /// sub-agent look stopped.
+    pub(crate) last_refresh: Instant,
 }
 
 pub(crate) struct App {

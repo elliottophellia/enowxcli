@@ -195,6 +195,9 @@ impl App {
             scroll: self.scroll,
             auto_scroll: self.auto_scroll,
             agent: delegation.agent.clone(),
+            index,
+            session_id: delegation.session_id.clone(),
+            last_refresh: std::time::Instant::now(),
         };
         self.render_cache.clear();
         self.switch_markers.clear();
@@ -204,6 +207,47 @@ impl App {
         self.scroll = 0;
         self.status = format!("viewing {} · Esc to go back", delegation.agent);
         Ok(())
+    }
+
+    /// Re-read the branch on screen if the sub-agent is still writing to it.
+    ///
+    /// Without this the transcript is whatever the file held at the moment it
+    /// was opened, so a sub-agent that is working looks exactly like one that
+    /// has stopped — which is the question someone opens it to answer.
+    ///
+    /// Only while it runs, and not on every frame: a finished branch cannot
+    /// change, and re-reading one at 25Hz would be pure waste.
+    pub(crate) fn refresh_viewed_delegation(&mut self) {
+        const EVERY: std::time::Duration = std::time::Duration::from_millis(500);
+        let Some(viewing) = self.viewing.as_ref() else {
+            return;
+        };
+        if self.delegations.get(viewing.index).map(|d| d.state)
+            != Some(crate::app::DelegationState::Running)
+        {
+            return;
+        }
+        if viewing.last_refresh.elapsed() < EVERY {
+            return;
+        }
+        let id = viewing.session_id.clone();
+        let Ok(branch) = self.store.load(&id) else {
+            return;
+        };
+        let before = self.blocks.len();
+        // Rebuild rather than append: a tool call already on screen gains its
+        // result in place, which appending cannot express.
+        self.blocks.clear();
+        self.switch_markers.clear();
+        self.replay_into_blocks(&branch);
+        if let Some(viewing) = self.viewing.as_mut() {
+            viewing.last_refresh = std::time::Instant::now();
+        }
+        if self.blocks.len() != before {
+            // Only invalidate when the shape changed; the cache is keyed on
+            // content, so an unchanged block re-renders from it.
+            self.render_cache.clear();
+        }
     }
 
     /// Put the main conversation back.

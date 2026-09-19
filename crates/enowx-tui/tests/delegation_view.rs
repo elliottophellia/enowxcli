@@ -142,10 +142,13 @@ fn the_footer_says_which_agent_is_being_viewed() {
         .iter()
         .rev()
         .take(3)
-        .find(|r| r.contains("viewing"))
-        .expect("the footer should say so");
+        .find(|r| r.contains("Esc back"))
+        .expect("the footer should offer the way back");
     assert!(footer.contains("fe"), "and name the agent: {footer}");
-    assert!(footer.contains("Esc"), "and the way back: {footer}");
+    assert!(
+        footer.contains("sub-agent"),
+        "and say the transcript is not the conversation: {footer}"
+    );
 }
 
 /// Opening a second one must not lose the main conversation behind the first.
@@ -200,4 +203,106 @@ fn the_rows_are_clickable() {
         app.delegation_rows() > 0,
         "the delegation rows should be registered as clickable"
     );
+}
+
+/// The footer has to say whether the sub-agent is still working. A transcript
+/// on its own cannot: a branch that stopped halfway looks the same as one
+/// that finished.
+#[test]
+fn the_footer_says_whether_it_is_still_working() {
+    let mut app = TestApp::new();
+    let id = app.add_delegation("fe", "write it", &[("assistant", "some work")]);
+    app.open_delegation(0).expect("open it");
+    let footer = footer_of(&mut app);
+    assert!(footer.contains("working"), "still running: {footer}");
+
+    app.deliver_delegation_finished("fe", &id, false);
+    let footer = footer_of(&mut app);
+    assert!(footer.contains("finished"), "now done: {footer}");
+    assert!(
+        !footer.contains("working"),
+        "and no longer working: {footer}"
+    );
+}
+
+#[test]
+fn the_footer_says_when_it_failed() {
+    let mut app = TestApp::new();
+    let id = app.add_delegation("fe", "write it", &[("assistant", "some work")]);
+    app.deliver_delegation_finished("fe", &id, true);
+    app.open_delegation(0).expect("open it");
+    let footer = footer_of(&mut app);
+    assert!(
+        footer.contains("failed"),
+        "a failure should say so: {footer}"
+    );
+}
+
+/// A transcript frozen at the moment it was opened is what makes a working
+/// sub-agent look stopped.
+#[test]
+fn a_running_branch_keeps_up_with_the_sub_agent() {
+    let mut app = TestApp::new();
+    let id = app.add_delegation("fe", "write it", &[("assistant", "FIRST-STEP")]);
+    app.open_delegation(0).expect("open it");
+    assert!(
+        app.render_to_text(110, 30)
+            .join("\n")
+            .contains("FIRST-STEP"),
+        "the work so far"
+    );
+
+    // The sub-agent keeps working.
+    app.grow_branch(&id, &[("assistant", "SECOND-STEP")]);
+    app.expire_refresh_timer();
+    app.refresh_viewed_delegation();
+    assert!(
+        app.render_to_text(110, 30)
+            .join("\n")
+            .contains("SECOND-STEP"),
+        "what it did next should appear without reopening it"
+    );
+}
+
+/// A finished branch cannot change, so re-reading it is pure waste.
+#[test]
+fn a_finished_branch_is_not_re_read() {
+    let mut app = TestApp::new();
+    let id = app.add_delegation("fe", "write it", &[("assistant", "FIRST-STEP")]);
+    app.deliver_delegation_finished("fe", &id, false);
+    app.open_delegation(0).expect("open it");
+
+    // Something else writes to the file; a finished branch should not follow.
+    app.grow_branch(&id, &[("assistant", "LATE-WRITE")]);
+    app.expire_refresh_timer();
+    app.refresh_viewed_delegation();
+    assert!(
+        !app.render_to_text(110, 30)
+            .join("\n")
+            .contains("LATE-WRITE"),
+        "a finished branch should not be re-read"
+    );
+}
+
+/// The refresh must not run on every frame: a branch re-read at 25Hz is a
+/// file read per frame for as long as someone is watching.
+#[test]
+fn the_refresh_is_rate_limited() {
+    let mut app = TestApp::new();
+    let id = app.add_delegation("fe", "write it", &[("assistant", "FIRST-STEP")]);
+    app.open_delegation(0).expect("open it");
+    app.grow_branch(&id, &[("assistant", "SECOND-STEP")]);
+    // No timer expiry: the refresh should decline to run.
+    app.refresh_viewed_delegation();
+    assert!(
+        !app.render_to_text(110, 30)
+            .join("\n")
+            .contains("SECOND-STEP"),
+        "a refresh straight after opening should be skipped"
+    );
+}
+
+fn footer_of(app: &mut TestApp) -> String {
+    let rows = app.render_to_text(110, 30);
+    rows[rows.len() - 2].clone()
 }

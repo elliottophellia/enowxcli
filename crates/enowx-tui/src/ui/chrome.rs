@@ -135,6 +135,61 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
 
     // LEFT: spinner (busy only) + agent + model. Idle just shows agent + model.
     let mut left_spans: Vec<Span<'static>> = Vec::new();
+    // Viewing a branch replaces the footer rather than decorating it: the
+    // session marker belongs to the main conversation, which is not what is
+    // on screen, and leaving it there put two status dots side by side.
+    if let Some(viewing) = app.viewing.as_ref() {
+        // The transcript on screen is not the conversation, so the footer has
+        // to say so — otherwise a scrollback of someone else's tool calls
+        // looks like the main session having gone strange.
+        let state = app
+            .delegations
+            .get(viewing.index)
+            .map(|d| d.state)
+            .unwrap_or(crate::app::DelegationState::Finished);
+        let running = state == crate::app::DelegationState::Running;
+        let colour = match state {
+            crate::app::DelegationState::Running => t.yellow,
+            crate::app::DelegationState::Finished => t.green,
+            crate::app::DelegationState::Failed => t.red,
+        };
+        // A spinner rather than a still marker: "is it working" is the
+        // question someone watching a sub-agent has, and only movement
+        // answers it.
+        left_spans.push(Span::styled(
+            if running {
+                format!("{} ", app.spinner())
+            } else {
+                format!("{} ", state.marker())
+            },
+            Style::default().fg(colour),
+        ));
+        left_spans.push(Span::styled(
+            format!("{} ", viewing.agent),
+            Style::default()
+                .fg(t.accent)
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        ));
+        left_spans.push(Span::styled(
+            match state {
+                crate::app::DelegationState::Running => "working",
+                crate::app::DelegationState::Finished => "finished",
+                crate::app::DelegationState::Failed => "failed",
+            },
+            Style::default().fg(colour),
+        ));
+        left_spans.push(Span::styled(" · Esc back", Style::default().fg(t.muted)));
+        let right = Line::from(vec![Span::styled(
+            if running {
+                "sub-agent · live".to_string()
+            } else {
+                "sub-agent transcript".to_string()
+            },
+            Style::default().fg(t.muted),
+        )]);
+        draw_split_line(frame, Line::from(left_spans), right, area);
+        return;
+    }
     if app.busy {
         left_spans.push(Span::styled(
             format!("{} ", app.spinner()),
@@ -149,24 +204,6 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
                 t.green
             }),
         ));
-    }
-    if let Some(viewing) = app.viewing.as_ref() {
-        // The transcript on screen is not the conversation, so the footer has
-        // to say so — otherwise a scrollback of someone else's tool calls
-        // looks like the main session having gone strange.
-        left_spans.push(Span::styled(
-            format!("viewing {} ", viewing.agent),
-            Style::default()
-                .fg(t.yellow)
-                .add_modifier(ratatui::style::Modifier::BOLD),
-        ));
-        left_spans.push(Span::styled("· Esc back", Style::default().fg(t.muted)));
-        let right = Line::from(vec![Span::styled(
-            "sub-agent transcript".to_string(),
-            Style::default().fg(t.muted),
-        )]);
-        draw_split_line(frame, Line::from(left_spans), right, area);
-        return;
     }
     left_spans.push(Span::styled(
         app.active_agent().to_owned(),

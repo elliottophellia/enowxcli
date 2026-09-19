@@ -77,6 +77,7 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
         app.drain_events();
         app.drain_model_events();
         app.drain_typesafe_check();
+        app.refresh_viewed_delegation();
         terminal.draw(|frame| draw(frame, &mut app))?;
         if event::poll(Duration::from_millis(40))? {
             match event::read()? {

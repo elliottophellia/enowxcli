@@ -37,7 +37,8 @@ pub(super) fn draw_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
         horizontal: 2,
         vertical: 1,
     });
-    let lines = sidebar_lines(app, body.width as usize);
+    app.delegation_rects.clear();
+    let (lines, delegation_markers) = sidebar_lines(app, body.width as usize);
     let page_size = body.height.max(1) as usize;
     app.sidebar_pages = lines.len().div_ceil(page_size).max(1);
     app.sidebar_page = app.sidebar_page.min(app.sidebar_pages - 1);
@@ -51,6 +52,24 @@ pub(super) fn draw_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
         ),
         body,
     );
+
+    // Markers are line indices into the whole tab; only the page on screen
+    // can be clicked, so the rest are dropped rather than mapped to rows the
+    // user cannot see. Two rows each: the name and the task under it.
+    let first = app.sidebar_page * page_size;
+    for (line, index) in delegation_markers {
+        for offset in 0..2 {
+            let line = line + offset;
+            if line < first || line >= first + page_size {
+                continue;
+            }
+            let y = body.y + (line - first) as u16;
+            if y < body.bottom() {
+                app.delegation_rects
+                    .push((Rect::new(body.x, y, body.width, 1), index));
+            }
+        }
+    }
 
     app.sidebar_pages_area = Some(rows[2]);
     // Only paging lives here; global shortcuts already sit in the window footer.
@@ -243,7 +262,8 @@ fn gauge(percent: f64, width: usize, theme: &Theme) -> Line<'static> {
     ])
 }
 
-fn sidebar_lines(app: &App, width: usize) -> Vec<Line<'static>> {
+fn sidebar_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usize)>) {
+    let mut delegation_markers: Vec<(usize, usize)> = Vec::new();
     let t = &app.theme;
     let mut lines: Vec<Line<'static>> = Vec::new();
     let calls: usize = app.tool_counts.values().sum();
@@ -481,6 +501,43 @@ fn sidebar_lines(app: &App, width: usize) -> Vec<Line<'static>> {
                 row(&mut lines, &label, scope, width, t);
             }
 
+            // Delegations first: a sixteen-agent roster is reference
+            // material, while a sub-agent that is running right now is the
+            // thing someone opens this tab to look at.
+            heading(&mut lines, "DELEGATED", width, t);
+            if app.delegations.is_empty() {
+                row(&mut lines, "", "none this session", width, t);
+            } else {
+                for (index, delegation) in app.delegations.iter().enumerate() {
+                    delegation_markers.push((lines.len(), index));
+                    let colour = match delegation.state {
+                        crate::app::DelegationState::Running => t.yellow,
+                        crate::app::DelegationState::Finished => t.green,
+                        crate::app::DelegationState::Failed => t.red,
+                    };
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            format!("{} ", delegation.state.marker()),
+                            Style::default().fg(colour),
+                        ),
+                        Span::styled(
+                            trim(&delegation.agent, width.saturating_sub(4).max(1)),
+                            Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+                        ),
+                    ]));
+                    // The task says which delegation this is when the same
+                    // agent has been used more than once.
+                    lines.push(Line::styled(
+                        format!(
+                            "  {}",
+                            trim(&delegation.task, width.saturating_sub(2).max(1))
+                        ),
+                        Style::default().fg(t.faint),
+                    ));
+                }
+                row(&mut lines, "", "click to open · Esc back", width, t);
+            }
+
             heading(&mut lines, "ROSTER", width, t);
             let roster = &app.discovery.agents;
             row(&mut lines, "Agents", &roster.len().to_string(), width, t);
@@ -548,5 +605,5 @@ fn sidebar_lines(app: &App, width: usize) -> Vec<Line<'static>> {
             row(&mut lines, "Shell", "host, no sandbox", width, t);
         }
     }
-    lines
+    (lines, delegation_markers)
 }

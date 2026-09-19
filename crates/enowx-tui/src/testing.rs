@@ -888,3 +888,71 @@ impl TestApp {
         self.inner.trimmed_saved
     }
 }
+
+impl TestApp {
+    pub fn deliver_delegation_started(&mut self, agent: &str, task: &str, session_id: &str) {
+        self.inner
+            .apply_event(enowx_core::Event::DelegationStarted {
+                agent: agent.to_owned(),
+                task: task.to_owned(),
+                session_id: session_id.to_owned(),
+            });
+    }
+
+    pub fn deliver_delegation_finished(&mut self, agent: &str, session_id: &str, failed: bool) {
+        self.inner
+            .apply_event(enowx_core::Event::DelegationFinished {
+                agent: agent.to_owned(),
+                summary: "did the work".to_owned(),
+                session_id: session_id.to_owned(),
+                failed,
+            });
+    }
+
+    pub fn delegation_rows(&self) -> usize {
+        self.inner.delegation_rects.len()
+    }
+
+    pub fn viewing_agent(&self) -> Option<String> {
+        self.inner.viewing.as_ref().map(|v| v.agent.clone())
+    }
+
+    /// Open the nth delegation as a click would.
+    pub fn open_delegation(&mut self, index: usize) -> anyhow::Result<()> {
+        self.inner.view_delegation(index)
+    }
+}
+
+impl TestApp {
+    /// Write a branch session to the store as a real delegation would, and
+    /// register it, so a test can open it.
+    pub fn add_delegation(&mut self, agent: &str, task: &str, turns: &[(&str, &str)]) -> String {
+        use enowx_core::message::Message;
+        use enowx_core::Session;
+
+        let mut branch = Session::new(self.inner.role);
+        branch.workspace = std::fs::canonicalize(self.inner.config.workspace())
+            .unwrap_or_else(|_| self.inner.config.workspace());
+        branch.agent = agent.to_owned();
+        for (role, text) in turns {
+            branch.push(match *role {
+                "user" => Message::user(*text),
+                "assistant" => Message::assistant(*text),
+                other => panic!("unsupported role {other}"),
+            });
+        }
+        self.inner.store.save(&branch).expect("save the branch");
+        let id = branch.id.clone();
+        self.deliver_delegation_started(agent, task, &id);
+        id
+    }
+}
+
+impl TestApp {
+    /// The guard `start_turn` runs before it spawns: leave a branch first.
+    pub fn leave_viewing_as_send_would(&mut self) {
+        if self.inner.viewing.is_some() {
+            self.inner.leave_delegation();
+        }
+    }
+}

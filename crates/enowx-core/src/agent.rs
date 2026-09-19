@@ -357,9 +357,18 @@ impl Agent {
             role: parent.role,
             attachments: Vec::new(),
         };
+        let _ = events
+            .send(Event::DelegationStarted {
+                agent: delegation.to.clone(),
+                task: delegation.task.clone(),
+                session_id: branch.id.clone(),
+            })
+            .await;
+
         // The sub-agent's own events are not forwarded: the caller sees a
         // summary, and interleaving two agents' tool calls in one transcript
-        // is unreadable. The branch session holds the detail.
+        // is unreadable. The branch session holds the detail, and the id
+        // above is how the interface reaches it.
         let (sink, mut drain) = mpsc::channel::<Event>(64);
         tokio::spawn(async move { while drain.recv().await.is_some() {} });
 
@@ -389,10 +398,13 @@ impl Agent {
                 }
             }
         };
+        let failed = summary.starts_with("failed") || summary.starts_with("PARTIAL FAILURE");
         let _ = events
             .send(Event::DelegationFinished {
                 agent: delegation.to.clone(),
                 summary: summary.clone(),
+                session_id: branch.id.clone(),
+                failed,
             })
             .await;
         summary

@@ -142,6 +142,15 @@ impl App {
                         .copied()
                         .unwrap_or(self.show_tool_output);
                     self.tool_expanded.insert(id, !current);
+                } else if let Some(index) = self
+                    .delegation_rects
+                    .iter()
+                    .find(|(rect, _)| rect.contains(position))
+                    .map(|(_, index)| *index)
+                {
+                    if let Err(error) = self.view_delegation(index) {
+                        self.status = format!("could not open it: {error:#}");
+                    }
                 } else if let Some((_, index)) = self
                     .sidebar_tabs
                     .iter()

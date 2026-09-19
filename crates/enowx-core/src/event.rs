@@ -71,10 +71,23 @@ pub enum Event {
         to: String,
         reason: String,
     },
+    /// A sub-agent started. Carries the branch session id so the interface
+    /// can offer to open its transcript while it is still running — a
+    /// delegation that only reports when it finishes is indistinguishable
+    /// from one that has hung.
+    DelegationStarted {
+        agent: String,
+        task: String,
+        session_id: String,
+    },
     /// A sub-agent finished; its transcript lives in its own branch session.
     DelegationFinished {
         agent: String,
         summary: String,
+        /// The branch holding what it actually did.
+        session_id: String,
+        /// Whether it ended in failure, so the list can show which.
+        failed: bool,
     },
     /// A transient upstream failure that is being retried. Separate from
     /// `Notice` because the UI collapses these into one line — a backoff

@@ -68,11 +68,19 @@ impl App {
         self.switch_markers.clear();
         self.events = None;
         self.auto_scroll = true;
+        self.replay_into_blocks(&session);
+        self.status = format!("resumed {}", &session.id[..8]);
+        Ok(())
+    }
+
+    /// Turn a stored session into transcript blocks. Shared by `resume` and
+    /// by viewing a delegation, so the two cannot drift apart.
+    pub(crate) fn replay_into_blocks(&mut self, session: &enowx_core::Session) {
+        let mut tool_blocks: HashMap<String, usize> = HashMap::new();
         // A switch names the turn it happened at, but a turn expands into
         // several blocks, so the marker is pinned to the first block a turn
         // produces as the replay reaches it.
         let mut switches = session.switches.iter().peekable();
-        let mut tool_blocks: HashMap<String, usize> = HashMap::new();
         for (turn_index, turn) in session.turns.iter().enumerate() {
             while switches
                 .peek()
@@ -159,7 +167,55 @@ impl App {
             self.switch_markers
                 .push((self.blocks.len(), switch.clone()));
         }
-        self.status = format!("resumed {}", &session.id[..8]);
+    }
+}
+
+impl App {
+    /// Open a delegation's branch session read-only.
+    ///
+    /// A sub-agent's work is real work — files written, commands run — and
+    /// reporting only a one-line summary for it leaves the user with no way
+    /// to check any of it. The branch is already on disk; this is the way in.
+    ///
+    /// Deliberately not `resume`: that adopts the session as the one being
+    /// worked in. This keeps the main conversation as the live one and puts
+    /// its blocks aside to restore on the way back.
+    pub(crate) fn view_delegation(&mut self, index: usize) -> Result<()> {
+        let Some(delegation) = self.delegations.get(index).cloned() else {
+            return Ok(());
+        };
+        if self.viewing.is_some() {
+            // Already looking at one: go back first so the saved main
+            // conversation is never overwritten by another branch.
+            self.leave_delegation();
+        }
+        let branch = self.store.load(&delegation.session_id)?;
+        let saved = crate::app::Viewing {
+            blocks: std::mem::take(&mut self.blocks),
+            scroll: self.scroll,
+            auto_scroll: self.auto_scroll,
+            agent: delegation.agent.clone(),
+        };
+        self.render_cache.clear();
+        self.switch_markers.clear();
+        self.replay_into_blocks(&branch);
+        self.viewing = Some(saved);
+        self.auto_scroll = true;
+        self.scroll = 0;
+        self.status = format!("viewing {} · Esc to go back", delegation.agent);
         Ok(())
+    }
+
+    /// Put the main conversation back.
+    pub(crate) fn leave_delegation(&mut self) {
+        let Some(saved) = self.viewing.take() else {
+            return;
+        };
+        self.blocks = saved.blocks;
+        self.scroll = saved.scroll;
+        self.auto_scroll = saved.auto_scroll;
+        self.render_cache.clear();
+        self.switch_markers.clear();
+        self.status = format!("back from {}", saved.agent);
     }
 }

@@ -25,6 +25,42 @@ mod sessions;
 mod settings_keys;
 mod skills;
 
+/// One sub-agent run, as the sidebar shows it.
+#[derive(Clone)]
+pub(crate) struct Delegation {
+    pub(crate) agent: String,
+    pub(crate) task: String,
+    pub(crate) session_id: String,
+    pub(crate) state: DelegationState,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DelegationState {
+    Running,
+    Finished,
+    Failed,
+}
+
+impl DelegationState {
+    pub(crate) fn marker(self) -> &'static str {
+        match self {
+            DelegationState::Running => "◆",
+            DelegationState::Finished => "✓",
+            DelegationState::Failed => "✗",
+        }
+    }
+}
+
+/// What the main conversation looked like before a branch was opened, so
+/// going back restores it rather than reloading and losing the scroll.
+pub(crate) struct Viewing {
+    pub(crate) blocks: Vec<crate::session::TranscriptBlock>,
+    pub(crate) scroll: u16,
+    pub(crate) auto_scroll: bool,
+    /// The agent whose branch is on screen.
+    pub(crate) agent: String,
+}
+
 pub(crate) struct App {
     pub(crate) agent: Arc<Agent>,
     pub(crate) config: Config,
@@ -52,6 +88,14 @@ pub(crate) struct App {
     /// How many tool results TypeSafe has trimmed this session, and how many
     /// characters that saved. Shown in the sidebar so a feature that removes
     /// text from the model's context can be seen doing it.
+    /// Delegations this session has started, newest last. The sidebar lists
+    /// them and a click opens the branch they ran in.
+    pub(crate) delegations: Vec<Delegation>,
+    /// Set while viewing a branch: what to restore on the way back.
+    pub(crate) viewing: Option<Viewing>,
+    /// On-screen rows of the delegation list, so a click finds which one was
+    /// hit. Rebuilt each frame from the line indices the sidebar returns.
+    pub(crate) delegation_rects: Vec<(Rect, usize)>,
     pub(crate) trimmed_count: usize,
     pub(crate) trimmed_saved: usize,
     /// Result of the last TypeSafe key check, awaited off the UI thread.
@@ -209,6 +253,9 @@ impl App {
             switch_markers: Vec::new(),
             busy: false,
             abandoned: 0,
+            delegations: Vec::new(),
+            viewing: None,
+            delegation_rects: Vec::new(),
             trimmed_count: 0,
             trimmed_saved: 0,
             typesafe_check: None,

@@ -150,6 +150,24 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             }),
         ));
     }
+    if let Some(viewing) = app.viewing.as_ref() {
+        // The transcript on screen is not the conversation, so the footer has
+        // to say so — otherwise a scrollback of someone else's tool calls
+        // looks like the main session having gone strange.
+        left_spans.push(Span::styled(
+            format!("viewing {} ", viewing.agent),
+            Style::default()
+                .fg(t.yellow)
+                .add_modifier(ratatui::style::Modifier::BOLD),
+        ));
+        left_spans.push(Span::styled("· Esc back", Style::default().fg(t.muted)));
+        let right = Line::from(vec![Span::styled(
+            "sub-agent transcript".to_string(),
+            Style::default().fg(t.muted),
+        )]);
+        draw_split_line(frame, Line::from(left_spans), right, area);
+        return;
+    }
     left_spans.push(Span::styled(
         app.active_agent().to_owned(),
         Style::default()

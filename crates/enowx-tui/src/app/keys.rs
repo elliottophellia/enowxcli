@@ -455,6 +455,13 @@ impl App {
                 self.scroll = self.scroll.saturating_add(10).min(self.max_scroll);
                 self.auto_scroll = self.scroll == self.max_scroll;
             }
+            KeyCode::Esc if self.viewing.is_some() => {
+                // Looking at a sub-agent's transcript: the way back comes
+                // before both other meanings of the key. Neither stopping a
+                // turn nor clearing the composer is what someone reaching for
+                // Esc here wants.
+                self.leave_delegation();
+            }
             KeyCode::Esc => {
                 // While a turn runs, Esc stops it. Clearing the composer is
                 // the idle meaning of the key, and discarding a draft is the

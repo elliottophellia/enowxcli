@@ -6,6 +6,12 @@ impl App {
             self.status = "Still working; Ctrl+C interrupts".into();
             return;
         }
+        // A sub-agent's transcript is a record, not a conversation to join:
+        // its session is finished and the reply would land somewhere the user
+        // is not looking. Go back first, then send.
+        if self.viewing.is_some() {
+            self.leave_delegation();
+        }
         // Attachments already live as inline `[Image N]` chips inside the
         // prompt; the transcript replays the same string, and the payload sent
         // to the provider strips the chips so only real prose reaches the model.
@@ -212,11 +218,44 @@ impl App {
                 ));
                 self.agent_name = to;
             }
-            Event::DelegationFinished { agent, summary } => {
+            Event::DelegationStarted {
+                agent,
+                task,
+                session_id,
+            } => {
+                self.push(TranscriptKind::Notice, format!("{agent} started\n{task}"));
+                self.delegations.push(crate::app::Delegation {
+                    agent,
+                    task,
+                    session_id,
+                    state: crate::app::DelegationState::Running,
+                });
+                self.select_tab(3);
+            }
+            Event::DelegationFinished {
+                agent,
+                summary,
+                session_id,
+                failed,
+            } => {
                 self.push(
                     TranscriptKind::Notice,
                     format!("{agent} finished\n{summary}"),
                 );
+                // Match on the branch id: the same agent can be delegated to
+                // more than once in a session, and marking the first one
+                // finished would leave a later run showing as done.
+                if let Some(entry) = self
+                    .delegations
+                    .iter_mut()
+                    .find(|d| d.session_id == session_id)
+                {
+                    entry.state = if failed {
+                        crate::app::DelegationState::Failed
+                    } else {
+                        crate::app::DelegationState::Finished
+                    };
+                }
             }
             Event::Retry {
                 message,

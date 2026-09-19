@@ -240,6 +240,18 @@ impl App {
                     self.context_window = context_window;
                 }
             }
+            Event::Trimmed { tool, was, now } => {
+                self.trimmed_count += 1;
+                self.trimmed_saved += was.saturating_sub(now);
+                // Not pushed to the transcript: this happens often enough
+                // that a line each time would bury the conversation. The
+                // sidebar carries the running total instead.
+                self.status = format!(
+                    "trimmed {tool} result: {} → {} chars",
+                    crate::text::thousands(was as u64),
+                    crate::text::thousands(now as u64),
+                );
+            }
             Event::Error { message } => {
                 self.push(TranscriptKind::Error, message);
                 self.busy = false;

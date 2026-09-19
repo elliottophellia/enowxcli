@@ -773,7 +773,15 @@ impl Agent {
                         .await,
                         crate::gating::Keep::Trimmed
                     ) {
-                    crate::gating::trim(&output.content)
+                    let trimmed = crate::gating::trim(&output.content);
+                    let _ = events
+                        .send(Event::Trimmed {
+                            tool: call.name.clone(),
+                            was: output.content.len(),
+                            now: trimmed.len(),
+                        })
+                        .await;
+                    trimmed
                 } else {
                     output.content.clone()
                 };

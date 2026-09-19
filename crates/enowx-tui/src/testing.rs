@@ -870,3 +870,21 @@ impl TestApp {
         self.inner.modal = Modal::McpForm;
     }
 }
+
+impl TestApp {
+    pub fn deliver_trimmed(&mut self, tool: &str, was: usize, now: usize) {
+        self.inner.apply_event(enowx_core::Event::Trimmed {
+            tool: tool.to_owned(),
+            was,
+            now,
+        });
+    }
+
+    pub fn trimmed_count(&self) -> usize {
+        self.inner.trimmed_count
+    }
+
+    pub fn trimmed_saved(&self) -> usize {
+        self.inner.trimmed_saved
+    }
+}

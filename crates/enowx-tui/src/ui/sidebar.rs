@@ -302,6 +302,21 @@ fn sidebar_lines(app: &App, width: usize) -> Vec<Line<'static>> {
                 t,
             );
             row(&mut lines, "State", app.activity.label(), width, t);
+            // Only once it has done something: a row reading "0" on every
+            // install that has never configured TypeSafe is noise.
+            if app.trimmed_count > 0 {
+                row(
+                    &mut lines,
+                    "Trimmed",
+                    &format!(
+                        "{} · {} saved",
+                        app.trimmed_count,
+                        crate::text::thousands(app.trimmed_saved as u64)
+                    ),
+                    width,
+                    t,
+                );
+            }
 
             heading(&mut lines, "COST", width, t);
             let cost = crate::pricing::cost_usd(&app.config, app.tokens_in, app.tokens_out, 0);

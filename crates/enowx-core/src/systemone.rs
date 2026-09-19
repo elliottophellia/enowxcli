@@ -98,6 +98,47 @@ impl SystemOne {
     }
 }
 
+impl SystemOne {
+    /// Ask the smallest real question there is, to find out whether the key
+    /// works. Returns the error rather than `None`: someone checking a key
+    /// needs to know whether it was rejected or simply unreachable.
+    pub async fn check(&self) -> Result<(), String> {
+        let body = json!({
+            "model": self.config.model,
+            "state": "ping",
+            "questions": {
+                "ok": { "type": "noul", "instructions": "Is this a test?" }
+            },
+        });
+        let response = self
+            .client
+            .post(&self.config.base_url)
+            .bearer_auth(&self.config.api_key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|error| {
+                if error.is_timeout() {
+                    format!("no answer within {}ms", self.config.timeout_ms)
+                } else {
+                    format!("could not reach {}", self.config.base_url)
+                }
+            })?;
+        let status = response.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            return Err("the key was rejected".into());
+        }
+        if !status.is_success() {
+            return Err(format!("the service answered {status}"));
+        }
+        response
+            .json::<Response>()
+            .await
+            .map(|_| ())
+            .map_err(|_| "the answer could not be read".into())
+    }
+}
+
 /// The answers to one request, looked up by the ids the caller chose.
 pub struct Judgements {
     answers: std::collections::BTreeMap<String, Answer>,

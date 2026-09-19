@@ -351,8 +351,24 @@ impl Agent {
         if let Err(error) = self.store.save(&branch) {
             return format!("could not start the delegation: {error:#}");
         }
+        // Say that a report is owed, and what it has to contain. Without
+        // this the sub-agent simply stops when it runs out of work, and the
+        // caller is handed whatever it happened to say last — in practice a
+        // line of narration mid-task ("Now rewriting main.js"), or a question
+        // the caller cannot answer.
         let request = RunRequest {
-            prompt: delegation.task.clone(),
+            prompt: format!(
+                "{}\n\n---\nYou are working on behalf of another agent, which \
+                 cannot see anything you do — only your final message. It cannot \
+                 answer questions: decide, and say what you decided.\n\n\
+                 End with a report, and nothing after it:\n\
+                 DONE: what you achieved, or what you could not\n\
+                 CHANGED: every file you created or edited, or `none`\n\
+                 VERIFIED: what you ran to check it, and the result, or \
+                 `not verified`\n\
+                 NEXT: what the caller must know to carry on, or `nothing`",
+                delegation.task
+            ),
             session_id: Some(branch.id.clone()),
             role: parent.role,
             attachments: Vec::new(),
@@ -906,16 +922,57 @@ fn persist_interrupted(
 ///
 /// The specialist has the whole context, so its closing message is the
 /// summary — no extra model call is needed to produce one.
+/// What the caller is told a delegation did.
+///
+/// The sub-agent is asked for a structured report, and usually gives one.
+/// When it does not — it ran out of steps, or stopped mid-sentence — its last
+/// message is narration rather than a result ("Now rewriting main.js"), and
+/// passing that up tells the caller nothing true. So a report is assembled
+/// from what the branch actually did instead.
 fn branch_summary(branch: &Session) -> String {
-    branch
+    let last = branch
         .turns
         .iter()
         .rev()
         .find(|t| {
             matches!(t.message.role, MessageRole::Assistant) && !t.message.content.trim().is_empty()
         })
-        .map(|t| t.message.content.trim().to_owned())
-        .unwrap_or_else(|| "finished without a report".to_owned())
+        .map(|t| t.message.content.trim().to_owned());
+
+    if let Some(report) = last.as_deref().and_then(extract_report) {
+        return report.to_owned();
+    }
+
+    // No report. Say so plainly and give the facts, rather than passing off a
+    // mid-task sentence as a result.
+    let touched = files_touched(branch);
+    let mut out = String::from("NO REPORT — the sub-agent stopped without one.");
+    out.push_str(&format!(
+        "\nCHANGED: {}",
+        if touched.is_empty() {
+            "none".to_owned()
+        } else {
+            touched.join(", ")
+        }
+    ));
+    if let Some(said) = last {
+        // Its last words are still evidence of where it got to, as long as
+        // they are not presented as a conclusion.
+        let said: String = said.chars().take(400).collect();
+        out.push_str(&format!("\nLAST SAID: {said}"));
+    }
+    out
+}
+
+/// The report block from a sub-agent's final message, if it wrote one.
+///
+/// Taken from `DONE:` onwards so any reasoning before it is dropped — the
+/// caller asked for a result, not a transcript.
+fn extract_report(text: &str) -> Option<&str> {
+    let start = text.find("DONE:")?;
+    let report = text[start..].trim();
+    // A bare "DONE:" with nothing under it is not a report.
+    report.len().gt(&6).then_some(report)
 }
 
 /// Files a branch changed, read from its tool calls.
@@ -940,4 +997,128 @@ fn files_touched(branch: &Session) -> Vec<String> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod report_tests {
+    use super::*;
+    use crate::message::ToolCall;
+
+    fn branch_with(messages: &[Message]) -> Session {
+        let mut branch = Session::new(crate::Role::Orchestrator);
+        for message in messages {
+            branch.push(message.clone());
+        }
+        branch
+    }
+
+    fn wrote(path: &str) -> Message {
+        let mut message = Message::assistant("");
+        message.tool_calls = vec![ToolCall {
+            id: "c1".into(),
+            name: "write".into(),
+            arguments: format!(r#"{{"path":"{path}"}}"#),
+        }];
+        message
+    }
+
+    #[test]
+    fn a_report_is_passed_up() {
+        let branch = branch_with(&[Message::assistant(
+            "Some reasoning first.\n\nDONE: built the page\nCHANGED: index.html\n\
+             VERIFIED: opened it, renders\nNEXT: nothing",
+        )]);
+        let summary = branch_summary(&branch);
+        assert!(
+            summary.starts_with("DONE:"),
+            "reasoning is dropped: {summary}"
+        );
+        assert!(summary.contains("index.html"));
+        assert!(
+            !summary.contains("Some reasoning first"),
+            "the caller asked for a result, not a transcript: {summary}"
+        );
+    }
+
+    /// The bug this exists for. A sub-agent that stops mid-task leaves a line
+    /// of narration, and passing it up as a summary tells the caller
+    /// something that is not true: "Now rewriting main.js" reads as a result
+    /// while nothing was finished.
+    #[test]
+    fn narration_is_not_passed_off_as_a_result() {
+        let branch = branch_with(&[
+            wrote("js/main.js"),
+            Message::assistant("Now rewriting `js/main.js` with the corrected logic."),
+        ]);
+        let summary = branch_summary(&branch);
+        assert!(
+            summary.starts_with("NO REPORT"),
+            "the caller must be told there was no report: {summary}"
+        );
+        assert!(
+            summary.contains("js/main.js"),
+            "and given what actually changed: {summary}"
+        );
+        assert!(
+            summary.contains("LAST SAID"),
+            "with its last words marked as such, not as a conclusion: {summary}"
+        );
+    }
+
+    /// A sub-agent asking a question is the worst case: the caller cannot
+    /// answer, and would otherwise pass it to the user as if it were work.
+    #[test]
+    fn a_question_is_not_a_report() {
+        let branch = branch_with(&[Message::assistant(
+            "Before I start I need 2 answers:\n1. Which mode?\n2. Which direction?",
+        )]);
+        let summary = branch_summary(&branch);
+        assert!(summary.starts_with("NO REPORT"), "got: {summary}");
+    }
+
+    #[test]
+    fn files_are_reported_when_there_is_no_report() {
+        let branch = branch_with(&[wrote("a.html"), wrote("b.css")]);
+        let summary = branch_summary(&branch);
+        assert!(summary.contains("a.html"), "{summary}");
+        assert!(summary.contains("b.css"), "{summary}");
+    }
+
+    #[test]
+    fn changing_nothing_says_so() {
+        let branch = branch_with(&[Message::assistant("I had a look around.")]);
+        let summary = branch_summary(&branch);
+        assert!(summary.contains("CHANGED: none"), "{summary}");
+    }
+
+    /// An empty branch still has to produce something the caller can read.
+    #[test]
+    fn an_empty_branch_still_reports() {
+        let branch = branch_with(&[]);
+        let summary = branch_summary(&branch);
+        assert!(summary.starts_with("NO REPORT"), "{summary}");
+        assert!(summary.contains("CHANGED: none"), "{summary}");
+    }
+
+    /// A bare marker with nothing under it is not a report.
+    #[test]
+    fn an_empty_report_block_does_not_count() {
+        let branch = branch_with(&[Message::assistant("DONE:")]);
+        let summary = branch_summary(&branch);
+        assert!(summary.starts_with("NO REPORT"), "{summary}");
+    }
+
+    /// The last words are evidence, not a conclusion, so they are capped —
+    /// a sub-agent that ended mid-essay must not paste it into the caller's
+    /// context.
+    #[test]
+    fn the_last_words_are_capped() {
+        let branch = branch_with(&[Message::assistant("x".repeat(5_000))]);
+        let summary = branch_summary(&branch);
+        assert!(
+            summary.len() < 600,
+            "a failed delegation should not cost 5k characters: {}",
+            summary.len()
+        );
+    }
 }

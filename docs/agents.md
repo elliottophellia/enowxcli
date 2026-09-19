@@ -428,6 +428,46 @@ reintroduces exactly the conflict the declaration ruled out.
 A refused write does not kill the delegation. The specialist keeps running and
 can ask for a wider contract; only the one call fails.
 
+## A delegation owes a report
+
+The caller sees nothing a sub-agent does — its events are dropped on purpose,
+because interleaving two agents' tool calls in one transcript is unreadable.
+So its final message is the entire interface between them, and everything the
+caller decides next rests on it.
+
+Left to itself that message is whatever the sub-agent happened to say when it
+ran out of work. Real ones, from sessions in this repo:
+
+```
+[delegation to `fe` finished]
+Now rewriting `js/main.js` with the corrected logic.
+
+[delegation to `review` finished]
+Let me check the touch-target claim rigorously — …
+```
+
+Both are narration from the middle of a task, passed up as results. A third
+sent the caller a question it had no way to answer.
+
+So the task carries the shape of the report with it:
+
+```
+DONE:     what you achieved, or what you could not
+CHANGED:  every file you created or edited, or `none`
+VERIFIED: what you ran to check it, and the result, or `not verified`
+NEXT:     what the caller must know to carry on, or `nothing`
+```
+
+And when a sub-agent does not write one — it ran out of steps, or stopped
+mid-sentence — the report is assembled from what the branch actually did,
+opening with `NO REPORT` so the caller cannot mistake it for a result. The
+files come from the tool calls rather than the prose, so the list is what
+happened rather than what the model said happened.
+
+`VERIFIED` is the line that matters most. A sub-agent's report is a claim; a
+caller that treats "built the page" as "the page works" is building on
+something nobody checked.
+
 ## Handoff carries a summary, not the raw history
 
 A handoff keeps the session, so the obvious question is whether the previous

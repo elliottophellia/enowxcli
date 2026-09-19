@@ -178,12 +178,19 @@ fn a_user_message_is_marked_not_boxed() {
         .find(|row| row.contains("one line"))
         .expect("the message");
     assert!(message.contains('▌'), "marked with a bar: {message}");
-    // The window's own frame draws those corners on its first and last rows;
-    // what must be gone is a box inside the chat pane, around the message.
-    let boxed = rows[4..rows.len() - 1]
+    // The composer is boxed on purpose, and the window has its own frame, so
+    // look only at the rows the message itself occupies.
+    let at = rows
         .iter()
-        .any(|row| row.contains("╭─") || row.contains("╰─"));
-    assert!(!boxed, "and not boxed: {rows:#?}");
+        .position(|row| row.contains("one line"))
+        .expect("the message");
+    let around = &rows[at - 1..=at + 1];
+    assert!(
+        !around
+            .iter()
+            .any(|row| row.contains("╭─") || row.contains("╰─")),
+        "the message should not be boxed: {around:#?}"
+    );
 }
 
 /// The point of all of it: more of the window is the conversation. A boxed
@@ -203,4 +210,52 @@ fn a_short_message_costs_one_row() {
         .count();
     assert_eq!(one, 1, "one line of text, one row");
     assert_eq!(two, 2, "and a second message adds exactly one more");
+}
+
+/// The composer is a field, and a border says so where a rule only said
+/// "something changes here".
+#[test]
+fn the_composer_is_a_box() {
+    let mut app = TestApp::new();
+    app.type_input("hello");
+    let rows = screen(&mut app);
+    let at = rows
+        .iter()
+        .position(|row| row.contains("hello"))
+        .expect("the input");
+    assert!(
+        rows[at - 1].contains("╭─"),
+        "a top edge above it: {}",
+        rows[at - 1]
+    );
+    assert!(
+        rows[at + 1].contains("╰─"),
+        "and a bottom edge below: {}",
+        rows[at + 1]
+    );
+    assert!(
+        rows[at].contains('❯'),
+        "with the marker inside: {}",
+        rows[at]
+    );
+}
+
+/// A command is not a message, and the box says which before Enter decides.
+#[test]
+fn the_box_grows_with_a_multi_line_message() {
+    let mut app = TestApp::new();
+    app.type_input("one\ntwo\nthree");
+    let rows = screen(&mut app);
+    let first = rows
+        .iter()
+        .position(|row| row.contains("one"))
+        .expect("the first line");
+    assert!(rows[first - 1].contains("╭─"), "top above the first line");
+    assert!(rows[first + 1].contains("two"), "the second line inside");
+    assert!(rows[first + 2].contains("three"), "and the third");
+    assert!(
+        rows[first + 3].contains("╰─"),
+        "with the bottom below them: {}",
+        rows[first + 3]
+    );
 }

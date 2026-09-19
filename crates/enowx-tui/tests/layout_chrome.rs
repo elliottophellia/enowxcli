@@ -82,12 +82,22 @@ fn a_narrow_terminal_draws_no_divider() {
     app.push_assistant("content");
     // Below the sidebar's width threshold.
     let rows = app.render_to_text(70, H);
+    // Counting `│` no longer distinguishes a divider from the composer's own
+    // box, so look for what a divider actually is: the same column carrying
+    // one on row after row, which a two-row box cannot produce.
+    let mut runs: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
     for row in &rows {
-        assert!(
-            row.matches('│').count() <= 2,
-            "a narrow layout should have only the frame: {row:?}"
-        );
+        for (column, _) in row.char_indices().filter(|(_, c)| *c == '│') {
+            *runs.entry(column).or_default() += 1;
+        }
     }
+    // The window frame's own two columns are expected to run the full height.
+    let tall: Vec<(usize, usize)> = runs.into_iter().filter(|(_, count)| *count > 4).collect();
+    assert_eq!(
+        tall.len(),
+        2,
+        "only the window frame should run the height: {tall:?}"
+    );
 }
 
 /// The footer belongs to the chat pane. Running it the full width put a
@@ -192,17 +202,25 @@ fn the_composer_keeps_a_gap_above_the_footer() {
             text < footer,
             "input at {text} should sit above the footer at {footer}"
         );
+        // The composer is a box: its lower edge, then a blank row, then the
+        // status bar. A border resting directly on the bar reads as part of
+        // it rather than as the edge of the field.
         assert_eq!(
             footer - text,
-            2,
-            "exactly one blank row belongs between the last input line ({:?}) \
-             and the footer ({:?})",
+            3,
+            "the box's lower edge and one blank row belong between the last \
+             input line ({:?}) and the footer ({:?})",
             rendered[text],
             rendered[footer]
         );
+        assert!(
+            rendered[text + 1].contains("╰─"),
+            "the box closes first: {:?}",
+            rendered[text + 1]
+        );
         // Only the composer's own column: the sidebar beside it has its own
         // content on that row and is not what this is about.
-        let gap = &rendered[text + 1];
+        let gap = &rendered[text + 2];
         let composer = gap.split('│').nth(1).expect("the composer pane's cells");
         assert!(
             composer.trim().is_empty(),

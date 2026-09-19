@@ -7,10 +7,14 @@ pub(super) fn draw_composer_pane(frame: &mut Frame, app: &mut App, area: Rect) {
     let (input, row, col) = input_rows(&app.input, app.cursor, width);
     // Two rows of breathing room by default, growing to eight so a pasted block
     // stays readable, and never past half the pane so the chat keeps its space.
-    let cap = (area.height / 2).clamp(4, 10);
-    // One row for the top rule and one for the gap above the footer, so the
-    // last line of input never sits directly against either.
+    let cap = (area.height / 2).clamp(5, 11);
+    // The box's two edges. The blank row that keeps its lower edge off the
+    // status bar is added to the pane below, not inside the box, or the box
+    // grows an empty line under the text.
     const FRAME: u16 = 2;
+    /// One row between the box and the status bar: a border resting directly
+    /// on the bar reads as part of it rather than as the edge of a field.
+    const GAP: u16 = 1;
     let ih = (input.len().clamp(1, 8) as u16 + FRAME).min(cap);
     // Chip row above the input surfaces pasted or dropped images and their errors.
     // Attachments now render as inline `[Image N]` chips inside the field.
@@ -26,6 +30,7 @@ pub(super) fn draw_composer_pane(frame: &mut Frame, app: &mut App, area: Rect) {
         Constraint::Length(ph),
         Constraint::Length(ah),
         Constraint::Length(ih),
+        Constraint::Length(GAP),
     ])
     .split(area);
     let stream = rows[0].inner(Margin {
@@ -72,19 +77,30 @@ pub(super) fn draw_composer_pane(frame: &mut Frame, app: &mut App, area: Rect) {
             Rect::new(area.x + 2, rows[2].y, area.width.saturating_sub(4), 1),
         );
     }
-    // Paint the whole composer row with the subtle bg first so the top
-    // border, the field, and the trailing padding column all share one
-    // continuous surface instead of leaving black gaps at the edges.
-    frame.render_widget(
-        Block::default().style(Style::default().bg(t.subtle)),
-        rows[3],
+    // A box rather than a rule. The composer is a field the user types into,
+    // and a border around it says that where a line above it only said
+    // "something changes here". The border colours when a command is being
+    // typed, so the difference is visible before Enter decides it.
+    let boxed = Rect::new(
+        rows[3].x + 1,
+        rows[3].y,
+        rows[3].width.saturating_sub(2),
+        rows[3].height,
     );
+    let command = app.input.starts_with('/');
     frame.render_widget(
         Block::default()
-            .borders(Borders::TOP)
-            .border_style(Style::default().fg(t.border))
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(if command {
+                t.accent2
+            } else if app.busy {
+                t.yellow
+            } else {
+                t.border
+            }))
             .style(Style::default().bg(t.subtle)),
-        rows[3],
+        boxed,
     );
     // Only when the composer is about to do something other than send a
     // message. "MESSAGE" on every frame restated what the `❯` already says,
@@ -96,16 +112,16 @@ pub(super) fn draw_composer_pane(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         None
     };
-    if let Some((label, colour)) = label.filter(|_| rows[3].width > 30) {
+    if let Some((label, colour)) = label.filter(|_| boxed.width > 30) {
         frame.render_widget(
             Paragraph::new(Line::styled(
                 label,
                 Style::default().fg(colour).bg(t.subtle),
             )),
             Rect::new(
-                rows[3].x + 2,
-                rows[3].y,
-                (label.chars().count() as u16).min(rows[3].width.saturating_sub(4)),
+                boxed.x + 2,
+                boxed.y,
+                (label.chars().count() as u16).min(boxed.width.saturating_sub(4)),
                 1,
             ),
         );
@@ -113,9 +129,9 @@ pub(super) fn draw_composer_pane(frame: &mut Frame, app: &mut App, area: Rect) {
     // Field spans from just after the prompt marker to one column shy of the
     // right edge so long lines land inside a visible bg strip on both sides.
     let field = Rect::new(
-        area.x + 2,
-        rows[3].y + 1,
-        area.width.saturating_sub(3),
+        boxed.x + 4,
+        boxed.y + 1,
+        boxed.width.saturating_sub(6),
         ih.saturating_sub(FRAME),
     );
     // The marker colours to say a command is being typed; it does not change
@@ -132,7 +148,7 @@ pub(super) fn draw_composer_pane(frame: &mut Frame, app: &mut App, area: Rect) {
                 .bg(t.subtle)
                 .add_modifier(Modifier::BOLD),
         ),
-        Rect::new(area.x, field.y, 1, field.height),
+        Rect::new(boxed.x + 2, field.y, 1, field.height),
     );
     let field_w = field.width as usize;
     let offset = row.saturating_sub(field.height.saturating_sub(1) as usize);

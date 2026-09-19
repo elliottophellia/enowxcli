@@ -306,3 +306,100 @@ fn footer_of(app: &mut TestApp) -> String {
     let rows = app.render_to_text(110, 30);
     rows[rows.len() - 2].clone()
 }
+
+/// Events belong to the main conversation even while a branch is on screen.
+/// `push` writes to `self.blocks`, which during viewing holds the sub-agent's
+/// transcript — so a reply arriving then was written into the branch and
+/// thrown away on the way back.
+#[test]
+fn text_arriving_while_viewing_is_not_lost() {
+    let mut app = TestApp::new();
+    app.push_user("MAIN-CONVERSATION");
+    let id = app.add_delegation("fe", "write it", &[("assistant", "branch work")]);
+    app.open_delegation(0).expect("open it");
+
+    // The main agent carries on while the user is looking at the branch.
+    app.deliver_delegation_finished("fe", &id, false);
+    app.deliver_assistant_text("REPLY-WHILE-VIEWING");
+
+    app.press(KeyCode::Esc, false).expect("esc");
+    let text = app.render_to_text(110, 40).join("\n");
+    assert!(
+        text.contains("MAIN-CONVERSATION"),
+        "the conversation should come back: {text}"
+    );
+    assert!(
+        text.contains("REPLY-WHILE-VIEWING"),
+        "and what arrived while viewing should be in it: {text}"
+    );
+    assert!(
+        text.contains("fe finished"),
+        "including the delegation's own report: {text}"
+    );
+}
+
+/// Staying in a finished branch is the right default — you opened it to check
+/// the work — but only if it does not read as being stuck. The footer says
+/// the conversation has moved on.
+#[test]
+fn the_footer_says_when_the_main_chat_moves_on() {
+    let mut app = TestApp::new();
+    app.push_user("MAIN-CONVERSATION");
+    let id = app.add_delegation("review", "check it", &[("assistant", "checking")]);
+    app.open_delegation(0).expect("open it");
+    let footer = footer_of(&mut app);
+    assert!(
+        !footer.contains("main chat"),
+        "nothing has happened yet: {footer}"
+    );
+
+    app.deliver_delegation_finished("review", &id, false);
+    let footer = footer_of(&mut app);
+    assert!(
+        footer.contains("main chat +1"),
+        "the delegation's report landed in the conversation: {footer}"
+    );
+
+    app.deliver_assistant_text("and the main agent carried on");
+    let footer = footer_of(&mut app);
+    assert!(footer.contains("main chat +2"), "and so did that: {footer}");
+}
+
+/// Finishing must not move the user out of the branch: the work is what they
+/// opened it for, and the screen changing under them while they read is
+/// worse than staying.
+#[test]
+fn finishing_does_not_eject_the_viewer() {
+    let mut app = TestApp::new();
+    let id = app.add_delegation("review", "check it", &[("assistant", "BRANCH-WORK")]);
+    app.open_delegation(0).expect("open it");
+    app.deliver_delegation_finished("review", &id, false);
+    assert_eq!(
+        app.viewing_agent().as_deref(),
+        Some("review"),
+        "still viewing the branch"
+    );
+    assert!(
+        app.render_to_text(110, 30)
+            .join("\n")
+            .contains("BRANCH-WORK"),
+        "and its work still on screen"
+    );
+}
+
+/// The count is what the conversation gained, not its total length.
+#[test]
+fn the_count_is_what_arrived_not_the_whole_conversation() {
+    let mut app = TestApp::new();
+    for i in 0..5 {
+        app.push_user(&format!("earlier message {i}"));
+    }
+    app.add_delegation("fe", "write it", &[("assistant", "work")]);
+    app.open_delegation(0).expect("open it");
+    app.deliver_assistant_text("one new reply");
+    let footer = footer_of(&mut app);
+    assert!(
+        footer.contains("+1"),
+        "five earlier messages are not news: {footer}"
+    );
+}

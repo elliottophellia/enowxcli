@@ -108,7 +108,7 @@ impl App {
             Event::Text { delta } => {
                 self.set_activity(Activity::Writing);
                 if let Some(last) = self
-                    .blocks
+                    .conversation_mut()
                     .last_mut()
                     .filter(|block| matches!(block.kind, TranscriptKind::Assistant))
                 {
@@ -120,7 +120,7 @@ impl App {
             Event::Reasoning { delta } => {
                 self.set_activity(Activity::Thinking);
                 if let Some(last) = self
-                    .blocks
+                    .conversation_mut()
                     .last_mut()
                     .filter(|block| matches!(block.kind, TranscriptKind::Reasoning))
                 {
@@ -155,7 +155,7 @@ impl App {
                 is_error,
                 ..
             } => {
-                if let Some(block) = self.blocks.iter_mut().rev().find(|block| {
+                if let Some(block) = self.conversation_mut().iter_mut().rev().find(|block| {
                     matches!(&block.kind, TranscriptKind::Tool { id: block_id, .. } if block_id == &id)
                 }) {
                     if let TranscriptKind::Tool {
@@ -177,7 +177,7 @@ impl App {
                 // the classify+render path picks up the growing preview on
                 // the next frame. No new block gets created; if the tool is
                 // already gone (rare race), the delta is silently dropped.
-                if let Some(block) = self.blocks.iter_mut().rev().find(|block| {
+                if let Some(block) = self.conversation_mut().iter_mut().rev().find(|block| {
                     matches!(
                         &block.kind,
                         TranscriptKind::Tool { id: bid, .. } if bid == &id
@@ -207,13 +207,14 @@ impl App {
                 // Pinned to where the transcript has reached rather than to a
                 // turn index: the block list is what the marker is drawn
                 // against, and a live switch lands between two blocks.
+                let at = self.conversation_mut().len();
                 self.switch_markers.push((
-                    self.blocks.len(),
+                    at,
                     enowx_core::session::AgentSwitch {
                         from: self.agent_name.clone(),
                         to: to.clone(),
                         reason,
-                        at_turn: self.blocks.len(),
+                        at_turn: at,
                     },
                 ));
                 self.agent_name = to;

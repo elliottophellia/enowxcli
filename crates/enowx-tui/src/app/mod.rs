@@ -68,6 +68,10 @@ pub(crate) struct Viewing {
     /// frozen at the moment it was opened is the thing that makes a working
     /// sub-agent look stopped.
     pub(crate) last_refresh: Instant,
+    /// How many blocks the conversation had when the branch was opened, so
+    /// the footer can say it has moved on without the user having to leave
+    /// to find out.
+    pub(crate) blocks_at_open: usize,
 }
 
 pub(crate) struct App {
@@ -340,6 +344,20 @@ impl App {
         }
     }
 
+    /// The blocks a turn's events belong to: always the main conversation,
+    /// even while a sub-agent's transcript is the thing on screen.
+    ///
+    /// `self.blocks` is what gets drawn, so during viewing it holds the
+    /// branch. Writing a turn's events there put them in the sub-agent's
+    /// transcript, where they were discarded on the way back — the reply
+    /// simply vanished.
+    pub(crate) fn conversation_mut(&mut self) -> &mut Vec<TranscriptBlock> {
+        match self.viewing.as_mut() {
+            Some(viewing) => &mut viewing.blocks,
+            None => &mut self.blocks,
+        }
+    }
+
     pub(crate) fn push(&mut self, kind: TranscriptKind, text: impl Into<String>) {
         let text = text.into();
         // Errors collapse instead of stacking. A provider that is down, a bad
@@ -349,7 +367,7 @@ impl App {
             self.push_failure(kind, text);
             return;
         }
-        self.blocks.push(TranscriptBlock { kind, text });
+        self.conversation_mut().push(TranscriptBlock { kind, text });
     }
 
     /// Record an error as ONE block.
@@ -363,7 +381,7 @@ impl App {
         // A retry that ends in failure should leave ONE block behind, not a
         // retry line plus an error line, so a terminal error takes over the
         // retry block it grew out of.
-        if let Some(last) = self.blocks.last_mut() {
+        if let Some(last) = self.conversation_mut().last_mut() {
             if matches!(last.kind, TranscriptKind::Error | TranscriptKind::Retry) {
                 let same_kind = std::mem::discriminant(&last.kind) == std::mem::discriminant(&kind);
                 if same_kind && last.text == text {
@@ -377,7 +395,7 @@ impl App {
             }
         }
         self.error_repeats = 1;
-        self.blocks.push(TranscriptBlock { kind, text });
+        self.conversation_mut().push(TranscriptBlock { kind, text });
     }
 
     pub(crate) fn set_activity(&mut self, activity: Activity) {

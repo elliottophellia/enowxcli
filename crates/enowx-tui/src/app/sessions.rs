@@ -75,6 +75,17 @@ impl App {
 
     /// Turn a stored session into transcript blocks. Shared by `resume` and
     /// by viewing a delegation, so the two cannot drift apart.
+    /// Replay writes what is SHOWN, so it goes to `self.blocks` directly
+    /// rather than through `push`. `push` routes a turn's events to the main
+    /// conversation, which is the opposite of what is wanted here: the whole
+    /// point is to put a branch on screen.
+    fn show(&mut self, kind: TranscriptKind, text: impl Into<String>) {
+        self.blocks.push(crate::session::TranscriptBlock {
+            kind,
+            text: text.into(),
+        });
+    }
+
     pub(crate) fn replay_into_blocks(&mut self, session: &enowx_core::Session) {
         let mut tool_blocks: HashMap<String, usize> = HashMap::new();
         // A switch names the turn it happened at, but a turn expands into
@@ -107,20 +118,20 @@ impl App {
                         }
                         display.push_str(&names.join("  "));
                     }
-                    self.push(TranscriptKind::User, display);
+                    self.show(TranscriptKind::User, display);
                 }
                 MessageRole::Assistant => {
                     if let Some(reasoning) = turn.message.reasoning {
-                        self.push(TranscriptKind::Reasoning, reasoning);
+                        self.show(TranscriptKind::Reasoning, reasoning);
                     }
                     if !turn.message.content.is_empty() {
-                        self.push(TranscriptKind::Assistant, turn.message.content);
+                        self.show(TranscriptKind::Assistant, turn.message.content);
                     }
                     for call in turn.message.tool_calls {
                         *self.tool_counts.entry(call.name.clone()).or_insert(0) += 1;
                         let index = self.blocks.len();
                         tool_blocks.insert(call.id.clone(), index);
-                        self.push(
+                        self.show(
                             TranscriptKind::Tool {
                                 id: call.id,
                                 name: call.name,
@@ -137,7 +148,7 @@ impl App {
                         );
                     }
                     if let Some(error) = turn.message.error {
-                        self.push(TranscriptKind::Error, error);
+                        self.show(TranscriptKind::Error, error);
                     }
                 }
                 MessageRole::Tool => {
@@ -157,7 +168,7 @@ impl App {
                         }
                     }
                 }
-                MessageRole::System => self.push(TranscriptKind::System, turn.message.content),
+                MessageRole::System => self.show(TranscriptKind::System, turn.message.content),
             }
         }
         // A handover recorded after the last turn — the usual case, since a
@@ -190,6 +201,7 @@ impl App {
             self.leave_delegation();
         }
         let branch = self.store.load(&delegation.session_id)?;
+        let blocks_at_open = self.blocks.len();
         let saved = crate::app::Viewing {
             blocks: std::mem::take(&mut self.blocks),
             scroll: self.scroll,
@@ -198,6 +210,7 @@ impl App {
             index,
             session_id: delegation.session_id.clone(),
             last_refresh: std::time::Instant::now(),
+            blocks_at_open,
         };
         self.render_cache.clear();
         self.switch_markers.clear();

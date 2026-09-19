@@ -983,3 +983,11 @@ impl TestApp {
         self.inner.refresh_viewed_delegation();
     }
 }
+
+impl TestApp {
+    pub fn deliver_assistant_text(&mut self, text: &str) {
+        self.inner.apply_event(enowx_core::Event::Text {
+            delta: text.to_owned(),
+        });
+    }
+}

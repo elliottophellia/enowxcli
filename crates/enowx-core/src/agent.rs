@@ -432,8 +432,65 @@ impl Agent {
         events: &mpsc::Sender<Event>,
         cancel: CancellationToken,
     ) -> Result<()> {
+        // A handoff ends the turn so the incoming agent can be assembled with
+        // its own prompt, model and tools. Before this it also ended the
+        // *reply*: the new agent waited for another message from the user,
+        // who had no way to know one was wanted and saw the session stop
+        // dead. Now it carries on.
+        const MAX_HANDOFFS: usize = 4;
+        let role = request.role;
+        let mut next = self.run_turn(request, events, cancel.clone()).await?;
+        for _ in 0..MAX_HANDOFFS {
+            let Some(session_id) = next else {
+                return Ok(());
+            };
+            if cancel.is_cancelled() {
+                return Ok(());
+            }
+            next = self
+                .run_turn(
+                    RunRequest {
+                        prompt: String::new(),
+                        session_id: Some(session_id),
+                        role,
+                        attachments: Vec::new(),
+                    },
+                    events,
+                    cancel.clone(),
+                )
+                .await?;
+        }
+        // Still handing over after four turns is a loop, not progress.
+        if next.is_some() {
+            let _ = events
+                .send(Event::Notice {
+                    message: "Agents kept handing over to each other; stopping.".into(),
+                })
+                .await;
+            let _ = events
+                .send(Event::Done {
+                    stop_reason: "handoff_loop".into(),
+                })
+                .await;
+        }
+        Ok(())
+    }
+
+    /// One turn. Returns the id of the session it ran in when the turn ended
+    /// in a handoff, so the caller can run the incoming agent straight away.
+    ///
+    /// `request.prompt` may be empty for a handoff continuation: the incoming
+    /// agent picks up the conversation as it stands rather than being sent a
+    /// new message.
+    async fn run_turn(
+        &self,
+        request: RunRequest,
+        events: &mpsc::Sender<Event>,
+        cancel: CancellationToken,
+    ) -> Result<Option<String>> {
         let prompt = request.prompt.trim();
-        if prompt.is_empty() {
+        let continuing = prompt.is_empty() && request.session_id.is_some();
+        if prompt.is_empty() && !continuing {
             anyhow::bail!("the message is empty");
         }
         anyhow::ensure!(
@@ -466,7 +523,11 @@ impl Agent {
             }
         };
         session.role = request.role;
-        session.push(Message::user(prompt).with_attachments(request.attachments.clone()));
+        // A handoff continuation adds no message: the incoming agent answers
+        // the question already in the session, under its own prompt.
+        if !continuing {
+            session.push(Message::user(prompt).with_attachments(request.attachments.clone()));
+        }
         self.store.save(&session)?;
 
         // Auto-compact: if the previous turn's context usage was near the
@@ -887,8 +948,14 @@ impl Agent {
         }
 
         self.store.save(&session)?;
+        // A handoff is not the end of the work — the incoming agent has not
+        // answered yet. Say so rather than sending `Done`, which would leave
+        // the user looking at a finished-looking turn where nothing happened.
+        if stop_reason == "handoff" {
+            return Ok(Some(session.id.clone()));
+        }
         let _ = events.send(Event::Done { stop_reason }).await;
-        Ok(())
+        Ok(None)
     }
 }
 

@@ -15,7 +15,14 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
         .style(Style::default().bg(app.theme.panel));
     let inner = border.inner(area);
     frame.render_widget(border, area);
-    let header = if inner.height >= 10 { 2 } else { 0 };
+    // Three rows: the breadcrumb, the keys that apply now, and the rule.
+    let header = if inner.height >= 12 {
+        3
+    } else if inner.height >= 10 {
+        2
+    } else {
+        0
+    };
     let footer = if inner.height >= 10 { 1 } else { 0 };
     let parts = Layout::vertical([
         Constraint::Length(header),
@@ -38,6 +45,17 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
             Layout::horizontal([Constraint::Min(52), Constraint::Length(sidebar)]).split(parts[1]);
         draw_composer_pane(frame, app, columns[0]);
         draw_sidebar(frame, app, columns[1]);
+        // Name each pane on the rule above it rather than spending a row on a
+        // heading. The label says which half a key acts on, which is the only
+        // question the divider leaves open.
+        pane_label(frame, app, columns[0], "CHAT", false);
+        pane_label(
+            frame,
+            app,
+            columns[1],
+            crate::ui::sidebar::TABS[app.sidebar_tab].1,
+            true,
+        );
     } else {
         draw_composer_pane(frame, app, parts[1]);
     }
@@ -89,44 +107,122 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
+/// The header: a name badge, then the running context as a breadcrumb.
+///
+/// The three coloured dots and "PID 91731" that used to sit here were
+/// decoration — nobody reads a pid, and the dots imitated a window chrome the
+/// terminal already draws. What belongs at the top is what the next keystroke
+/// acts on: which workspace, which agent, which model.
 fn draw_title(frame: &mut Frame, app: &App, area: Rect) {
     let t = app.theme;
-    frame.render_widget(
-        Block::default()
-            .borders(Borders::BOTTOM)
-            .border_style(Style::default().fg(t.border))
-            .style(Style::default().bg(t.subtle)),
-        area,
-    );
+    frame.render_widget(Block::default().style(Style::default().bg(t.subtle)), area);
+
     let project = app
         .workspace
         .file_name()
         .unwrap_or_default()
-        .to_string_lossy();
-    let dots = Line::from(vec![
-        Span::styled("● ", Style::default().fg(t.red)),
-        Span::styled("● ", Style::default().fg(t.yellow)),
-        Span::styled("●", Style::default().fg(t.green)),
-    ]);
-    frame.render_widget(Paragraph::new(dots), Rect::new(area.x + 1, area.y, 6, 1));
-    let title = if area.width >= 100 {
-        format!("PROJECT: {project}   PATH: {}", app.workspace.display())
-    } else {
-        format!("PROJECT: {project}")
+        .to_string_lossy()
+        .into_owned();
+
+    // The badge: reversed rather than coloured, so it reads as a label
+    // attached to the window rather than as another piece of status.
+    let mut left = vec![
+        Span::styled(
+            " ❯_ ENX ",
+            Style::default()
+                .fg(t.panel)
+                .bg(t.accent)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  "),
+    ];
+
+    let mut crumb = |icon: &str, label: String, colour: ratatui::style::Color| {
+        left.push(Span::styled(
+            format!("{icon} "),
+            Style::default().fg(colour),
+        ));
+        left.push(Span::styled(label, Style::default().fg(t.text)));
+        left.push(Span::styled("  ", Style::default().fg(t.faint)));
     };
+    crumb("◆", project, t.accent);
+    crumb("●", app.active_agent().to_owned(), t.green);
+    let model = app.model_label();
+    if !model.is_empty() && model != "no model" {
+        crumb("⛁", model, t.accent2);
+    }
+    // The session's own name, once it has one — a resumed session is
+    // otherwise indistinguishable from a fresh one.
+    if !app.title.is_empty() {
+        left.push(Span::styled("› ", Style::default().fg(t.faint)));
+        left.push(Span::styled(
+            crate::text::trim(&app.title, 28),
+            Style::default().fg(t.muted),
+        ));
+    }
+
+    let right = if app.busy {
+        Line::from(vec![
+            Span::styled(format!("{} ", app.spinner()), Style::default().fg(t.yellow)),
+            Span::styled(
+                crate::app::fmt_elapsed(app.turn_started.elapsed().as_secs()),
+                Style::default().fg(t.yellow),
+            ),
+        ])
+    } else {
+        Line::from(Span::styled("? /help", Style::default().fg(t.faint)))
+    };
+
     draw_split_line(
         frame,
-        Line::styled(title, Style::default().fg(t.text)),
-        Line::styled(
-            format!(
-                "{} · PID {}",
-                if app.busy { "RUNNING" } else { "READY" },
-                std::process::id()
-            ),
-            Style::default().fg(t.green),
-        ),
-        Rect::new(area.x + 8, area.y, area.width.saturating_sub(10), 1),
+        Line::from(left),
+        right,
+        Rect::new(area.x + 1, area.y, area.width.saturating_sub(2), 1),
     );
+
+    // Second row: the keys that apply right now. A fixed list would be
+    // reference material; this changes with what is on screen.
+    if area.height >= 2 {
+        let hints: &[(&str, &str)] = if app.viewing.is_some() {
+            &[("Esc", "back"), ("↑↓", "scroll"), ("F4", "agents")]
+        } else if app.busy {
+            &[
+                ("Ctrl+C", "stop"),
+                ("Ctrl+P", "commands"),
+                ("F1–F5", "tabs"),
+            ]
+        } else {
+            &[
+                ("Ctrl+P", "commands"),
+                ("Ctrl+↑", "edit last"),
+                ("F1–F5", "tabs"),
+                ("/", "run a command"),
+            ]
+        };
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        for (key, what) in hints {
+            spans.push(Span::styled(
+                (*key).to_owned(),
+                Style::default().fg(t.muted).add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::styled(
+                format!(" {what}   "),
+                Style::default().fg(t.faint),
+            ));
+        }
+        frame.render_widget(
+            Paragraph::new(Line::from(spans)).style(Style::default().bg(t.subtle)),
+            Rect::new(area.x + 1, area.y + 1, area.width.saturating_sub(2), 1),
+        );
+    }
+    // The rule sits under the whole header, not through the hints.
+    if area.height >= 3 {
+        frame.render_widget(
+            Paragraph::new("─".repeat(area.width as usize))
+                .style(Style::default().fg(t.border).bg(t.subtle)),
+            Rect::new(area.x, area.y + area.height - 1, area.width, 1),
+        );
+    }
 }
 
 fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
@@ -202,52 +298,72 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         draw_split_line(frame, Line::from(left_spans), right, area);
         return;
     }
-    if app.busy {
-        left_spans.push(Span::styled(
-            format!("{} ", app.spinner()),
-            Style::default().fg(t.yellow),
-        ));
+    // Segments rather than a sentence. Each block is one fact, read at a
+    // glance and in a fixed place: state, then agent, then what the session
+    // has cost. A run-on line of "· ·" separators makes the reader parse it.
+    let (state_label, state_colour) = if app.busy {
+        ("WORKING", t.yellow)
+    } else if app.status == "failed" {
+        ("FAILED", t.red)
     } else {
-        left_spans.push(Span::styled(
-            "● ",
-            Style::default().fg(if app.status == "failed" {
-                t.red
-            } else {
-                t.green
-            }),
-        ));
-    }
+        ("READY", t.green)
+    };
     left_spans.push(Span::styled(
-        app.active_agent().to_owned(),
+        format!(" {state_label} "),
+        Style::default()
+            .fg(t.panel)
+            .bg(state_colour)
+            .add_modifier(Modifier::BOLD),
+    ));
+    left_spans.push(Span::styled(
+        format!(" {} ", app.active_agent()),
         Style::default()
             .fg(t.accent)
-            .add_modifier(ratatui::style::Modifier::BOLD),
+            .bg(t.active_tab)
+            .add_modifier(Modifier::BOLD),
     ));
-    left_spans.push(Span::styled(" · ", Style::default().fg(t.muted)));
-    left_spans.push(Span::styled(app.model_label(), Style::default().fg(t.text)));
     if app.busy {
-        left_spans.push(Span::styled(" · ", Style::default().fg(t.muted)));
         left_spans.push(Span::styled(
-            crate::app::fmt_elapsed(app.turn_started.elapsed().as_secs()),
+            format!(
+                " {} ",
+                crate::app::fmt_elapsed(app.turn_started.elapsed().as_secs())
+            ),
             Style::default().fg(t.yellow),
         ));
     }
+    // The status line's own message, which is where a command's result lands.
+    if !app.status.is_empty() && app.status != "ready" {
+        left_spans.push(Span::styled(
+            format!(" {}", crate::text::trim(&app.status, 40)),
+            Style::default().fg(t.muted),
+        ));
+    }
 
-    // RIGHT: rotating tip so the footer never reads as blank.
-    let right = Line::from(vec![Span::styled(
+    // RIGHT: what the session has used, then the rotating tip.
+    let mut right_spans: Vec<Span<'static>> = Vec::new();
+    if app.context_window > 0 && app.context_tokens > 0 {
+        let pct = (app.context_tokens as u64 * 100 / app.context_window.max(1) as u64).min(999);
+        right_spans.push(Span::styled(
+            format!("ctx {pct}% "),
+            Style::default().fg(if pct >= 85 { t.red } else { t.faint }),
+        ));
+    }
+    if app.tokens_in > 0 || app.tokens_out > 0 {
+        right_spans.push(Span::styled(
+            format!(
+                "↓{} ↑{} ",
+                crate::text::thousands(app.tokens_in as u64),
+                crate::text::thousands(app.tokens_out as u64)
+            ),
+            Style::default().fg(t.faint),
+        ));
+    }
+    right_spans.push(Span::styled(
         app.footer_tip().to_string(),
         Style::default().fg(t.muted),
-    )]);
+    ));
 
-    draw_split_line(
-        frame,
-        Line::from(left_spans),
-        right,
-        area.inner(Margin {
-            horizontal: 1,
-            vertical: 0,
-        }),
-    );
+    draw_split_line(frame, Line::from(left_spans), Line::from(right_spans), area);
 }
 
 pub(super) fn draw_split_line(frame: &mut Frame, left: Line, right: Line, area: Rect) {
@@ -272,4 +388,34 @@ pub(super) fn draw_split_line(frame: &mut Frame, left: Line, right: Line, area: 
             Rect::new(area.right() - rw, area.y, rw, area.height),
         );
     }
+}
+
+/// A pane's name, sitting on the rule at its top edge.
+///
+/// Borrowed from how a bordered box carries its title: the label belongs to
+/// the line, not to a row of its own. With two panes and a header already
+/// taking three rows, a heading row each would cost a tenth of a short
+/// terminal.
+fn pane_label(frame: &mut Frame, app: &App, area: Rect, label: &str, right: bool) {
+    if area.width < 24 || area.y == 0 {
+        return;
+    }
+    let t = app.theme;
+    let text = format!(" {label} ");
+    let width = text.chars().count() as u16;
+    let x = if right {
+        area.x + area.width.saturating_sub(width + 2)
+    } else {
+        area.x + 2
+    };
+    frame.render_widget(
+        Paragraph::new(Line::styled(
+            text,
+            Style::default()
+                .fg(t.faint)
+                .bg(t.subtle)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Rect::new(x, area.y - 1, width.min(area.width), 1),
+    );
 }

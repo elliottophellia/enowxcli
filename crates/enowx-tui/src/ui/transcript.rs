@@ -1017,18 +1017,21 @@ fn user_card(lines: &mut Vec<Line<'static>>, text: &str, width: usize, theme: &T
         clipped
     };
 
-    let border_style = Style::default().fg(theme.accent).bg(theme.subtle);
-    let top = format!("╭{}╮", "─".repeat(width.saturating_sub(2)));
-    let bottom = format!("╰{}╯", "─".repeat(width.saturating_sub(2)));
-    lines.push(Line::styled(top, border_style));
+    // A bar down the left rather than a box around it. A full border spends
+    // two rows on rule and two columns on sides to say one thing — "the user
+    // said this" — and in a conversation that is every other block. The bar
+    // says it in one column and no rows at all.
+    let bar = Style::default().fg(theme.accent).bg(theme.subtle);
     for (text, style) in visible {
         let text_w = unicode_width_of(&text);
         let pad = body_w.saturating_sub(text_w);
-        let style = style.bg(theme.subtle);
+        let style = style.bg(theme.subtle).add_modifier(Modifier::BOLD);
         lines.push(Line::from(vec![
-            Span::styled("│ ", border_style),
+            Span::styled("▌ ", bar),
             Span::styled(text, style),
-            Span::styled(format!("{} │", " ".repeat(pad)), border_style),
+            // The background runs to the pane edge so the block reads as one
+            // surface rather than as a ragged strip.
+            Span::styled(" ".repeat(pad + 2), Style::default().bg(theme.subtle)),
         ]));
     }
     if overflow > 0 {
@@ -1039,12 +1042,11 @@ fn user_card(lines: &mut Vec<Line<'static>>, text: &str, width: usize, theme: &T
         let msg_w = unicode_width_of(&msg);
         let pad = body_w.saturating_sub(msg_w);
         lines.push(Line::from(vec![
-            Span::styled("│ ", border_style),
+            Span::styled("▌ ", bar),
             Span::styled(msg, Style::default().fg(theme.muted).bg(theme.subtle)),
-            Span::styled(format!("{} │", " ".repeat(pad)), border_style),
+            Span::styled(" ".repeat(pad + 2), Style::default().bg(theme.subtle)),
         ]));
     }
-    lines.push(Line::styled(bottom, border_style));
 }
 
 fn unicode_width_of(text: &str) -> usize {

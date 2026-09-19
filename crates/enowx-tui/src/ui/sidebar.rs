@@ -2,7 +2,7 @@ use super::*;
 use crate::text::thousands;
 use enowx_core::ROLES;
 
-const TABS: [(&str, &str); 5] = [
+pub(super) const TABS: [(&str, &str); 5] = [
     ("1", "TOKENS"),
     ("2", "TOOLS"),
     ("3", "SKILLS"),
@@ -23,10 +23,11 @@ pub(super) fn draw_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    // Tabs get their own three-row band so each label reads as a real control
-    // rather than a cramped word fragment.
+    // Two rows: the labels, and an underline marking the active one. The
+    // third was a blank lead-in that bought nothing — the header above
+    // already separates the strip from the window edge.
     let rows = Layout::vertical([
-        Constraint::Length(3),
+        Constraint::Length(2),
         Constraint::Min(1),
         Constraint::Length(1),
     ])
@@ -35,7 +36,7 @@ pub(super) fn draw_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let body = rows[1].inner(Margin {
         horizontal: 2,
-        vertical: 1,
+        vertical: 0,
     });
     app.delegation_rects.clear();
     let (lines, delegation_markers) = sidebar_lines(app, body.width as usize);
@@ -121,26 +122,23 @@ fn draw_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
             format!("{key} {name}")
         };
         frame.render_widget(
-            Paragraph::new(vec![
-                Line::default(),
-                Line::styled(
-                    trim(&label, rect.width as usize),
-                    if active {
-                        style.add_modifier(Modifier::BOLD)
-                    } else {
-                        style
-                    },
-                ),
-            ])
+            Paragraph::new(Line::styled(
+                trim(&label, rect.width as usize),
+                if active {
+                    style.add_modifier(Modifier::BOLD)
+                } else {
+                    style
+                },
+            ))
             .alignment(Alignment::Center)
             .style(style),
-            rect,
+            Rect::new(rect.x, rect.y, rect.width, 1),
         );
         if active && rect.width > 0 {
             frame.render_widget(
                 Paragraph::new("─".repeat(rect.width as usize))
                     .style(Style::default().fg(t.accent).bg(t.active_tab)),
-                Rect::new(rect.x, area.y + 2, rect.width, 1),
+                Rect::new(rect.x, area.y + 1, rect.width, 1),
             );
         }
     }
@@ -234,12 +232,16 @@ fn heading(lines: &mut Vec<Line<'static>>, title: &str, width: usize, theme: &Th
     if !lines.is_empty() {
         lines.push(Line::default());
     }
-    let rule = width.saturating_sub(title.width() + 1);
+    // The rule carries the title rather than sitting under it, so a section
+    // costs one row. The sidebar has four or five of them per tab, and a
+    // blank row plus a heading row each was a third of a short pane.
+    let rule = width.saturating_sub(title.width() + 3);
     lines.push(Line::from(vec![
+        Span::styled("─ ", Style::default().fg(theme.border)),
         Span::styled(
             title.to_owned(),
             Style::default()
-                .fg(theme.accent)
+                .fg(theme.faint)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::styled(

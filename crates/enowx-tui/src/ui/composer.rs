@@ -86,6 +86,29 @@ pub(super) fn draw_composer_pane(frame: &mut Frame, app: &mut App, area: Rect) {
             .style(Style::default().bg(t.subtle)),
         rows[3],
     );
+    // A label on the rule, the same as the panes carry: it says what the
+    // composer will do with what is typed, which changes with the state.
+    if rows[3].width > 30 {
+        let (label, colour) = if app.busy {
+            (" SENDS AFTER THIS TURN ", t.yellow)
+        } else if app.input.starts_with('/') {
+            (" COMMAND ", t.accent2)
+        } else {
+            (" MESSAGE ", t.faint)
+        };
+        frame.render_widget(
+            Paragraph::new(Line::styled(
+                label,
+                Style::default().fg(colour).bg(t.subtle),
+            )),
+            Rect::new(
+                rows[3].x + 2,
+                rows[3].y,
+                (label.chars().count() as u16).min(rows[3].width.saturating_sub(4)),
+                1,
+            ),
+        );
+    }
     // Field spans from just after the prompt marker to one column shy of the
     // right edge so long lines land inside a visible bg strip on both sides.
     let field = Rect::new(
@@ -95,7 +118,21 @@ pub(super) fn draw_composer_pane(frame: &mut Frame, app: &mut App, area: Rect) {
         ih.saturating_sub(FRAME),
     );
     frame.render_widget(
-        Paragraph::new("❯").style(Style::default().fg(t.accent).bg(t.subtle)),
+        Paragraph::new(if app.input.starts_with('/') {
+            "/"
+        } else {
+            "❯"
+        })
+        .style(
+            Style::default()
+                .fg(if app.input.starts_with('/') {
+                    t.accent2
+                } else {
+                    t.accent
+                })
+                .bg(t.subtle)
+                .add_modifier(Modifier::BOLD),
+        ),
         Rect::new(area.x, field.y, 1, field.height),
     );
     let field_w = field.width as usize;

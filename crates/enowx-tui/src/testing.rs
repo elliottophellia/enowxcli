@@ -999,3 +999,20 @@ impl TestApp {
         });
     }
 }
+
+impl TestApp {
+    pub fn deliver_usage(
+        &mut self,
+        input_tokens: u32,
+        output_tokens: u32,
+        context_tokens: u32,
+        context_window: u32,
+    ) {
+        self.inner.apply_event(enowx_core::Event::Usage {
+            input_tokens,
+            output_tokens,
+            context_tokens,
+            context_window,
+        });
+    }
+}

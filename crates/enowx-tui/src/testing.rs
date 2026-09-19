@@ -991,3 +991,11 @@ impl TestApp {
         });
     }
 }
+
+impl TestApp {
+    pub fn deliver_error(&mut self, message: &str) {
+        self.inner.apply_event(enowx_core::Event::Error {
+            message: message.to_owned(),
+        });
+    }
+}

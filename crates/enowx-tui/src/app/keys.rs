@@ -378,6 +378,16 @@ impl App {
                 self.select_tab(index as usize - 1);
                 return Ok(());
             }
+            KeyCode::F(6) => {
+                self.log_filter = (self.log_filter + 1) % crate::logs::FILTERS.len();
+                self.select_tab(4);
+                return Ok(());
+            }
+            KeyCode::F(7) => {
+                self.log_detail = !self.log_detail;
+                self.select_tab(4);
+                return Ok(());
+            }
             KeyCode::Enter => {
                 let text = self.input.trim().to_string();
                 if self.busy && !text.starts_with('/') {

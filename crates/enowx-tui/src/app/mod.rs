@@ -109,6 +109,14 @@ pub(crate) struct App {
     /// On-screen rows of the delegation list, so a click finds which one was
     /// hit. Rebuilt each frame from the line indices the sidebar returns.
     pub(crate) delegation_rects: Vec<(Rect, usize)>,
+    /// What has happened this session, for the LOGS tab.
+    pub(crate) logs: crate::logs::Logs,
+    /// Which kind the LOGS tab is showing; `None` is everything.
+    pub(crate) log_filter: usize,
+    /// Whether the technical line under each entry is shown.
+    pub(crate) log_detail: bool,
+    /// When the session started, so log lines can be stamped against it.
+    pub(crate) started: Instant,
     pub(crate) trimmed_count: usize,
     pub(crate) trimmed_saved: usize,
     /// Result of the last TypeSafe key check, awaited off the UI thread.
@@ -269,6 +277,10 @@ impl App {
             delegations: Vec::new(),
             viewing: None,
             delegation_rects: Vec::new(),
+            logs: crate::logs::Logs::default(),
+            log_filter: 0,
+            log_detail: false,
+            started: Instant::now(),
             trimmed_count: 0,
             trimmed_saved: 0,
             typesafe_check: None,

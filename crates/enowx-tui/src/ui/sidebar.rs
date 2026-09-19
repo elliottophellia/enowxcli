@@ -7,7 +7,7 @@ const TABS: [(&str, &str); 5] = [
     ("2", "TOOLS"),
     ("3", "SKILLS"),
     ("4", "AGENT"),
-    ("5", "CONFIG"),
+    ("5", "LOGS"),
 ];
 
 pub(super) fn draw_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -546,63 +546,67 @@ fn sidebar_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, us
             }
         }
         _ => {
-            heading(&mut lines, "WORKSPACE", width, t);
+            // What happened this session. The transcript says what was said;
+            // this says what the harness did — which is what answers "why
+            // did it stop there?" once the status line has moved on.
+            let filter = crate::logs::FILTERS[app.log_filter % crate::logs::FILTERS.len()];
+            let entries = app.logs.matching(filter);
+            heading(&mut lines, "LOGS", width, t);
+            row(
+                &mut lines,
+                "Showing",
+                &match filter {
+                    None => format!("all · {} lines", entries.len()),
+                    Some(kind) => format!("{} · {} lines", kind.label(), entries.len()),
+                },
+                width,
+                t,
+            );
             row(
                 &mut lines,
                 "",
-                &app.workspace.display().to_string(),
-                width,
-                t,
-            );
-            row(
-                &mut lines,
-                "Platform",
-                &format!("{} / {}", std::env::consts::OS, std::env::consts::ARCH),
-                width,
-                t,
-            );
-
-            heading(&mut lines, "MODEL", width, t);
-            row(&mut lines, "Provider", &app.config.provider.name, width, t);
-            row(&mut lines, "Model", &app.config.model.default, width, t);
-            row(
-                &mut lines,
-                "Context",
-                &thousands(app.context_window as u64),
-                width,
-                t,
-            );
-            row(
-                &mut lines,
-                "Temperature",
-                &app.config
-                    .model
-                    .temperature
-                    .map_or("provider default".to_owned(), |value| value.to_string()),
+                if app.log_detail {
+                    "F6 filter · F7 less detail"
+                } else {
+                    "F6 filter · F7 more detail"
+                },
                 width,
                 t,
             );
 
-            heading(&mut lines, "SESSION", width, t);
-            row(
-                &mut lines,
-                "ID",
-                app.session_id.as_deref().unwrap_or("new session"),
-                width,
-                t,
-            );
-            row(&mut lines, "Theme", t.label, width, t);
-            row(
-                &mut lines,
-                "Shell timeout",
-                &format!("{}s", app.config.agent.shell_timeout_secs),
-                width,
-                t,
-            );
-
-            heading(&mut lines, "BOUNDARIES", width, t);
-            row(&mut lines, "File tools", "workspace only", width, t);
-            row(&mut lines, "Shell", "host, no sandbox", width, t);
+            if entries.is_empty() {
+                row(&mut lines, "", "nothing logged yet", width, t);
+            }
+            // Newest last, so the eye lands on the most recent without
+            // scrolling — the same way the transcript reads.
+            for entry in entries {
+                let colour = match entry.kind {
+                    crate::logs::LogKind::Agent => t.accent,
+                    crate::logs::LogKind::Model => t.muted,
+                    crate::logs::LogKind::Problem => t.red,
+                    crate::logs::LogKind::Context => t.green,
+                };
+                let stamp = crate::logs::since(app.started, entry.at);
+                lines.push(Line::from(vec![
+                    Span::styled(format!("{stamp} "), Style::default().fg(t.faint)),
+                    Span::styled(
+                        format!("{} ", entry.kind.marker()),
+                        Style::default().fg(colour),
+                    ),
+                    Span::styled(
+                        trim(&entry.text, width.saturating_sub(stamp.len() + 3).max(1)),
+                        Style::default().fg(t.text),
+                    ),
+                ]));
+                if app.log_detail {
+                    if let Some(detail) = entry.detail.as_deref() {
+                        lines.push(Line::styled(
+                            format!("      {}", trim(detail, width.saturating_sub(6).max(1))),
+                            Style::default().fg(t.faint),
+                        ));
+                    }
+                }
+            }
         }
     }
     (lines, delegation_markers)

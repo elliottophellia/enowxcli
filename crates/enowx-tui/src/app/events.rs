@@ -207,6 +207,10 @@ impl App {
                 // Pinned to where the transcript has reached rather than to a
                 // turn index: the block list is what the marker is drawn
                 // against, and a live switch lands between two blocks.
+                self.logs.push(
+                    crate::logs::LogKind::Agent,
+                    format!("{} → {to}", self.agent_name),
+                );
                 let at = self.conversation_mut().len();
                 self.switch_markers.push((
                     at,
@@ -225,6 +229,10 @@ impl App {
                 session_id,
             } => {
                 self.push(TranscriptKind::Notice, format!("{agent} started\n{task}"));
+                self.logs.push(
+                    crate::logs::LogKind::Agent,
+                    format!("delegate → {agent}: {task}"),
+                );
                 self.delegations.push(crate::app::Delegation {
                     agent,
                     task,
@@ -242,6 +250,10 @@ impl App {
                 self.push(
                     TranscriptKind::Notice,
                     format!("{agent} finished\n{summary}"),
+                );
+                self.logs.push(
+                    crate::logs::LogKind::Agent,
+                    format!("{agent} {}", if failed { "failed" } else { "finished" }),
                 );
                 // Match on the branch id: the same agent can be delegated to
                 // more than once in a session, and marking the first one
@@ -263,6 +275,11 @@ impl App {
                 attempt,
                 max,
             } => {
+                self.logs.push_with(
+                    crate::logs::LogKind::Problem,
+                    format!("retry {attempt}/{max}"),
+                    Some(message.clone()),
+                );
                 self.retry_attempt = attempt;
                 self.retry_max = max;
                 self.push(TranscriptKind::Retry, message);
@@ -273,6 +290,23 @@ impl App {
                 context_tokens,
                 context_window,
             } => {
+                // One line per model call, with what it cost and how long it
+                // took — the timing is why a turn felt slow, which nothing
+                // else records.
+                self.logs.push_with(
+                    crate::logs::LogKind::Model,
+                    format!(
+                        "{} · {}",
+                        self.model_label(),
+                        crate::app::fmt_elapsed(self.turn_started.elapsed().as_secs())
+                    ),
+                    Some(format!(
+                        "in {} · out {} · context {}",
+                        crate::text::thousands(input_tokens as u64),
+                        crate::text::thousands(output_tokens as u64),
+                        crate::text::thousands(context_tokens as u64)
+                    )),
+                );
                 self.tokens_in = input_tokens;
                 self.tokens_out = output_tokens;
                 self.context_tokens = context_tokens;
@@ -281,6 +315,15 @@ impl App {
                 }
             }
             Event::Trimmed { tool, was, now } => {
+                self.logs.push_with(
+                    crate::logs::LogKind::Context,
+                    format!("trimmed {tool}"),
+                    Some(format!(
+                        "{} → {} chars",
+                        crate::text::thousands(was as u64),
+                        crate::text::thousands(now as u64)
+                    )),
+                );
                 self.trimmed_count += 1;
                 self.trimmed_saved += was.saturating_sub(now);
                 // Not pushed to the transcript: this happens often enough
@@ -293,6 +336,8 @@ impl App {
                 );
             }
             Event::Error { message } => {
+                self.logs
+                    .push(crate::logs::LogKind::Problem, message.clone());
                 self.push(TranscriptKind::Error, message);
                 self.busy = false;
                 self.cancel = None;

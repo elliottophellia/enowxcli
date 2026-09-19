@@ -142,15 +142,10 @@ fn draw_title(frame: &mut Frame, app: &App, area: Rect) {
         ));
     }
 
-    let model = app.model_label();
-    let right = Line::from(Span::styled(
-        if model.is_empty() {
-            "no model".to_owned()
-        } else {
-            model
-        },
-        Style::default().fg(t.faint),
-    ));
+    // The model sits beside the agent in the status bar: which agent is
+    // answering and which model it answers with are one fact, and splitting
+    // them across the window made the eye hunt for the other half.
+    let right = Line::default();
 
     draw_split_line(
         frame,
@@ -264,6 +259,21 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             .fg(t.accent)
             .bg(t.active_tab)
             .add_modifier(Modifier::BOLD),
+    ));
+    // On the same surface as the agent, separated by a dot and set quieter:
+    // the pair reads as one block, with the agent — the part that changes
+    // hands — leading it.
+    let model = app.model_label();
+    left_spans.push(Span::styled(
+        format!(
+            "· {} ",
+            if model.is_empty() {
+                "no model".to_owned()
+            } else {
+                model
+            }
+        ),
+        Style::default().fg(t.muted).bg(t.active_tab),
     ));
     if app.busy {
         left_spans.push(Span::styled(

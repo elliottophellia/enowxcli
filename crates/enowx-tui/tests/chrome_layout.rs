@@ -259,3 +259,48 @@ fn the_box_grows_with_a_multi_line_message() {
         rows[first + 3]
     );
 }
+
+/// Which agent is answering and which model it answers with are one fact.
+/// Split across the window — agent bottom-left, model top-right — the eye
+/// had to hunt for the other half.
+#[test]
+fn the_model_sits_beside_the_agent() {
+    let mut app = TestApp::new();
+    let bar = status_bar(&mut app);
+    let agent = bar.find("router").expect("the agent");
+    let model = bar.find("no model").expect("the model");
+    assert!(model > agent, "the model follows the agent: {bar}");
+    assert!(
+        model - agent < 16,
+        "and sits next to it rather than across the bar: {bar}"
+    );
+    assert!(
+        !header(&mut app).contains("model"),
+        "with nothing left in the header: {}",
+        header(&mut app)
+    );
+}
+
+/// They are one block, not one word.
+#[test]
+fn the_agent_and_model_are_separated() {
+    let mut app = TestApp::new();
+    let bar = status_bar(&mut app);
+    assert!(
+        bar.contains("router · no model"),
+        "a separator between them: {bar}"
+    );
+}
+
+/// The pair survives the states the bar changes in.
+#[test]
+fn the_model_stays_beside_the_agent_while_working() {
+    let mut app = TestApp::new();
+    app.start_fake_turn();
+    let bar = status_bar(&mut app);
+    assert!(bar.contains("WORKING"), "the state leads: {bar}");
+    assert!(
+        bar.contains("router · no model"),
+        "and the pair is still together: {bar}"
+    );
+}

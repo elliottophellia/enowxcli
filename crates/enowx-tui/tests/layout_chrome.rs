@@ -11,20 +11,30 @@ fn rows(app: &mut TestApp) -> Vec<String> {
     app.render_to_text(W, H)
 }
 
-/// The column the pane divider occupies, found on a row that plainly has one.
+/// The column the pane divider occupies.
+///
+/// Found by which interior column carries a bar on the most rows, rather than
+/// by reading one row: the header and composer are boxes now, and their sides
+/// also sit between the frame's two columns. A divider runs the pane's whole
+/// height; a three-row box cannot.
 fn divider_column(rows: &[String]) -> usize {
-    // A body row: starts with the frame, and carries an interior '│'.
-    let row = rows
-        .iter()
-        .find(|r| r.matches('│').count() >= 3)
-        .expect("a row with an interior divider");
-    let cols: Vec<usize> = row
-        .char_indices()
-        .filter(|(_, c)| *c == '│')
-        .map(|(i, _)| row[..i].chars().count())
-        .collect();
-    // First and last are the outer frame; the interior one is between them.
-    cols[1]
+    let mut counts: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    for row in rows {
+        let cols: Vec<usize> = row
+            .char_indices()
+            .filter(|(_, c)| *c == '│')
+            .map(|(i, _)| row[..i].chars().count())
+            .collect();
+        // Skip the outer frame's own two columns.
+        for column in cols.iter().skip(1).rev().skip(1) {
+            *counts.entry(*column).or_default() += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .max_by_key(|(_, count)| *count)
+        .map(|(column, _)| column)
+        .expect("a row with an interior divider")
 }
 
 #[test]
@@ -34,11 +44,13 @@ fn the_pane_divider_runs_the_full_height() {
     let rows = rows(&mut app);
     let col = divider_column(&rows);
 
-    // Rows between the header rule and the bottom frame must all carry it.
+    // From where the divider starts, not from the first row with three bars:
+    // the header is a box now, and its sides sit between the frame's columns
+    // without being a divider.
     let top = rows
         .iter()
-        .position(|r| r.matches('│').count() >= 3)
-        .expect("a body row");
+        .position(|r| r.chars().nth(col) == Some('│'))
+        .expect("a row carrying the divider");
     let bottom = rows
         .iter()
         .rposition(|r| r.contains('╰'))
@@ -163,8 +175,8 @@ fn the_divider_column_is_one_colour_all_the_way_down() {
 
     let top = rows
         .iter()
-        .position(|r| r.matches('│').count() >= 3)
-        .expect("a body row");
+        .position(|r| r.chars().nth(col) == Some('│'))
+        .expect("a row carrying the divider");
     let bottom = rows
         .iter()
         .rposition(|r| r.contains('╰'))

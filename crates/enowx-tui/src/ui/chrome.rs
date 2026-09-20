@@ -15,13 +15,15 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
         .style(Style::default().bg(app.theme.panel));
     let inner = border.inner(area);
     frame.render_widget(border, area);
-    // One row plus its rule. The keys that apply now moved to the status bar:
-    // two rows of chrome at the top and two at the bottom is four rows of a
-    // short terminal spent on the frame.
-    let header = if inner.height >= 10 { 2 } else { 0 };
+    // Three rows: the box's two edges and the row between them.
+    let header = if inner.height >= 12 { 3 } else { 0 };
     let footer = if inner.height >= 10 { 1 } else { 0 };
+    // A blank row under the header box, matching the one above the composer:
+    // a box resting directly on the first message reads as containing it.
+    let gap = if header > 0 { 1 } else { 0 };
     let parts = Layout::vertical([
         Constraint::Length(header),
+        Constraint::Length(gap),
         Constraint::Min(3),
         Constraint::Length(footer),
     ])
@@ -31,14 +33,14 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
     }
     // The chat pane owns the window: telemetry only appears when both panes fit
     // side by side, so shrinking the terminal never buries the conversation.
-    let sidebar = if app.show_sidebar && parts[1].width >= 100 && parts[1].height >= 12 {
-        (parts[1].width * 2 / 5).clamp(38, 60)
+    let sidebar = if app.show_sidebar && parts[2].width >= 100 && parts[2].height >= 12 {
+        (parts[2].width * 2 / 5).clamp(38, 60)
     } else {
         0
     };
     if sidebar > 0 {
         let columns =
-            Layout::horizontal([Constraint::Min(52), Constraint::Length(sidebar)]).split(parts[1]);
+            Layout::horizontal([Constraint::Min(52), Constraint::Length(sidebar)]).split(parts[2]);
         draw_composer_pane(frame, app, columns[0]);
         draw_sidebar(frame, app, columns[1]);
         // Name each pane on the rule above it rather than spending a row on a
@@ -53,7 +55,7 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
             true,
         );
     } else {
-        draw_composer_pane(frame, app, parts[1]);
+        draw_composer_pane(frame, app, parts[2]);
     }
     if footer > 0 {
         // The footer belongs to the chat pane, so it stops at the divider.
@@ -61,14 +63,19 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
         // belonged to neither pane.
         let footer_area = if sidebar > 0 {
             Rect::new(
-                parts[2].x,
-                parts[2].y,
-                parts[2].width.saturating_sub(sidebar),
-                parts[2].height,
+                parts[3].x,
+                parts[3].y,
+                parts[3].width.saturating_sub(sidebar),
+                parts[3].height,
             )
         } else {
-            parts[2]
+            parts[3]
         };
+        debug_assert!(
+            sidebar == 0
+                || footer_area.x + footer_area.width == parts[2].x + parts[2].width - sidebar,
+            "the footer must stop exactly at the divider column"
+        );
         // Fill the strip beside it with the sidebar's own background so the
         // row reads as a continuation of the pane above, not as a gap.
         if sidebar > 0 {
@@ -76,9 +83,9 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
                 Block::default().style(Style::default().bg(app.theme.panel)),
                 Rect::new(
                     footer_area.x + footer_area.width,
-                    parts[2].y,
+                    parts[3].y,
                     sidebar,
-                    parts[2].height,
+                    parts[3].height,
                 ),
             );
         }
@@ -89,7 +96,11 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
         // stopping in mid-air reads as a rendering fault rather than as the
         // edge of a pane.
         if sidebar > 0 {
-            let x = parts[1].x + parts[1].width - sidebar;
+            // The divider is the sidebar's left border, so its column is the
+            // one the sidebar starts in. Deriving it from the footer's width
+            // instead put it one cell out, and the rule stopped a row short
+            // of the frame with nothing continuing it.
+            let x = parts[2].x + parts[2].width - sidebar;
             frame.render_widget(
                 // The rule takes the SIDEBAR's background, not the footer's.
                 // It marks the sidebar's edge, and painting it `subtle` left
@@ -97,7 +108,7 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
                 // a single-cell leak, but the eye finds it immediately.
                 Paragraph::new("│")
                     .style(Style::default().fg(app.theme.border).bg(app.theme.panel)),
-                Rect::new(x, parts[2].y, 1, parts[2].height),
+                Rect::new(x, parts[3].y, 1, parts[3].height),
             );
         }
     }
@@ -109,9 +120,35 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
 /// decoration — nobody reads a pid, and the dots imitated a window chrome the
 /// terminal already draws. What belongs at the top is what the next keystroke
 /// acts on: which workspace, which agent, which model.
+/// The header: a box, matching the composer at the other end of the window.
+///
+/// The pair frames the conversation between them, which a rule at the top
+/// and a box at the bottom did not — the two edges read as different kinds of
+/// thing. The agent, model and state are not repeated here; the status bar
+/// carries those, and saying them twice left neither line able to say
+/// anything else.
 fn draw_title(frame: &mut Frame, app: &App, area: Rect) {
     let t = app.theme;
     frame.render_widget(Block::default().style(Style::default().bg(t.subtle)), area);
+
+    // Inset by one column on each side, exactly as the composer's box is, so
+    // the two line up down the window rather than nearly lining up.
+    let boxed = Rect::new(
+        area.x + 1,
+        area.y,
+        area.width.saturating_sub(2),
+        area.height.min(3),
+    );
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::default().fg(t.border))
+        .style(Style::default().bg(t.subtle));
+    let inner = block.inner(boxed);
+    frame.render_widget(block, boxed);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
 
     let project = app
         .workspace
@@ -120,47 +157,22 @@ fn draw_title(frame: &mut Frame, app: &App, area: Rect) {
         .to_string_lossy()
         .into_owned();
 
-    // The agent and its state live in the status bar, which is where the eye
-    // already goes for them. Repeating them here said the same thing twice
-    // and left neither line able to say anything else.
     let mut left = vec![
+        Span::styled(" ", Style::default()),
         Span::styled(
-            " ❯_ ENX ",
-            Style::default()
-                .fg(t.panel)
-                .bg(t.accent)
-                .add_modifier(Modifier::BOLD),
+            project,
+            Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
         ),
-        Span::raw("  "),
-        Span::styled(project, Style::default().fg(t.text)),
     ];
     if !app.title.is_empty() {
-        left.push(Span::styled("  ›  ", Style::default().fg(t.faint)));
+        left.push(Span::styled("   ", Style::default().fg(t.faint)));
         left.push(Span::styled(
-            crate::text::trim(&app.title, 40),
+            crate::text::trim(&app.title, 48),
             Style::default().fg(t.muted),
         ));
     }
 
-    // The model sits beside the agent in the status bar: which agent is
-    // answering and which model it answers with are one fact, and splitting
-    // them across the window made the eye hunt for the other half.
-    let right = Line::default();
-
-    draw_split_line(
-        frame,
-        Line::from(left),
-        right,
-        Rect::new(area.x + 1, area.y, area.width.saturating_sub(2), 1),
-    );
-
-    if area.height >= 2 {
-        frame.render_widget(
-            Paragraph::new("─".repeat(area.width as usize))
-                .style(Style::default().fg(t.border).bg(t.subtle)),
-            Rect::new(area.x, area.y + area.height - 1, area.width, 1),
-        );
-    }
+    draw_split_line(frame, Line::from(left), Line::default(), inner);
 }
 
 fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
@@ -363,16 +375,22 @@ pub(super) fn draw_split_line(frame: &mut Frame, left: Line, right: Line, area: 
 /// taking three rows, a heading row each would cost a tenth of a short
 /// terminal.
 fn pane_label(frame: &mut Frame, app: &App, area: Rect, label: &str, right: bool) {
-    if area.width < 24 || area.y == 0 {
+    // Two rows up: the blank row under the header box, then the box's own
+    // lower edge, which is the line separating the header from the panes.
+    // On a blank row the label floats and reads as a heading.
+    if area.width < 24 || area.y < 2 {
         return;
     }
     let t = app.theme;
     let text = format!(" {label} ");
     let width = text.chars().count() as u16;
+    // The header box is inset one column from the window frame, so its
+    // corners sit at x+1 and at the far edge minus one. Clear both: a label
+    // written over `╰` or `╯` makes the box look broken rather than titled.
     let x = if right {
-        area.x + area.width.saturating_sub(width + 2)
+        area.x + area.width.saturating_sub(width + 3)
     } else {
-        area.x + 2
+        area.x + 3
     };
     frame.render_widget(
         Paragraph::new(Line::styled(
@@ -382,6 +400,6 @@ fn pane_label(frame: &mut Frame, app: &App, area: Rect, label: &str, right: bool
                 .bg(t.subtle)
                 .add_modifier(Modifier::BOLD),
         )),
-        Rect::new(x, area.y - 1, width.min(area.width), 1),
+        Rect::new(x, area.y - 2, width.min(area.width), 1),
     );
 }

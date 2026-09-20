@@ -13,13 +13,14 @@ fn screen(app: &mut TestApp) -> Vec<String> {
     app.render_to_text(W, H)
 }
 
+/// The header's text row, inside its box.
 fn header(app: &mut TestApp) -> String {
-    screen(app)[1].clone()
+    screen(app)[2].clone()
 }
 
-/// The rule under the header, which carries the pane names.
+/// The header box's lower edge, which carries the pane names.
 fn pane_rule(app: &mut TestApp) -> String {
-    screen(app)[2].clone()
+    screen(app)[3].clone()
 }
 
 fn status_bar(app: &mut TestApp) -> String {
@@ -34,7 +35,6 @@ fn status_bar(app: &mut TestApp) -> String {
 fn the_header_names_the_workspace() {
     let mut app = TestApp::new();
     let text = header(&mut app);
-    assert!(text.contains("ENX"), "the badge: {text}");
     assert!(text.contains("ws"), "the workspace: {text}");
     assert!(
         !text.contains("router"),
@@ -42,17 +42,37 @@ fn the_header_names_the_workspace() {
     );
 }
 
-/// One row, not three. Chrome at the top and bottom competes with the
-/// conversation for a short terminal.
+/// A box, matching the composer at the other end of the window, so the pair
+/// frames the conversation between them.
 #[test]
-fn the_header_is_one_row_plus_its_rule() {
+fn the_header_is_a_box() {
     let mut app = TestApp::new();
     let rows = screen(&mut app);
-    assert!(rows[1].contains("ENX"), "the header: {}", rows[1]);
+    assert!(rows[1].contains("╭─"), "a top edge: {}", rows[1]);
     assert!(
-        rows[2].contains('─'),
-        "then straight to the rule: {}",
+        rows[2].contains("ws"),
+        "the workspace inside it: {}",
         rows[2]
+    );
+    assert!(rows[3].contains("╰─"), "and a bottom edge: {}", rows[3]);
+}
+
+/// The two boxes are inset by the same amount, or they nearly line up, which
+/// reads worse than not lining up at all.
+#[test]
+fn the_header_and_composer_boxes_line_up() {
+    let mut app = TestApp::new();
+    app.type_input("hello");
+    let rows = screen(&mut app);
+    let header_edge = rows[1].find("╭─").expect("the header's top edge");
+    let composer_edge = rows
+        .iter()
+        .rposition(|row| row.contains("╭─"))
+        .and_then(|at| rows[at].find("╭─"))
+        .expect("the composer's top edge");
+    assert_eq!(
+        header_edge, composer_edge,
+        "both boxes should start in the same column"
     );
 }
 

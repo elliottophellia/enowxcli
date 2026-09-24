@@ -41,8 +41,8 @@ fn the_sidebar_carries_the_running_total() {
     let row = app
         .render_to_text(120, 34)
         .into_iter()
-        .find(|r| r.contains("Trimmed"))
-        .expect("a Trimmed row");
+        .find(|r| r.contains("dipangkas"))
+        .expect("a trimmed row");
     assert!(row.contains('1'), "the count: {row}");
     assert!(row.contains("4,256"), "and what it saved: {row}");
 }
@@ -56,7 +56,7 @@ fn the_sidebar_row_is_absent_until_something_happens() {
     assert!(
         !app.render_to_text(120, 34)
             .iter()
-            .any(|r| r.contains("Trimmed")),
+            .any(|r| r.contains("dipangkas")),
         "nothing has been trimmed, so there is nothing to report"
     );
 }

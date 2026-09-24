@@ -42,25 +42,33 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
         let columns =
             Layout::horizontal([Constraint::Min(52), Constraint::Length(sidebar)]).split(parts[2]);
         draw_composer_pane(frame, app, columns[0]);
-        draw_sidebar(frame, app, columns[1]);
-        // Name each pane on the rule above it rather than spending a row on a
-        // heading. The label says which half a key acts on, which is the only
-        // question the divider leaves open.
-        pane_label(frame, app, columns[0], "CHAT", false);
-        pane_label(
+        // The box runs down over the footer's row to close on the window
+        // frame. Closed on four sides, it would otherwise float a row above
+        // the status bar with a band of panel beneath it — the same rule
+        // stopping in mid-air that the old divider's carry-through fixed.
+        draw_sidebar(
             frame,
             app,
-            columns[1],
-            crate::ui::sidebar::TABS[app.sidebar_tab].1,
-            true,
+            Rect::new(
+                columns[1].x,
+                columns[1].y,
+                columns[1].width,
+                columns[1].height + footer,
+            ),
         );
+        // No pane labels. With the sidebar a box of its own, the header's
+        // lower edge spans the full width and belongs to neither pane, so a
+        // name written on it pointed at a rule that was not that pane's. The
+        // sidebar titles itself on its own top edge; the transcript below
+        // needs no label to be recognised.
     } else {
         draw_composer_pane(frame, app, parts[2]);
     }
     if footer > 0 {
-        // The footer belongs to the chat pane, so it stops at the divider.
-        // Running it the full width put a lighter band under the sidebar that
-        // belonged to neither pane.
+        // The footer stops where the sidebar's box begins. The box closes on
+        // this row, so a status bar running the full width writes its keys
+        // straight over the box's lower edge — `╰───Ctrl+P commands`, a
+        // corner with text through it.
         let footer_area = if sidebar > 0 {
             Rect::new(
                 parts[3].x,
@@ -71,46 +79,7 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
         } else {
             parts[3]
         };
-        debug_assert!(
-            sidebar == 0
-                || footer_area.x + footer_area.width == parts[2].x + parts[2].width - sidebar,
-            "the footer must stop exactly at the divider column"
-        );
-        // Fill the strip beside it with the sidebar's own background so the
-        // row reads as a continuation of the pane above, not as a gap.
-        if sidebar > 0 {
-            frame.render_widget(
-                Block::default().style(Style::default().bg(app.theme.panel)),
-                Rect::new(
-                    footer_area.x + footer_area.width,
-                    parts[3].y,
-                    sidebar,
-                    parts[3].height,
-                ),
-            );
-        }
         draw_footer(frame, app, footer_area);
-        // Carry the pane divider through the footer to the frame. The
-        // divider is the sidebar's left border, so it ended where the
-        // sidebar did — one row short of the bottom — and a vertical rule
-        // stopping in mid-air reads as a rendering fault rather than as the
-        // edge of a pane.
-        if sidebar > 0 {
-            // The divider is the sidebar's left border, so its column is the
-            // one the sidebar starts in. Deriving it from the footer's width
-            // instead put it one cell out, and the rule stopped a row short
-            // of the frame with nothing continuing it.
-            let x = parts[2].x + parts[2].width - sidebar;
-            frame.render_widget(
-                // The rule takes the SIDEBAR's background, not the footer's.
-                // It marks the sidebar's edge, and painting it `subtle` left
-                // one lighter cell standing proud of the dark column below —
-                // a single-cell leak, but the eye finds it immediately.
-                Paragraph::new("│")
-                    .style(Style::default().fg(app.theme.border).bg(app.theme.panel)),
-                Rect::new(x, parts[3].y, 1, parts[3].height),
-            );
-        }
     }
 }
 
@@ -368,38 +337,3 @@ pub(super) fn draw_split_line(frame: &mut Frame, left: Line, right: Line, area: 
     }
 }
 
-/// A pane's name, sitting on the rule at its top edge.
-///
-/// Borrowed from how a bordered box carries its title: the label belongs to
-/// the line, not to a row of its own. With two panes and a header already
-/// taking three rows, a heading row each would cost a tenth of a short
-/// terminal.
-fn pane_label(frame: &mut Frame, app: &App, area: Rect, label: &str, right: bool) {
-    // Two rows up: the blank row under the header box, then the box's own
-    // lower edge, which is the line separating the header from the panes.
-    // On a blank row the label floats and reads as a heading.
-    if area.width < 24 || area.y < 2 {
-        return;
-    }
-    let t = app.theme;
-    let text = format!(" {label} ");
-    let width = text.chars().count() as u16;
-    // The header box is inset one column from the window frame, so its
-    // corners sit at x+1 and at the far edge minus one. Clear both: a label
-    // written over `╰` or `╯` makes the box look broken rather than titled.
-    let x = if right {
-        area.x + area.width.saturating_sub(width + 3)
-    } else {
-        area.x + 3
-    };
-    frame.render_widget(
-        Paragraph::new(Line::styled(
-            text,
-            Style::default()
-                .fg(t.faint)
-                .bg(t.subtle)
-                .add_modifier(Modifier::BOLD),
-        )),
-        Rect::new(x, area.y - 2, width.min(area.width), 1),
-    );
-}

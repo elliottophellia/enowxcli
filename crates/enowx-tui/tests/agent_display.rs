@@ -83,23 +83,30 @@ fn the_agent_tab_marks_the_active_agent() {
     );
 }
 
-/// Descriptions are what a reader scans to pick an agent, so at least some of
-/// them have to survive onto the screen.
+/// The roster is names only, one row each.
+///
+/// Each entry used to carry a one-line description under it. That is reference
+/// material for picking an agent by hand — sixteen names plus sixteen lines of
+/// prose, in the pane that also has to show a delegation running right now.
+/// The names stay because the roster answers "what exists"; the descriptions
+/// went because nothing here acts on them.
 #[test]
-fn the_agent_tab_shows_descriptions() {
+fn the_roster_is_names_only() {
     let mut app = TestApp::new();
     let rows = agent_tab_rows(&mut app);
     assert!(
-        rows.iter().any(|row| row.contains("frontend")),
-        "an agent's description should appear beneath its name"
+        rows.iter().any(|row| row.split_whitespace().any(|w| w == "fe")),
+        "the roster should still name its agents: {rows:#?}"
+    );
+    assert!(
+        !rows.iter().any(|row| row.contains("frontend")),
+        "but not carry their descriptions: {rows:#?}"
     );
 }
 
-/// Each entry is a name row plus at most one description row. Wrapping a
-/// sixteen-agent roster at 38 columns would run to forty rows of prose nobody
-/// reads.
+/// One row per agent, so a sixteen-agent roster costs sixteen rows.
 #[test]
-fn descriptions_are_truncated_rather_than_wrapped() {
+fn each_roster_entry_is_one_row() {
     let mut app = TestApp::new();
     app.select_sidebar_tab(AGENT_TAB);
     let rows = screen(&mut app);
@@ -107,12 +114,11 @@ fn descriptions_are_truncated_rather_than_wrapped() {
         .iter()
         .position(|row| row.split_whitespace().any(|w| w == "fe"))
         .expect("the roster should name `fe`");
-    // The row after the description belongs to the next agent, not to a
-    // continuation of this one.
-    let after = rows.get(fe + 2).expect("a row below fe's description");
+    // The very next row is the next agent, not a continuation of this one.
+    let after = rows.get(fe + 1).expect("a row below fe");
     assert!(
-        !after.contains("accessibility"),
-        "fe's description wrapped onto a third row: {after:?}"
+        !after.contains("accessibility") && !after.contains("frontend"),
+        "fe's entry should end at its name: {after:?}"
     );
 }
 

@@ -10,11 +10,26 @@ use enowx_tui::testing::TestApp;
 
 const LOGS_TAB: usize = 4;
 
+/// The sidebar's half of each row.
+///
+/// Taken by column rather than by splitting on `│`: the sidebar is a box with
+/// borders of its own, so counting rules in from the right lands inside it or
+/// past it depending on the row. The column is found from the box's titled top
+/// edge, counted in chars — `find` gives a byte offset, and the frame's
+/// multi-byte glyphs put the two well apart by this point in the row.
 fn logs(app: &mut TestApp) -> String {
     app.select_sidebar_tab(LOGS_TAB);
-    app.render_to_text(120, 34)
-        .into_iter()
-        .filter_map(|row| row.rsplit('│').nth(1).map(str::to_owned))
+    let rows = app.render_to_text(120, 34);
+    let start = rows
+        .iter()
+        .find_map(|row| {
+            let at = row.find("╭─ ")?;
+            Some(row[..at].chars().count())
+        })
+        .filter(|at| *at > 4)
+        .expect("the sidebar's titled top edge");
+    rows.into_iter()
+        .map(|row| row.chars().skip(start).collect::<String>())
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -35,7 +50,7 @@ fn the_fifth_tab_is_logs() {
 fn an_empty_session_says_so() {
     let mut app = TestApp::new();
     assert!(
-        logs(&mut app).contains("nothing logged yet"),
+        logs(&mut app).contains("belum ada yang tercatat"),
         "an empty log should say it is empty rather than looking broken"
     );
 }
@@ -141,7 +156,9 @@ fn the_filter_cycles_back_to_everything() {
         app.press(KeyCode::F(6), false).expect("F6");
     }
     let text = logs(&mut app);
-    assert!(text.contains("all ·"), "back to everything: {text}");
+    // The unfiltered heading names no filter: "N baris log" rather than
+    // "N baris · saring <kind>".
+    assert!(text.contains("baris log"), "back to everything: {text}");
     assert!(text.contains("trimmed bash"), "and showing it: {text}");
 }
 
@@ -153,7 +170,7 @@ fn the_filter_keys_bring_the_tab_forward() {
     app.press(KeyCode::F(6), false).expect("F6");
     let text = app.render_to_text(120, 34).join("\n");
     assert!(
-        text.contains("Showing"),
+        text.contains("F6 saring"),
         "F6 should show the log it just filtered: {text}"
     );
 }

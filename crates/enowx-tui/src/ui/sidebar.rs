@@ -16,12 +16,36 @@ pub(super) fn draw_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
     }
     let t = app.theme;
     app.sidebar_area = Some(area);
+    // A box of its own rather than a strip hanging off a divider, inset one
+    // column on the right so it lines up with the header and the composer.
+    // The three of them then read as the same kind of object, which is what
+    // stops the sidebar looking like a severed remnant of the chrome above.
+    let boxed = Rect::new(area.x, area.y, area.width.saturating_sub(1), area.height);
     let block = Block::default()
-        .borders(Borders::LEFT)
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(t.border))
         .style(Style::default().bg(t.panel));
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let inner = block.inner(boxed);
+    frame.render_widget(block, boxed);
+    // The tab's name on the box's own top edge, the way a bordered widget
+    // titles itself. It used to sit on the header's lower edge, which now
+    // spans the full width and belongs to neither pane.
+    if boxed.width > 8 {
+        frame.render_widget(
+            Paragraph::new(Line::styled(
+                format!(" {} ", TABS[app.sidebar_tab].1),
+                Style::default()
+                    .fg(t.accent)
+                    .bg(t.panel)
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Rect::new(boxed.x + 2, boxed.y, boxed.width.saturating_sub(4), 1),
+        );
+    }
+    if inner.width == 0 || inner.height < 3 {
+        return;
+    }
 
     // Two rows: the labels, and an underline marking the active one. The
     // third was a blank lead-in that bought nothing — the header above
@@ -34,8 +58,11 @@ pub(super) fn draw_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
     .split(inner);
     draw_tabs(frame, app, rows[0]);
 
+    // One column of padding rather than two: the box's own border already
+    // holds the contents off the edge, so the old inset would have indented
+    // everything twice.
     let body = rows[1].inner(Margin {
-        horizontal: 2,
+        horizontal: 1,
         vertical: 0,
     });
     app.delegation_rects.clear();
@@ -97,17 +124,19 @@ pub(super) fn draw_sidebar(frame: &mut Frame, app: &mut App, area: Rect) {
 
 fn draw_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
     let t = app.theme;
+    // On the box's own surface, and with no rule under it. The strip used to
+    // sit on `subtle` with a bottom border; inside a box that reads as a band
+    // of foreign colour, and the rule is the one separator that disappears in
+    // a low-contrast theme. The selected tab's own fill marks the strip's
+    // extent, and a blank row below it does the separating.
     frame.render_widget(
-        Block::default()
-            .borders(Borders::BOTTOM)
-            .border_style(Style::default().fg(t.border))
-            .style(Style::default().bg(t.subtle)),
+        Block::default().style(Style::default().bg(t.panel)),
         area,
     );
     // Full names need ~44 columns; below that the number alone still identifies
     // the tab and keeps every target the same clickable width.
     // Bare numbers are unreadable as a strip — nothing says what tab 3 is —
-    // so the words stay for as long as they fit at all. The pane label above
+    // so the words stay for as long as they fit at all. The box's top edge
     // names only the selected one.
     let compact = area.width < 44;
     for (index, (key, name)) in TABS.iter().enumerate() {
@@ -118,7 +147,7 @@ fn draw_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
         let active = index == app.sidebar_tab;
         let style = Style::default()
             .fg(if active { t.accent } else { t.muted })
-            .bg(if active { t.active_tab } else { t.subtle });
+            .bg(if active { t.active_tab } else { t.panel });
         let label = if compact {
             (*key).to_owned()
         } else {
@@ -147,48 +176,12 @@ fn draw_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
-/// A label/value row. Long values wrap under their label so nothing is clipped
-/// and the value column stays aligned.
-fn row(lines: &mut Vec<Line<'static>>, label: &str, value: &str, width: usize, theme: &Theme) {
-    let gap = 1;
-    if label.is_empty() {
-        for wrapped in textwrap::wrap(value, width.max(1)) {
-            lines.push(Line::styled(
-                wrapped.into_owned(),
-                Style::default().fg(theme.text),
-            ));
-        }
-        return;
-    }
-    let room = width.saturating_sub(label.width() + gap);
-    if value.width() <= room {
-        let padding = width.saturating_sub(label.width() + value.width());
-        lines.push(Line::from(vec![
-            Span::styled(label.to_owned(), Style::default().fg(theme.muted)),
-            Span::raw(" ".repeat(padding)),
-            Span::styled(value.to_owned(), Style::default().fg(theme.text)),
-        ]));
-        return;
-    }
-    lines.push(Line::styled(
-        label.to_owned(),
-        Style::default().fg(theme.muted),
-    ));
-    for wrapped in textwrap::wrap(value, width.saturating_sub(2).max(1)) {
-        lines.push(Line::styled(
-            format!("  {wrapped}"),
-            Style::default().fg(theme.text),
-        ));
-    }
-}
-
-/// One roster entry: the name on its own row, the description indented under
-/// it on the next.
+/// One roster entry: the name, on one row.
 ///
-/// The description is truncated rather than wrapped. At the sidebar's 38–60
-/// columns most of these run to two or three rows when wrapped, and a roster
-/// of sixteen then scrolls past forty rows of prose the user is not reading —
-/// the list exists to be scanned for a name, not read.
+/// It used to carry the agent's one-line description under it. At the
+/// sidebar's 38–60 columns a roster of sixteen then ran to forty-odd rows of
+/// prose in the pane that also has to show a delegation running right now —
+/// and the list exists to be scanned for a name, not read.
 fn agent_entry(
     lines: &mut Vec<Line<'static>>,
     agent: &enowx_core::AgentDef,
@@ -222,48 +215,96 @@ fn agent_entry(
         ));
     }
     lines.push(Line::from(name));
-    let description = agent.description.trim();
-    if !description.is_empty() {
-        lines.push(Line::styled(
-            format!("    {}", trim(description, width.saturating_sub(4).max(1))),
-            Style::default().fg(theme.muted),
-        ));
-    }
 }
 
-fn heading(lines: &mut Vec<Line<'static>>, title: &str, width: usize, theme: &Theme) {
+/// A section heading: the title alone, in the accent colour.
+///
+/// It used to be a rule with the title set into it. That reads well in a theme
+/// with a visible border and vanishes in one without: `chrome_void` puts
+/// `border` at RGB(36,36,54) over a `panel` of RGB(13,13,20), about 1.3:1, so
+/// the rule was a line you could measure and not see — and the heading went
+/// with it. Colour and weight carry the separation now, which every theme has.
+fn heading(lines: &mut Vec<Line<'static>>, title: &str, _width: usize, theme: &Theme) {
     if !lines.is_empty() {
         lines.push(Line::default());
     }
-    // The rule carries the title rather than sitting under it, so a section
-    // costs one row. The sidebar has four or five of them per tab, and a
-    // blank row plus a heading row each was a third of a short pane.
-    let rule = width.saturating_sub(title.width() + 3);
+    lines.push(Line::styled(
+        title.to_owned(),
+        Style::default()
+            .fg(theme.accent)
+            .add_modifier(Modifier::BOLD),
+    ));
+}
+
+/// A headline figure: the number first and bold, what it measures after it.
+///
+/// The number leads because it is what the eye is looking for — a label-left,
+/// value-right row makes you read across the pane to find it, which is fine
+/// for a list and wrong for the one figure the tab exists to show.
+fn headline(
+    lines: &mut Vec<Line<'static>>,
+    value: &str,
+    label: &str,
+    theme: &Theme,
+) {
     lines.push(Line::from(vec![
-        Span::styled("─ ", Style::default().fg(theme.border)),
         Span::styled(
-            title.to_owned(),
+            value.to_owned(),
             Style::default()
-                .fg(theme.faint)
+                .fg(theme.accent)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            format!(" {}", "─".repeat(rule)),
-            Style::default().fg(theme.border),
-        ),
+        Span::styled(format!("  {label}"), Style::default().fg(theme.muted)),
     ]));
 }
 
+/// A figure and its name, aligned in a column so several read as a block.
+fn figure(lines: &mut Vec<Line<'static>>, value: &str, label: &str, theme: &Theme) {
+    // Ten columns fits a formatted cost (`$0.0000`) and a thousands-separated
+    // count; past that the label simply starts later on that row rather than
+    // the column breaking.
+    lines.push(Line::from(vec![
+        Span::styled(
+            format!("{value:<10}"),
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(label.to_owned(), Style::default().fg(theme.muted)),
+    ]));
+}
+
+/// A hint in the faint colour: what key does something here.
+fn hint(lines: &mut Vec<Line<'static>>, text: &str, theme: &Theme) {
+    lines.push(Line::default());
+    lines.push(Line::styled(
+        text.to_owned(),
+        Style::default().fg(theme.faint),
+    ));
+}
+
+/// The context bar, running the full width.
+///
+/// The percentage used to sit at its right end. It leads the tab as a headline
+/// now, so repeating it here would say the same thing twice and cost the bar
+/// seven columns of track.
 fn gauge(percent: f64, width: usize, theme: &Theme) -> Line<'static> {
-    let track = width.saturating_sub(7).max(4);
+    let track = width.max(4);
     let filled = ((track as f64) * percent / 100.0).round() as usize;
     Line::from(vec![
-        Span::styled("█".repeat(filled), Style::default().fg(theme.accent)),
+        Span::styled(
+            "█".repeat(filled),
+            // Red once there is little room left: the bar is the one thing
+            // here that says "compact soon", and a full bar in the accent
+            // colour looks the same as an empty one at a glance.
+            Style::default().fg(if percent >= 85.0 {
+                theme.red
+            } else {
+                theme.accent
+            }),
+        ),
         Span::styled(
             "░".repeat(track.saturating_sub(filled)),
             Style::default().fg(theme.faint),
         ),
-        Span::styled(format!(" {percent:>4.1}%"), Style::default().fg(theme.text)),
     ])
 }
 
@@ -275,243 +316,213 @@ fn sidebar_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, us
 
     match app.sidebar_tab {
         0 => {
+            // How full the context is decides whether to compact, which is the
+            // only thing anyone does about this tab. It leads.
             let window = app.context_window;
             let percent = if window > 0 {
                 (100.0 * app.context_tokens as f64 / window as f64).min(100.0)
             } else {
                 0.0
             };
-            heading(&mut lines, "CONTEXT", width, t);
-            row(
+            headline(
                 &mut lines,
-                "Used",
-                &format!(
-                    "{} / {}",
-                    thousands(app.context_tokens as u64),
-                    thousands(window as u64)
-                ),
-                width,
+                &format!("{percent:.1}%"),
+                "context terpakai",
                 t,
             );
             lines.push(gauge(percent, width, t));
+            lines.push(Line::styled(
+                format!(
+                    "{} / {} token",
+                    thousands(app.context_tokens as u64),
+                    thousands(window as u64)
+                ),
+                Style::default().fg(t.faint),
+            ));
 
-            heading(&mut lines, "LAST MODEL CALL", width, t);
-            row(
+            lines.push(Line::default());
+            let cost = crate::pricing::cost_usd(&app.config, app.tokens_in, app.tokens_out, 0);
+            figure(
                 &mut lines,
-                "Input",
-                &thousands(app.tokens_in as u64),
-                width,
+                &crate::pricing::format_cost(&app.config, cost),
+                "biaya sesi",
                 t,
             );
-            row(
-                &mut lines,
-                "Output",
-                &thousands(app.tokens_out as u64),
-                width,
-                t,
-            );
-
-            heading(&mut lines, "SESSION", width, t);
-            row(&mut lines, "Tool calls", &calls.to_string(), width, t);
-            row(
-                &mut lines,
-                "Messages",
-                &app.blocks
-                    .iter()
-                    .filter(|block| {
-                        matches!(block.kind, TranscriptKind::User | TranscriptKind::Assistant)
-                    })
-                    .count()
-                    .to_string(),
-                width,
-                t,
-            );
-            row(&mut lines, "State", app.activity.label(), width, t);
+            figure(&mut lines, &calls.to_string(), "panggilan tool", t);
+            figure(&mut lines, app.activity.label(), "status", t);
             // Only once it has done something: a row reading "0" on every
             // install that has never configured TypeSafe is noise.
             if app.trimmed_count > 0 {
-                row(
+                figure(
                     &mut lines,
-                    "Trimmed",
+                    &app.trimmed_count.to_string(),
                     &format!(
-                        "{} · {} saved",
-                        app.trimmed_count,
+                        "hasil tool dipangkas · {} token hemat",
                         crate::text::thousands(app.trimmed_saved as u64)
                     ),
-                    width,
                     t,
                 );
             }
 
-            heading(&mut lines, "COST", width, t);
-            let cost = crate::pricing::cost_usd(&app.config, app.tokens_in, app.tokens_out, 0);
-            row(
-                &mut lines,
-                "Session",
-                &crate::pricing::format_cost(&app.config, cost),
-                width,
-                t,
-            );
-            row(
-                &mut lines,
-                "Per 1M in",
-                &crate::pricing::format_cost(&app.config, app.config.model.price_input),
-                width,
-                t,
-            );
-            row(
-                &mut lines,
-                "Per 1M out",
-                &crate::pricing::format_cost(&app.config, app.config.model.price_output),
-                width,
-                t,
-            );
+            // `Per 1M in`/`out` were here. They are the model's price list,
+            // fixed for the whole session and already in `/provider` — a
+            // number nobody acts on, printed where the ones they do act on
+            // have to be found among them. `Input`/`Output` of the last call
+            // and a message count went the same way: the context bar above
+            // already says how much room is left, which is the question they
+            // were being read to answer.
+            hint(&mut lines, "1–5 pindah tab", t);
         }
         1 => {
-            heading(&mut lines, "INVOCATIONS", width, t);
-            row(&mut lines, "Total calls", &calls.to_string(), width, t);
-            row(
-                &mut lines,
-                "Failed",
-                &app.blocks
-                    .iter()
-                    .filter(|block| matches!(block.kind, TranscriptKind::Tool { error: true, .. }))
-                    .count()
-                    .to_string(),
-                width,
-                t,
-            );
-
-            heading(&mut lines, "TOOL ACCESS", width, t);
-            for name in ROLES[0].allowed_tools() {
-                let count = app.tool_counts.get(*name).copied().unwrap_or(0);
-                let state = if app.role.allowed_tools().contains(name) {
-                    format!("{count} calls")
-                } else {
-                    "blocked".to_owned()
-                };
-                row(&mut lines, name, &state, width, t);
+            let failed = app
+                .blocks
+                .iter()
+                .filter(|block| matches!(block.kind, TranscriptKind::Tool { error: true, .. }))
+                .count();
+            headline(&mut lines, &calls.to_string(), "panggilan tool", t);
+            // A failure is the one thing here worth interrupting for, so it is
+            // only shown when there is one — and in red when there is.
+            if failed > 0 {
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        format!("{failed:<10}"),
+                        Style::default().fg(t.red).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled("gagal", Style::default().fg(t.red)),
+                ]));
             }
 
-            heading(&mut lines, "MCP SERVERS", width, t);
-            if app.discovery.mcp_servers.is_empty() {
-                row(&mut lines, "", "no MCP servers detected", width, t);
+            // Only the tools that have actually been called, busiest first.
+            // The full roster was sixteen rows of `0 calls` that said nothing
+            // about this session; what it was really carrying is which tools
+            // this agent cannot use, and that is the short list below.
+            heading(&mut lines, "DIPAKAI", width, t);
+            let mut used: Vec<(&str, usize)> = ROLES[0]
+                .allowed_tools()
+                .iter()
+                .map(|name| (*name, app.tool_counts.get(*name).copied().unwrap_or(0)))
+                .filter(|(_, count)| *count > 0)
+                .collect();
+            used.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+            if used.is_empty() {
+                lines.push(Line::styled(
+                    "belum ada".to_owned(),
+                    Style::default().fg(t.faint),
+                ));
             } else {
+                for (name, count) in used {
+                    figure(&mut lines, &count.to_string(), name, t);
+                }
+            }
+
+            let blocked: Vec<&str> = ROLES[0]
+                .allowed_tools()
+                .iter()
+                .filter(|name| !app.role.allowed_tools().contains(*name))
+                .copied()
+                .collect();
+            if !blocked.is_empty() {
+                heading(&mut lines, "DIBLOKIR", width, t);
+                for name in blocked {
+                    lines.push(Line::styled(
+                        name.to_owned(),
+                        Style::default().fg(t.muted),
+                    ));
+                }
+            }
+
+            if !app.discovery.mcp_servers.is_empty() {
+                heading(&mut lines, "MCP", width, t);
+                // The server and how many tools it brought, one row each. The
+                // tool names themselves were up to twelve rows per server —
+                // a catalogue, read once when wiring the server up and never
+                // again, filling the pane for every session after that.
                 for server in &app.discovery.mcp_servers {
-                    let state = if server.enabled {
-                        "enabled"
-                    } else {
-                        "disabled"
-                    };
-                    row(&mut lines, &server.name, state, width, t);
                     if server.enabled {
-                        let tools = app.agent.mcp_tools(&server.name);
-                        if tools.is_empty() {
-                            row(&mut lines, "", "  (no tools reported)", width, t);
-                        } else {
-                            for tool in tools.iter().take(12) {
-                                row(&mut lines, "", &format!("  · {}", tool.name), width, t);
-                            }
-                            if tools.len() > 12 {
-                                row(
-                                    &mut lines,
-                                    "",
-                                    &format!("  +{} more", tools.len() - 12),
-                                    width,
-                                    t,
-                                );
-                            }
-                        }
+                        let count = app.agent.mcp_tools(&server.name).len();
+                        figure(&mut lines, &count.to_string(), &server.name, t);
+                    } else {
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                format!("{:<10}", "mati"),
+                                Style::default().fg(t.faint),
+                            ),
+                            Span::styled(
+                                server.name.clone(),
+                                Style::default().fg(t.muted),
+                            ),
+                        ]));
                     }
                 }
             }
+            hint(&mut lines, "1–5 pindah tab", t);
         }
         2 => {
             let skills = &app.discovery.skills;
-            heading(&mut lines, "SKILLS", width, t);
-            row(&mut lines, "Loaded", &skills.len().to_string(), width, t);
+            headline(&mut lines, &skills.len().to_string(), "skill tersedia", t);
+            // Shadowing is a problem to fix, not a count to note: two skills
+            // of one name means the wrong one may load.
             if !app.discovery.shadowed_skills.is_empty() {
-                row(
-                    &mut lines,
-                    "Shadowed",
-                    &app.discovery.shadowed_skills.len().to_string(),
-                    width,
-                    t,
-                );
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        format!("{:<10}", app.discovery.shadowed_skills.len()),
+                        Style::default().fg(t.yellow).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled("tertimpa nama sama", Style::default().fg(t.yellow)),
+                ]));
             }
 
-            heading(&mut lines, "AVAILABLE", width, t);
             if skills.is_empty() {
-                row(
-                    &mut lines,
-                    "",
-                    "no skills found in this workspace or ~/",
-                    width,
-                    t,
-                );
+                hint(&mut lines, "tidak ada skill di workspace ini atau ~/", t);
             } else {
-                for skill in skills.iter().take(48) {
-                    let scope = match skill.scope {
-                        enowx_core::SkillScope::Project => "project",
-                        enowx_core::SkillScope::User => "user",
-                    };
-                    row(&mut lines, &skill.name, scope, width, t);
+                // Project skills first: those are this workspace's own, and
+                // the ones a user scans for. The scope tag is dropped from the
+                // row and carried by the grouping instead.
+                let mut project: Vec<&str> = Vec::new();
+                let mut user: Vec<&str> = Vec::new();
+                for skill in skills.iter() {
+                    match skill.scope {
+                        enowx_core::SkillScope::Project => project.push(&skill.name),
+                        enowx_core::SkillScope::User => user.push(&skill.name),
+                    }
                 }
-                if skills.len() > 48 {
-                    row(
-                        &mut lines,
-                        "",
-                        &format!("+{} more (tab 5)", skills.len() - 48),
-                        width,
-                        t,
-                    );
+                for (title, group) in [("PROYEK INI", project), ("GLOBAL", user)] {
+                    if group.is_empty() {
+                        continue;
+                    }
+                    heading(&mut lines, title, width, t);
+                    for name in group.iter().take(40) {
+                        lines.push(Line::styled(
+                            (*name).to_owned(),
+                            Style::default().fg(t.text),
+                        ));
+                    }
+                    if group.len() > 40 {
+                        lines.push(Line::styled(
+                            format!("+{} lagi", group.len() - 40),
+                            Style::default().fg(t.faint),
+                        ));
+                    }
                 }
             }
-
-            heading(&mut lines, "LOAD ON DEMAND", width, t);
-            row(&mut lines, "Tool", "skill_read", width, t);
+            hint(&mut lines, "dimuat lewat tool skill_read", t);
         }
         3 => {
             let active = app.active_agent();
-            heading(&mut lines, "ACTIVE AGENT", width, t);
-            row(&mut lines, "Agent", active, width, t);
-            row(&mut lines, "State", app.activity.label(), width, t);
-            row(&mut lines, "Model", &app.config.model.default, width, t);
-            row(
-                &mut lines,
-                "Step limit",
-                &app.config.agent.max_steps.to_string(),
-                width,
-                t,
-            );
-
-            heading(&mut lines, "INSTRUCTIONS", width, t);
-            let files = &app.discovery.instructions;
-            row(&mut lines, "Files", &files.len().to_string(), width, t);
-            for file in files.iter().take(24) {
-                let scope = match file.scope {
-                    enowx_core::SkillScope::Project => "project",
-                    enowx_core::SkillScope::User => "user",
-                };
-                let name = file
-                    .path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                let label = if file.imports > 0 {
-                    format!("{name} +{}", file.imports)
-                } else {
-                    name
-                };
-                row(&mut lines, &label, scope, width, t);
-            }
+            // Who is answering, and whether they are working. The model and
+            // the step limit were here too; both are in the status bar and
+            // `/model`, and neither changes while you watch this tab.
+            headline(&mut lines, active, app.activity.label(), t);
 
             // Delegations first: a sixteen-agent roster is reference
             // material, while a sub-agent that is running right now is the
             // thing someone opens this tab to look at.
-            heading(&mut lines, "DELEGATED", width, t);
+            heading(&mut lines, "DIDELEGASIKAN", width, t);
             if app.delegations.is_empty() {
-                row(&mut lines, "", "none this session", width, t);
+                lines.push(Line::styled(
+                    "belum ada".to_owned(),
+                    Style::default().fg(t.faint),
+                ));
             } else {
                 for (index, delegation) in app.delegations.iter().enumerate() {
                     delegation_markers.push((lines.len(), index));
@@ -540,15 +551,27 @@ fn sidebar_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, us
                         Style::default().fg(t.faint),
                     ));
                 }
-                row(&mut lines, "", "click to open · Esc back", width, t);
+                lines.push(Line::styled(
+                    "klik untuk buka · Esc kembali".to_owned(),
+                    Style::default().fg(t.faint),
+                ));
             }
 
-            heading(&mut lines, "ROSTER", width, t);
+            // The roster, names only. The one-line description each carried
+            // was reference material for choosing an agent by hand — sixteen
+            // rows of prose under sixteen names, in a pane that has to show a
+            // running delegation above them.
             let roster = &app.discovery.agents;
-            row(&mut lines, "Agents", &roster.len().to_string(), width, t);
+            heading(
+                &mut lines,
+                &format!("ROSTER · {}", roster.len()),
+                width,
+                t,
+            );
             for agent in roster {
                 agent_entry(&mut lines, agent, agent.name == active, width, t);
             }
+            hint(&mut lines, "1–5 pindah tab", t);
         }
         _ => {
             // What happened this session. The transcript says what was said;
@@ -556,32 +579,23 @@ fn sidebar_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, us
             // did it stop there?" once the status line has moved on.
             let filter = crate::logs::FILTERS[app.log_filter % crate::logs::FILTERS.len()];
             let entries = app.logs.matching(filter);
-            heading(&mut lines, "LOGS", width, t);
-            row(
+            headline(
                 &mut lines,
-                "Showing",
+                &entries.len().to_string(),
                 &match filter {
-                    None => format!("all · {} lines", entries.len()),
-                    Some(kind) => format!("{} · {} lines", kind.label(), entries.len()),
+                    None => "baris log".to_owned(),
+                    Some(kind) => format!("baris · saring {}", kind.label()),
                 },
-                width,
-                t,
-            );
-            row(
-                &mut lines,
-                "",
-                if app.log_detail {
-                    "F6 filter · F7 less detail"
-                } else {
-                    "F6 filter · F7 more detail"
-                },
-                width,
                 t,
             );
 
             if entries.is_empty() {
-                row(&mut lines, "", "nothing logged yet", width, t);
+                lines.push(Line::styled(
+                    "belum ada yang tercatat".to_owned(),
+                    Style::default().fg(t.faint),
+                ));
             }
+            lines.push(Line::default());
             // Newest last, so the eye lands on the most recent without
             // scrolling — the same way the transcript reads.
             for entry in entries {
@@ -612,6 +626,18 @@ fn sidebar_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, us
                     }
                 }
             }
+            // At the end rather than the top: these two keys belong to this
+            // tab and nowhere else, and putting them above the log pushed the
+            // newest entry down by two rows on every render.
+            hint(
+                &mut lines,
+                if app.log_detail {
+                    "F6 saring · F7 ringkas"
+                } else {
+                    "F6 saring · F7 detail"
+                },
+                t,
+            );
         }
     }
     (lines, delegation_markers)

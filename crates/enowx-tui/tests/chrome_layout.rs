@@ -18,11 +18,6 @@ fn header(app: &mut TestApp) -> String {
     screen(app)[2].clone()
 }
 
-/// The header box's lower edge, which carries the pane names.
-fn pane_rule(app: &mut TestApp) -> String {
-    screen(app)[3].clone()
-}
-
 fn status_bar(app: &mut TestApp) -> String {
     let rows = screen(app);
     rows[rows.len() - 2].clone()
@@ -89,27 +84,48 @@ fn the_header_does_not_carry_decoration() {
     );
 }
 
-/// Each pane is named on the rule above it rather than in a row of its own.
+/// The sidebar titles itself on its own top edge.
+///
+/// The names used to sit on the header's lower edge, one at each end. With the
+/// sidebar a box of its own that rule spans the full width and belongs to
+/// neither pane, so a label on it pointed at a line that was not that pane's —
+/// and the transcript, which is the whole left of the window, needs no label
+/// to be recognised.
 #[test]
-fn the_panes_are_named_on_the_rule() {
+fn the_sidebar_names_its_tab_on_its_own_edge() {
     let mut app = TestApp::new();
-    let rule = pane_rule(&mut app);
-    assert!(rule.contains("CHAT"), "the conversation side: {rule}");
-    // Whichever tab is selected — TOKENS is the one a fresh session opens on.
-    assert!(rule.contains("TOKENS"), "and the sidebar's tab: {rule}");
-    assert!(rule.contains('─'), "both sitting on a rule: {rule}");
+    let rows = screen(&mut app);
+    // The box's top edge is the row carrying a corner to the right of the
+    // header's, which spans the window.
+    let edge = rows
+        .iter()
+        .find(|row| row.contains("╭─ TOKENS"))
+        .unwrap_or_else(|| panic!("the sidebar should name its tab: {}", rows.join("\n")));
+    assert!(
+        edge.contains('─'),
+        "and carry it on a rule, as a bordered box titles itself: {edge}"
+    );
+    // The old labels named the chat pane too. Nothing does now.
+    let header_rule = &rows[3];
+    assert!(
+        !header_rule.contains("CHAT"),
+        "the header's edge spans both panes, so it names neither: {header_rule}"
+    );
 }
 
-/// The sidebar label follows the tab, or it names the wrong pane.
+/// The title follows the tab, or the box names something that is not showing.
 #[test]
-fn the_pane_label_follows_the_selected_tab() {
+fn the_sidebar_title_follows_the_selected_tab() {
     let mut app = TestApp::new();
     app.select_sidebar_tab(4);
-    let rule = pane_rule(&mut app);
-    assert!(rule.contains("LOGS"), "the tab that is showing: {rule}");
+    let text = screen(&mut app).join("\n");
     assert!(
-        !rule.contains("AGENT"),
-        "and not the one that is not: {rule}"
+        text.contains("╭─ LOGS"),
+        "the tab that is showing: {text}"
+    );
+    assert!(
+        !text.contains("╭─ AGENT"),
+        "and not the one that is not: {text}"
     );
 }
 
@@ -204,7 +220,15 @@ fn a_user_message_is_marked_not_boxed() {
         .iter()
         .position(|row| row.contains("one line"))
         .expect("the message");
-    let around = &rows[at - 1..=at + 1];
+    // …and only at the columns the chat pane occupies. The sidebar is a box
+    // of its own, so its corners land on these rows too — a whole-row scan
+    // finds them and reports the message as boxed when what is boxed is the
+    // pane beside it.
+    let bar = message.find('▌').expect("the bar");
+    let around: Vec<String> = rows[at - 1..=at + 1]
+        .iter()
+        .map(|row| row.chars().take(bar + 40).collect())
+        .collect();
     assert!(
         !around
             .iter()

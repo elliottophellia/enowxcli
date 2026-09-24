@@ -10,10 +10,28 @@ use enowx_tui::testing::TestApp;
 
 /// The sidebar half of each row. The transcript names the same agents
 /// ("fe started"), so searching a whole row finds the wrong one.
+///
+/// Taken by column rather than by splitting on `│`: the sidebar is a box with
+/// borders of its own, so counting rules in from the right lands inside it or
+/// past it depending on the row.
 fn sidebar_rows(app: &mut TestApp) -> Vec<String> {
-    app.render_to_text(120, 34)
-        .into_iter()
-        .filter_map(|row| row.rsplit('│').nth(1).map(str::to_owned))
+    let rows = app.render_to_text(120, 34);
+    // The column the box starts in, found from its titled top edge — the one
+    // row that is unambiguous, since the header and composer are boxed too.
+    //
+    // Counted in chars, not bytes: `find` gives a byte offset, the frame is
+    // drawn in multi-byte box glyphs, and the two are nine apart by this
+    // point in the row.
+    let start = rows
+        .iter()
+        .find_map(|row| {
+            let at = row.find("╭─ ")?;
+            Some(row[..at].chars().count())
+        })
+        .filter(|at| *at > 4)
+        .expect("the sidebar's titled top edge");
+    rows.into_iter()
+        .map(|row| row.chars().skip(start).collect())
         .collect()
 }
 
@@ -25,7 +43,7 @@ fn the_agent_tab_lists_delegations() {
     app.deliver_delegation_started("review", "check it", "id-2");
     app.select_sidebar_tab(3);
     let text = app.render_to_text(120, 34).join("\n");
-    assert!(text.contains("DELEGATED"), "a section for them: {text}");
+    assert!(text.contains("DIDELEGASIKAN"), "a section for them: {text}");
     assert!(text.contains("fe"), "the first: {text}");
     assert!(text.contains("write the HTML"), "and its task: {text}");
     assert!(text.contains("review"), "the second: {text}");

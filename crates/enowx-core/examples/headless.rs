@@ -128,10 +128,7 @@ fn tally(session: &Session) -> (usize, usize, String) {
     let mut counts: std::collections::BTreeMap<&str, usize> = Default::default();
     let mut steps = 0;
     for turn in &session.turns {
-        if matches!(
-            turn.message.role,
-            enowx_core::message::Role::Assistant
-        ) {
+        if matches!(turn.message.role, enowx_core::message::Role::Assistant) {
             steps += 1;
         }
         for call in &turn.message.tool_calls {

@@ -1027,6 +1027,28 @@ impl TestApp {
         report: &str,
         failed: bool,
     ) -> anyhow::Result<String> {
+        self.resume_delegated(agent, task, report, failed, true)
+    }
+
+    /// The same, saved the way sessions were before delegations were
+    /// recorded on them: only the branch knows its parent.
+    pub fn resume_with_unrecorded_delegation(
+        &mut self,
+        agent: &str,
+        task: &str,
+        report: &str,
+    ) -> anyhow::Result<String> {
+        self.resume_delegated(agent, task, report, false, false)
+    }
+
+    fn resume_delegated(
+        &mut self,
+        agent: &str,
+        task: &str,
+        report: &str,
+        failed: bool,
+        recorded: bool,
+    ) -> anyhow::Result<String> {
         use enowx_core::message::{Message, ToolCall};
         use enowx_core::{DelegationRecord, Session};
 
@@ -1050,11 +1072,13 @@ impl TestApp {
             agent, report,
         )));
         session.push(Message::assistant("All done."));
-        session.delegations.push(DelegationRecord {
-            agent: agent.to_owned(),
-            session_id: branch.id.clone(),
-            failed,
-        });
+        if recorded {
+            session.delegations.push(DelegationRecord {
+                agent: agent.to_owned(),
+                session_id: branch.id.clone(),
+                failed,
+            });
+        }
         let id = session.id.clone();
         self.inner.store.save(&session)?;
         self.inner.resume(&id)?;

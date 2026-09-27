@@ -456,6 +456,45 @@ impl SessionStore {
         Ok(out)
     }
 
+    /// The branches a session delegated to, oldest first, as delegation
+    /// records. For sessions written before those were kept: a branch has
+    /// always named its parent. Reads only each file's header line.
+    pub fn branches_of(&self, parent: &str) -> Vec<DelegationRecord> {
+        use std::io::BufRead as _;
+        let Ok(entries) = std::fs::read_dir(&self.root) else {
+            return Vec::new();
+        };
+        let mut found: Vec<(DateTime<Utc>, DelegationRecord)> = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let Ok(file) = std::fs::File::open(&path) else {
+                continue;
+            };
+            let mut first = String::new();
+            if std::io::BufReader::new(file).read_line(&mut first).is_err() {
+                continue;
+            }
+            let Ok(header) = serde_json::from_str::<Header>(&first) else {
+                continue;
+            };
+            if header.parent.as_deref() == Some(parent) {
+                found.push((
+                    header.created_at,
+                    DelegationRecord {
+                        agent: header.agent,
+                        session_id: header.id,
+                        failed: false,
+                    },
+                ));
+            }
+        }
+        found.sort_by_key(|(created, _)| *created);
+        found.into_iter().map(|(_, record)| record).collect()
+    }
+
     pub fn delete(&self, id: &str) -> Result<()> {
         let path = self.path_for(id)?;
         match std::fs::remove_file(&path) {
@@ -473,6 +512,28 @@ mod tests {
     fn temp_store() -> (SessionStore, PathBuf) {
         let dir = std::env::temp_dir().join(format!("enx-sessions-{}", uuid::Uuid::new_v4()));
         (SessionStore::new(dir.clone()), dir)
+    }
+
+    #[test]
+    fn a_session_finds_its_branches_oldest_first() {
+        let (store, dir) = temp_store();
+        let parent = Session::new(Role::Orchestrator);
+        store.save(&parent).unwrap();
+        let mut first = parent.branch("fe");
+        first.created_at = parent.created_at + chrono::Duration::seconds(1);
+        let mut second = parent.branch("review");
+        second.created_at = parent.created_at + chrono::Duration::seconds(2);
+        store.save(&second).unwrap();
+        store.save(&first).unwrap();
+        store
+            .save(&Session::new(Role::Orchestrator).branch("be"))
+            .unwrap();
+
+        let found = store.branches_of(&parent.id);
+        let _ = std::fs::remove_dir_all(dir);
+        let agents: Vec<&str> = found.iter().map(|r| r.agent.as_str()).collect();
+        assert_eq!(agents, vec!["fe", "review"]);
+        assert_eq!(found[0].session_id, first.id);
     }
 
     #[test]

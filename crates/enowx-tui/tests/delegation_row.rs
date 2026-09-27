@@ -179,3 +179,20 @@ fn a_new_session_forgets_the_last_ones_sub_agents() {
     let _ = app.render_to_text(W, H);
     assert_eq!(app.delegation_rows(), 0);
 }
+
+/// A session saved before delegations were recorded on it still finds its
+/// sub-agents: each branch names its parent.
+#[test]
+fn an_older_session_finds_its_sub_agents_through_their_branches() {
+    let mut app = TestApp::new();
+    let branch = app
+        .resume_with_unrecorded_delegation("fe", "write the page", REPORT)
+        .expect("resume");
+    assert_eq!(delegate_rows(&mut app).len(), 1);
+    app.select_sidebar_tab(0);
+    let _ = app.render_to_text(W, H);
+    assert_eq!(app.delegation_rows(), 2, "listed again");
+    app.open_delegation(0).expect("and its branch opens");
+    assert_eq!(app.viewing_agent().as_deref(), Some("fe"));
+    let _ = branch;
+}

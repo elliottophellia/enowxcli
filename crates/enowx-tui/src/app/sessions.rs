@@ -100,7 +100,21 @@ impl App {
         // Delegations come back as a report message; the branch behind each
         // is in the session's records, in the same order. The task is in the
         // `delegate` call that started it.
-        let mut records = session.delegations.iter();
+        // A session written before delegations were recorded names none, but
+        // each of its branches names it, so they are found that way.
+        let found;
+        let records: &[enowx_core::DelegationRecord] = if session.delegations.is_empty()
+            && session.parent.is_none()
+            && session.turns.iter().any(|turn| {
+                matches!(turn.message.role, MessageRole::User)
+                    && enowx_core::routing::parse_report_message(&turn.message.content).is_some()
+            }) {
+            found = self.store.branches_of(&session.id);
+            &found
+        } else {
+            &session.delegations
+        };
+        let mut records = records.iter();
         let mut tasks: Vec<(String, String)> = Vec::new();
         let mut delegations: Vec<crate::app::Delegation> = Vec::new();
         // A switch names the turn it happened at, but a turn expands into
@@ -128,13 +142,9 @@ impl App {
                             .map(|at| tasks.remove(at).1)
                             .unwrap_or_default();
                         let record = records.next().filter(|record| record.agent == agent);
-                        let failed = record.map_or_else(
-                            || {
-                                report.starts_with("failed")
-                                    || report.starts_with("PARTIAL FAILURE")
-                            },
-                            |record| record.failed,
-                        );
+                        let failed = record.is_some_and(|record| record.failed)
+                            || report.starts_with("failed")
+                            || report.starts_with("PARTIAL FAILURE");
                         let state = if failed {
                             crate::app::DelegationState::Failed
                         } else {

@@ -17,6 +17,7 @@ textwrap.workspace = true
 tokio.workspace = true
 unicode-width = "0.2"
 tokio-util.workspace = true
+pulldown-cmark = { version = "0.13.4", default-features = false }
 
 [dev-dependencies]
 unicode-width = "0.2"

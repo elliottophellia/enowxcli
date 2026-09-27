@@ -1,3 +1,4 @@
+use super::markdown::render_markdown;
 use super::*;
 
 pub(super) fn draw_welcome(frame: &mut Frame, app: &App, area: Rect) {
@@ -64,8 +65,10 @@ fn indented(
     let mut inner: Vec<Line<'static>> = Vec::new();
     render(width.saturating_sub(GUTTER).max(1), &mut inner);
     for mut line in inner {
-        line.spans
-            .insert(0, Span::styled(" ".repeat(GUTTER), Style::default().bg(theme.panel)));
+        line.spans.insert(
+            0,
+            Span::styled(" ".repeat(GUTTER), Style::default().bg(theme.panel)),
+        );
         lines.push(line);
     }
 }
@@ -73,8 +76,10 @@ fn indented(
 /// Shift every line from `from` onwards onto the text column.
 fn gutter_from(lines: &mut [Line<'static>], from: usize, theme: &Theme) {
     for line in lines.iter_mut().skip(from) {
-        line.spans
-            .insert(0, Span::styled(" ".repeat(GUTTER), Style::default().bg(theme.panel)));
+        line.spans.insert(
+            0,
+            Span::styled(" ".repeat(GUTTER), Style::default().bg(theme.panel)),
+        );
     }
 }
 
@@ -336,656 +341,11 @@ fn highlight_line(
     }
 }
 
-pub(crate) fn render_markdown(
-    text: &str,
-    width: usize,
-    lines: &mut Vec<Line<'static>>,
-    theme: &Theme,
-) {
-    let mut in_code = false;
-    // Set when the opening fence names a language we can highlight; cleared at
-    // the closing fence. `code_state` carries a block comment across lines.
-    let mut code_syntax: Option<crate::syntax::Syntax> = None;
-    let mut code_state = crate::syntax::State::default();
-    let mut ordered_counter: Option<usize> = None;
-    let raw_lines: Vec<&str> = text.lines().collect();
-    let mut i = 0;
-    while i < raw_lines.len() {
-        let raw = raw_lines[i];
-        // Fenced code block.
-        if let Some(rest) = raw.trim_start().strip_prefix("```") {
-            in_code = !in_code;
-            if in_code {
-                // The language on the block's first row, on the same bar as
-                // the code below it — the way a tool's output is drawn. It was
-                // a `┌ lang` cap with a matching `└` row closing the block,
-                // two rows of drawing around every snippet, and the closing
-                // one carried nothing at all.
-                let lang = rest.trim();
-                code_syntax = crate::syntax::lookup(lang);
-                code_state = crate::syntax::State::default();
-                let label = if lang.is_empty() { "code" } else { lang };
-                let pad = width.saturating_sub(2 + unicode_width_of(label));
-                lines.push(Line::from(vec![
-                    Span::styled("│ ", Style::default().fg(theme.muted).bg(theme.subtle)),
-                    Span::styled(
-                        label.to_owned(),
-                        Style::default()
-                            .fg(theme.muted)
-                            .bg(theme.subtle)
-                            .add_modifier(Modifier::ITALIC),
-                    ),
-                    Span::styled(" ".repeat(pad), Style::default().bg(theme.subtle)),
-                ]));
-            } else {
-                code_syntax = None;
-            }
-            i += 1;
-            continue;
-        }
-        if in_code {
-            emit_code_line(
-                lines,
-                raw,
-                width,
-                code_syntax.as_ref(),
-                &mut code_state,
-                theme,
-            );
-            i += 1;
-            continue;
-        }
-
-        // Table: header row + separator + data rows. Detected when the next
-        // line looks like `| --- | --- |`. We consume all consecutive `|` rows.
-        if is_table_row(raw) && i + 1 < raw_lines.len() && is_table_separator(raw_lines[i + 1]) {
-            let mut rows: Vec<Vec<String>> = Vec::new();
-            rows.push(split_table_row(raw));
-            i += 2; // skip header + separator
-            while i < raw_lines.len() && is_table_row(raw_lines[i]) {
-                rows.push(split_table_row(raw_lines[i]));
-                i += 1;
-            }
-            render_table(&rows, width, lines, theme);
-            continue;
-        }
-
-        if raw.trim().is_empty() {
-            ordered_counter = None;
-            lines.push(Line::default());
-            i += 1;
-            continue;
-        }
-
-        // Headings, all five levels in one place. They used to be five
-        // near-identical blocks that all drew accent + bold, so `#` through
-        // `#####` were indistinguishable and a document had no hierarchy.
-        //
-        // A terminal has no type scale to work with, so the levels are
-        // separated by weight and colour instead, and each one is given air:
-        // a heading pressed against the paragraph above it reads as part of
-        // that paragraph rather than as the start of something new.
-        if let Some((level, body)) = heading_of(raw) {
-            // Blank line above, unless we are at the very top or one is
-            // already there — the separation belongs to the heading, not to
-            // whatever happened to come before it.
-            if !lines.is_empty() && !is_blank_line(lines.last()) {
-                lines.push(Line::default());
-            }
-            let style = match level {
-                1 => Style::default()
-                    .fg(theme.accent)
-                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-                2 => Style::default()
-                    .fg(theme.accent)
-                    .add_modifier(Modifier::BOLD),
-                3 => Style::default()
-                    .fg(theme.accent2)
-                    .add_modifier(Modifier::BOLD),
-                _ => Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
-            };
-            emit_wrapped(lines, &markdown_spans(body, theme), "", style, width, theme);
-            // And a blank line below, so the heading sits with the section it
-            // opens rather than being squeezed between two bodies of text.
-            // Skipped when the source already left one, so authored spacing
-            // is never doubled.
-            if raw_lines
-                .get(i + 1)
-                .is_some_and(|next| !next.trim().is_empty())
-            {
-                lines.push(Line::default());
-            }
-            i += 1;
-            continue;
-        }
-
-        if let Some(body) = raw.strip_prefix("> ") {
-            emit_wrapped(
-                lines,
-                &markdown_spans(body, theme),
-                "│ ",
-                Style::default().fg(theme.faint),
-                width,
-                theme,
-            );
-            i += 1;
-            continue;
-        }
-
-        if matches!(raw.trim(), "---" | "***" | "___") {
-            lines.push(Line::styled(
-                "─".repeat(width.max(1)),
-                Style::default().fg(theme.muted),
-            ));
-            i += 1;
-            continue;
-        }
-
-        let trimmed = raw.trim_start();
-        let indent = raw.len() - trimmed.len();
-        if let Some(item) = trimmed
-            .strip_prefix("- ")
-            .or_else(|| trimmed.strip_prefix("* "))
-        {
-            let prefix = format!("{}• ", " ".repeat(indent));
-
-            emit_wrapped(
-                lines,
-                &markdown_spans(item, theme),
-                &prefix,
-                Style::default().fg(theme.text),
-                width,
-                theme,
-            );
-
-            i += 1;
-            continue;
-        }
-
-        if let Some((num, item)) = split_ordered(trimmed) {
-            let display = ordered_counter.map_or(num, |n| n + 1);
-            ordered_counter = Some(display);
-            let prefix = format!("{}{}. ", " ".repeat(indent), display);
-
-            emit_wrapped(
-                lines,
-                &markdown_spans(item, theme),
-                &prefix,
-                Style::default().fg(theme.text),
-                width,
-                theme,
-            );
-
-            i += 1;
-            continue;
-        } else {
-            ordered_counter = None;
-        }
-
-        // Paragraph.
-        emit_wrapped(
-            lines,
-            &markdown_spans(raw, theme),
-            "",
-            Style::default().fg(theme.text),
-            width,
-            theme,
-        );
-        i += 1;
-    }
-}
-
-fn is_table_row(line: &str) -> bool {
-    let t = line.trim();
-    t.starts_with('|') && t.ends_with('|') && t.matches('|').count() >= 2
-}
-
-fn is_table_separator(line: &str) -> bool {
-    let t = line.trim();
-    if !is_table_row(t) {
-        return false;
-    }
-    // Every non-empty cell is dashes with optional colon (alignment marker).
-    t.trim_matches('|').split('|').all(|cell| {
-        let c = cell.trim();
-        !c.is_empty() && c.chars().all(|ch| ch == '-' || ch == ':')
-    })
-}
-
-fn split_table_row(line: &str) -> Vec<String> {
-    line.trim()
-        .trim_matches('|')
-        .split('|')
-        .map(|c| c.trim().to_string())
-        .collect()
-}
-
-fn render_table(rows: &[Vec<String>], width: usize, lines: &mut Vec<Line<'static>>, theme: &Theme) {
-    if rows.is_empty() {
-        return;
-    }
-    let cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
-    if cols == 0 {
-        return;
-    }
-    // Column widths: measure content, then rebalance so total fits `width - (cols+1)` (borders).
-    let mut widths = vec![0usize; cols];
-    for row in rows {
-        for (c, cell) in row.iter().enumerate() {
-            widths[c] = widths[c].max(unicode_width_of(cell));
-        }
-    }
-    let budget = width.saturating_sub(cols + 1).max(cols); // 1 pipe per col + trailing
-    let total: usize = widths.iter().sum();
-    if total > budget {
-        let scale = budget as f32 / total as f32;
-        for w in widths.iter_mut() {
-            *w = ((*w as f32) * scale).floor().max(3.0) as usize;
-        }
-    }
-    let border_style = Style::default().fg(theme.muted).bg(theme.subtle);
-    let cell_style = Style::default().fg(theme.text).bg(theme.subtle);
-    let header_style = Style::default()
-        .fg(theme.accent)
-        .bg(theme.subtle)
-        .add_modifier(Modifier::BOLD);
-
-    // Top border
-    let top: String = std::iter::once('┌')
-        .chain(widths.iter().enumerate().flat_map(|(i, w)| {
-            let seg: Vec<char> = std::iter::repeat_n('─', *w + 2).collect();
-            let sep = if i + 1 == cols { '┐' } else { '┬' };
-            seg.into_iter().chain(std::iter::once(sep))
-        }))
-        .collect();
-    lines.push(Line::styled(top, border_style));
-
-    for (r, row) in rows.iter().enumerate() {
-        let mut spans: Vec<Span<'static>> = vec![Span::styled("│", border_style)];
-        for (c, w) in widths.iter().enumerate() {
-            let cell = row.get(c).map(String::as_str).unwrap_or("");
-            // Parse the cell's inline markdown so **bold** and `code` inside
-            // a table cell render like they do in paragraphs. Fall back to
-            // plain text when the cell is empty. Layout is char-count based
-            // for width; styling is span-based.
-            let parsed = markdown_spans(cell, theme);
-            let plain_text: String = parsed.iter().map(|(s, _)| s.as_str()).collect();
-            let plain_w = unicode_width_of(&plain_text);
-            // Clip to the column width, replacing overflow with `…`. Since we
-            // clip on chars we may cut mid-style; acceptable for tables.
-            let (rendered, pad) = if plain_w > *w {
-                let mut cut: String = plain_text.chars().take(w.saturating_sub(1)).collect();
-                cut.push('…');
-                (
-                    vec![(cut, if r == 0 { header_style } else { cell_style })],
-                    0,
-                )
-            } else {
-                // Adopt the header style when we're on the first row so bold
-                // titles read like a header, otherwise keep the span colors.
-                let base_style = if r == 0 { header_style } else { cell_style };
-                let styled: Vec<(String, Style)> = parsed
-                    .into_iter()
-                    .map(|(s, style)| {
-                        // For rows 2+, keep inline markdown coloring on the
-                        // subtle background; for row 0, force the header
-                        // color so accent stays consistent.
-                        let merged = if r == 0 {
-                            base_style
-                        } else {
-                            style.bg(theme.subtle)
-                        };
-                        (s, merged)
-                    })
-                    .collect();
-                (styled, w.saturating_sub(plain_w))
-            };
-            spans.push(Span::styled(" ", cell_style));
-            for (text, style) in rendered {
-                spans.push(Span::styled(text, style));
-            }
-            spans.push(Span::styled(format!("{} ", " ".repeat(pad)), cell_style));
-            spans.push(Span::styled("│", border_style));
-        }
-        lines.push(Line::from(spans));
-
-        // Separator under header
-        if r == 0 {
-            let sep: String = std::iter::once('├')
-                .chain(widths.iter().enumerate().flat_map(|(i, w)| {
-                    let seg: Vec<char> = std::iter::repeat_n('─', *w + 2).collect();
-                    let s = if i + 1 == cols { '┤' } else { '┼' };
-                    seg.into_iter().chain(std::iter::once(s))
-                }))
-                .collect();
-            lines.push(Line::styled(sep, border_style));
-        }
-    }
-
-    let bot: String = std::iter::once('└')
-        .chain(widths.iter().enumerate().flat_map(|(i, w)| {
-            let seg: Vec<char> = std::iter::repeat_n('─', *w + 2).collect();
-            let sep = if i + 1 == cols { '┘' } else { '┴' };
-            seg.into_iter().chain(std::iter::once(sep))
-        }))
-        .collect();
-    lines.push(Line::styled(bot, border_style));
-}
-
-/// Parse inline markdown into styled spans: **bold**, *italic*, `code`,
-/// [text](url). Everything else is plain text under the caller's base style.
-fn markdown_spans(text: &str, theme: &Theme) -> Vec<(String, Style)> {
-    let mut out: Vec<(String, Style)> = Vec::new();
-    let plain = Style::default().fg(theme.text);
-    let mut buf = String::new();
-    let chars: Vec<char> = text.chars().collect();
-    let mut i = 0;
-    let flush = |buf: &mut String, out: &mut Vec<(String, Style)>| {
-        if !buf.is_empty() {
-            out.push((std::mem::take(buf), plain));
-        }
-    };
-    while i < chars.len() {
-        let c = chars[i];
-        // Backslash escape: the next character is literal, and the backslash
-        // itself is not shown. Checked first so `\*` cannot open emphasis.
-        if c == '\\' {
-            if let Some(&next) = chars.get(i + 1) {
-                if "\\`*_~[]()#+-.!>".contains(next) {
-                    buf.push(next);
-                    i += 2;
-                    continue;
-                }
-            }
-        }
-        // Inline code. A run of N backticks opens a span that ends at the
-        // next run of exactly N, so ``a ` b`` can contain a single backtick.
-        if c == '`' {
-            let fence = chars[i..].iter().take_while(|&&c| c == '`').count();
-            let body_start = i + fence;
-            let mut j = body_start;
-            let mut found = None;
-            while j < chars.len() {
-                if chars[j] == '`' {
-                    let run = chars[j..].iter().take_while(|&&c| c == '`').count();
-                    if run == fence {
-                        found = Some(j);
-                        break;
-                    }
-                    j += run;
-                    continue;
-                }
-                j += 1;
-            }
-            if let Some(end) = found {
-                flush(&mut buf, &mut out);
-                // A single leading/trailing space is padding that lets the
-                // body start or end with a backtick; CommonMark strips it.
-                let mut body: String = chars[body_start..end].iter().collect();
-                if body.len() >= 2 && body.starts_with(' ') && body.ends_with(' ') {
-                    body = body[1..body.len() - 1].to_string();
-                }
-                out.push((body, Style::default().fg(theme.accent2).bg(theme.subtle)));
-                i = end + fence;
-                continue;
-            }
-        }
-        // Strikethrough: ~~…~~
-        if c == '~' && chars.get(i + 1) == Some(&'~') {
-            if let Some(end) = find_pair(&chars, i + 2, "~~") {
-                flush(&mut buf, &mut out);
-                let body: String = chars[i + 2..end].iter().collect();
-                out.extend(nested_spans(
-                    &body,
-                    theme,
-                    Style::default()
-                        .fg(theme.muted)
-                        .add_modifier(Modifier::CROSSED_OUT),
-                ));
-                i = end + 2;
-                continue;
-            }
-        }
-        // Bold: **…**
-        if c == '*' && chars.get(i + 1) == Some(&'*') {
-            if let Some(end) = find_pair(&chars, i + 2, "**") {
-                flush(&mut buf, &mut out);
-                let body: String = chars[i + 2..end].iter().collect();
-                // Parse the body rather than taking it as plain text, or
-                // markdown inside emphasis is left as literal characters —
-                // `**bold with `code`**` printed its backticks.
-                out.extend(nested_spans(
-                    &body,
-                    theme,
-                    Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
-                ));
-                i = end + 2;
-                continue;
-            }
-        }
-        // Italic: *…* (single asterisk; ** was handled above).
-        //
-        // Emphasis only opens when the delimiter is followed by non-space, as
-        // CommonMark requires. Without that check `2 * 3 * 4` read as italic
-        // and the renderer silently ate both asterisks, corrupting arithmetic
-        // and glob patterns in prose.
-        if c == '*' && chars.get(i + 1).is_some_and(|n| !n.is_whitespace()) {
-            if let Some(end) = find_closing_emphasis(&chars, i + 1, '*') {
-                flush(&mut buf, &mut out);
-                let body: String = chars[i + 1..end].iter().collect();
-                out.extend(nested_spans(
-                    &body,
-                    theme,
-                    Style::default()
-                        .fg(theme.text)
-                        .add_modifier(Modifier::ITALIC),
-                ));
-                i = end + 1;
-                continue;
-            }
-        }
-        // Link: [text](url) → underline the text, keep url out of sight
-        if c == '[' {
-            if let Some(close) = chars[i + 1..].iter().position(|&c| c == ']') {
-                let after = i + 1 + close + 1;
-                if chars.get(after) == Some(&'(') {
-                    if let Some(url_end) = chars[after + 1..].iter().position(|&c| c == ')') {
-                        flush(&mut buf, &mut out);
-                        let label: String = chars[i + 1..i + 1 + close].iter().collect();
-                        out.push((
-                            label,
-                            Style::default()
-                                .fg(theme.accent)
-                                .add_modifier(Modifier::UNDERLINED),
-                        ));
-                        i = after + 1 + url_end + 1;
-                        continue;
-                    }
-                }
-            }
-        }
-        buf.push(c);
-        i += 1;
-    }
-    flush(&mut buf, &mut out);
-    out
-}
-
-/// Find the closing delimiter of a single-character emphasis span.
-///
-/// CommonMark's rule, reduced to what matters here: the closer must be
-/// attached to the text it ends, i.e. preceded by a non-space. Requiring that
-/// stops `rm *.log and *.tmp` from reading as emphasis around `.log and `,
-/// which silently deleted both stars from a shell command.
-fn find_closing_emphasis(chars: &[char], start: usize, delim: char) -> Option<usize> {
-    let mut i = start;
-    while i < chars.len() {
-        if chars[i] == delim && i > start && !chars[i - 1].is_whitespace() {
-            return Some(i);
-        }
-        i += 1;
-    }
-    None
-}
-
-fn find_pair(chars: &[char], start: usize, delim: &str) -> Option<usize> {
-    let bytes: Vec<char> = delim.chars().collect();
-    let mut i = start;
-    while i + bytes.len() <= chars.len() {
-        if chars[i..i + bytes.len()] == bytes[..] {
-            // Don't match empty spans.
-            if i > start {
-                return Some(i);
-            }
-        }
-        i += 1;
-    }
-    None
-}
-
-fn split_ordered(text: &str) -> Option<(usize, &str)> {
-    let digits: String = text.chars().take_while(|c| c.is_ascii_digit()).collect();
-    if digits.is_empty() {
-        return None;
-    }
-    let rest = &text[digits.len()..];
-    let body = rest.strip_prefix(". ")?;
-    digits.parse().ok().map(|n| (n, body))
-}
-
-/// Emit a styled-span line, wrapping at ASCII whitespace so inline styles
-/// (code, bold, links) survive the wrap without losing characters like `<`,
-/// `>`, `=`, `"` that word-based wrappers treat as word boundaries.
-fn emit_wrapped(
-    lines: &mut Vec<Line<'static>>,
-    spans: &[(String, Style)],
-    prefix: &str,
-    base: Style,
-    width: usize,
-    _theme: &Theme,
-) {
-    let usable = width.saturating_sub(unicode_width_of(prefix)).max(1);
-
-    if spans.iter().all(|(s, _)| s.is_empty()) {
-        lines.push(Line::styled(prefix.to_string(), base));
-        return;
-    }
-
-    // Flatten to (char, style) pairs so wrap decisions do not have to know
-    // about span boundaries. Rebuild spans on emit by grouping consecutive
-    // chars that share a style.
-    let mut chars: Vec<(char, Style)> = Vec::new();
-    for (text, style) in spans {
-        for ch in text.chars() {
-            chars.push((ch, *style));
-        }
-    }
-
-    let mut row_start = 0usize;
-    let mut first_row = true;
-    let mut i = 0;
-    while i < chars.len() {
-        // Advance until the row is full, measuring DISPLAY WIDTH rather than
-        // char count: CJK and emoji occupy two columns each, so counting
-        // characters let a line of them overrun the panel by up to 2x.
-        let mut end = row_start;
-        let mut used = 0usize;
-        while end < chars.len() {
-            let w = unicode_width_of_char(chars[end].0).max(1);
-            if used + w > usable {
-                break;
-            }
-            used += w;
-            end += 1;
-        }
-        if end == row_start {
-            // One character wider than the whole row: emit it alone rather
-            // than looping forever on a zero-width advance.
-            end = row_start + 1;
-        }
-        // If we would cut in the middle of a word, back up to the last space
-        // in the current window so wrap happens at whitespace. Scripts that do
-        // not use spaces (Chinese, Japanese) have no break to find, so the
-        // width-based cut above stands — without this guard such a paragraph
-        // collapsed into one unwrappable row.
-        if end < chars.len() && chars[end].0 != ' ' {
-            let mut back = end;
-            while back > row_start && chars[back - 1].0 != ' ' {
-                back -= 1;
-            }
-            if back > row_start {
-                end = back;
-            }
-        }
-        // Emit chars[row_start..end] as grouped spans, trim trailing space.
-        let mut segment_end = end;
-        while segment_end > row_start && chars[segment_end - 1].0 == ' ' {
-            segment_end -= 1;
-        }
-        push_row(
-            lines,
-            &chars,
-            row_start,
-            segment_end,
-            prefix,
-            base,
-            first_row,
-        );
-        first_row = false;
-        // Skip the whitespace we broke on so the next row does not start
-        // with a leading space.
-        i = end;
-        while i < chars.len() && chars[i].0 == ' ' {
-            i += 1;
-        }
-        row_start = i;
-    }
-}
-
-fn push_row(
-    lines: &mut Vec<Line<'static>>,
-    chars: &[(char, Style)],
-    start: usize,
-    end: usize,
-    prefix: &str,
-    base: Style,
-    first_row: bool,
-) {
-    let indent = if first_row {
-        prefix.to_string()
-    } else {
-        // Pad by display width so a continuation row lines up under the first
-        // even when the prefix contains wide glyphs.
-        " ".repeat(unicode_width_of(prefix))
-    };
-    let mut spans: Vec<Span<'static>> = Vec::new();
-    if !indent.is_empty() {
-        spans.push(Span::styled(indent, base));
-    }
-    if start >= end {
-        lines.push(Line::from(spans));
-        return;
-    }
-    let mut current = String::new();
-    let mut current_style = chars[start].1;
-    for (ch, style) in &chars[start..end] {
-        if *style != current_style && !current.is_empty() {
-            spans.push(Span::styled(std::mem::take(&mut current), current_style));
-        }
-        current_style = *style;
-        current.push(*ch);
-    }
-    if !current.is_empty() {
-        spans.push(Span::styled(current, current_style));
-    }
-    lines.push(Line::from(spans));
-}
-
-/// User messages sit in a bordered, subtle-tinted card so the eye can find
-/// them while scrolling. Every body line is hard-clipped to the card's inner
-/// width so a nested list or fenced code inside a paste can never draw past
-/// the right border. Tall messages get truncated with a "▸ N more lines"
-/// hint the caller can wire to expansion later.
+/// User messages sit on a tinted band with an accent bar down the left, so
+/// the eye can find them while scrolling. The markdown renderer already keeps
+/// every row inside `body_w`, so rows keep their own styling (code, links)
+/// and only take the band and the weight. Tall messages are cut with a
+/// "▸ N more lines" row.
 const USER_CARD_MAX_LINES: usize = 12;
 
 fn user_card(lines: &mut Vec<Line<'static>>, text: &str, width: usize, theme: &Theme) {
@@ -998,70 +358,40 @@ fn user_card(lines: &mut Vec<Line<'static>>, text: &str, width: usize, theme: &T
     if inner.is_empty() {
         inner.push(Line::default());
     }
-    // Force every rendered line to fit inside `body_w`. `render_markdown`
-    // already wraps text, but styled spans, tables, and headings can still
-    // exceed the target width (styled bg extends past the char count). Re-wrap
-    // by flattening to text and re-styling to a single foreground colour.
-    let mut clipped: Vec<(String, Style)> = Vec::new();
-    for row in inner {
-        let joined: String = row
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect::<String>();
-        let style = row
-            .spans
-            .first()
-            .map(|s| s.style)
-            .unwrap_or_else(|| Style::default().fg(theme.text));
-        if joined.is_empty() {
-            clipped.push((String::new(), style));
-            continue;
-        }
-        for wrapped in textwrap::wrap(&joined, body_w.max(1)) {
-            clipped.push((wrapped.into_owned(), style));
-        }
-    }
-
-    let overflow = clipped.len().saturating_sub(USER_CARD_MAX_LINES);
-    let visible: Vec<(String, Style)> = if overflow > 0 {
-        clipped.into_iter().take(USER_CARD_MAX_LINES).collect()
-    } else {
-        clipped
-    };
-
+    let overflow = inner.len().saturating_sub(USER_CARD_MAX_LINES);
     // A bar down the left rather than a box around it. A full border spends
-    // two rows on rule and two columns on sides to say one thing — "the user
-    // said this" — and in a conversation that is every other block. The bar
-    // says it in one column and no rows at all.
+    // two rows on rule and two columns on sides to say one thing, "the user
+    // said this", and in a conversation that is every other block.
     let bar = Style::default().fg(theme.accent).bg(theme.subtle);
-    for (text, style) in visible {
-        let text_w = unicode_width_of(&text);
-        let pad = body_w.saturating_sub(text_w);
-        let style = style.bg(theme.subtle).add_modifier(Modifier::BOLD);
-        lines.push(Line::from(vec![
-            Span::styled("▌ ", bar),
-            Span::styled(text, style),
-            // The background runs to the pane edge so the block reads as one
-            // surface rather than as a ragged strip.
-            Span::styled(" ".repeat(pad + 2), Style::default().bg(theme.subtle)),
-        ]));
+    let band = Style::default().bg(theme.subtle);
+    for row in inner.into_iter().take(USER_CARD_MAX_LINES) {
+        let used: usize = row.spans.iter().map(|s| unicode_width_of(&s.content)).sum();
+        let mut spans = vec![Span::styled("▌ ", bar)];
+        spans.extend(row.spans.into_iter().map(|span| {
+            let style = span.style.bg(theme.subtle).add_modifier(Modifier::BOLD);
+            Span::styled(span.content, style)
+        }));
+        // The band runs to the pane edge so the block reads as one surface
+        // rather than as a ragged strip.
+        spans.push(Span::styled(
+            " ".repeat(body_w.saturating_sub(used) + 2),
+            band,
+        ));
+        lines.push(Line::from(spans));
     }
     if overflow > 0 {
         let msg = format!(
             "▸ {overflow} more line{s} …",
             s = if overflow == 1 { "" } else { "s" }
         );
-        let msg_w = unicode_width_of(&msg);
-        let pad = body_w.saturating_sub(msg_w);
+        let pad = body_w.saturating_sub(unicode_width_of(&msg));
         lines.push(Line::from(vec![
             Span::styled("▌ ", bar),
             Span::styled(msg, Style::default().fg(theme.muted).bg(theme.subtle)),
-            Span::styled(" ".repeat(pad + 2), Style::default().bg(theme.subtle)),
+            Span::styled(" ".repeat(pad + 2), band),
         ]));
     }
 }
-
 fn unicode_width_of(text: &str) -> usize {
     use unicode_width::UnicodeWidthStr;
     text.width()
@@ -1070,103 +400,6 @@ fn unicode_width_of(text: &str) -> usize {
 fn unicode_width_of_char(c: char) -> usize {
     use unicode_width::UnicodeWidthChar;
     c.width().unwrap_or(0)
-}
-
-/// Draw one source line inside a fenced block: gutter, highlighted body,
-/// background padding out to `width`.
-///
-/// Long lines SOFT-WRAP rather than being cut with an ellipsis. Truncating
-/// loses the tail of exactly the lines that need reading most (a long
-/// signature, a deep path), and the terminal cannot scroll a block
-/// horizontally, so the characters were simply unrecoverable. Continuation
-/// rows use a dimmer gutter so a wrap is never mistaken for a real newline.
-fn emit_code_line(
-    lines: &mut Vec<Line<'static>>,
-    raw: &str,
-    width: usize,
-    syntax: Option<&crate::syntax::Syntax>,
-    state: &mut crate::syntax::State,
-    theme: &Theme,
-) {
-    const GUTTER: &str = "│ ";
-    // A wrap continuation must not look like a new source line. `↳` reads as
-    // "this is the same line, continued" at a glance, where a dimmer vertical
-    // bar was too easily mistaken for the real gutter.
-    const CONT: &str = "│↳";
-    let gutter_w = unicode_width_of(GUTTER);
-    let usable = width.saturating_sub(gutter_w).max(1);
-
-    // Tokenize once per source line; an unknown language yields a single plain
-    // run so the block still renders, just without colour.
-    let runs: Vec<(String, crate::syntax::Tok)> = match syntax {
-        Some(s) => crate::syntax::highlight(raw, s, state),
-        None => vec![(raw.to_string(), crate::syntax::Tok::Plain)],
-    };
-
-    // Flatten to (char, token) so a wrap can fall mid-run without having to
-    // split the run list by hand.
-    let mut cells: Vec<(char, crate::syntax::Tok)> = Vec::new();
-    for (text, tok) in &runs {
-        for ch in text.chars() {
-            cells.push((ch, *tok));
-        }
-    }
-    if cells.is_empty() {
-        lines.push(Line::from(vec![
-            Span::styled(GUTTER, Style::default().fg(theme.muted).bg(theme.subtle)),
-            Span::styled(" ".repeat(usable), Style::default().bg(theme.subtle)),
-        ]));
-        return;
-    }
-
-    let mut idx = 0;
-    let mut first = true;
-    while idx < cells.len() {
-        // Take as many cells as fit, measuring by display width so CJK and
-        // emoji (width 2) do not overflow the block.
-        let mut used = 0usize;
-        let mut end = idx;
-        while end < cells.len() {
-            let w = unicode_width_of_char(cells[end].0).max(1);
-            if used + w > usable {
-                break;
-            }
-            used += w;
-            end += 1;
-        }
-        // A single cell wider than the whole block would loop forever.
-        if end == idx {
-            end = idx + 1;
-            used = usable;
-        }
-
-        let mut spans: Vec<Span<'static>> = Vec::with_capacity(4);
-        spans.push(Span::styled(
-            if first { GUTTER } else { CONT },
-            Style::default()
-                .fg(if first { theme.muted } else { theme.faint })
-                .bg(theme.subtle),
-        ));
-        // Regroup consecutive same-token cells into spans.
-        let mut run_start = idx;
-        while run_start < end {
-            let tok = cells[run_start].1;
-            let mut run_end = run_start;
-            while run_end < end && cells[run_end].1 == tok {
-                run_end += 1;
-            }
-            let body: String = cells[run_start..run_end].iter().map(|(c, _)| *c).collect();
-            spans.push(Span::styled(body, tok.style(theme).bg(theme.subtle)));
-            run_start = run_end;
-        }
-        spans.push(Span::styled(
-            " ".repeat(usable.saturating_sub(used)),
-            Style::default().bg(theme.subtle),
-        ));
-        lines.push(Line::from(spans));
-        idx = end;
-        first = false;
-    }
 }
 
 fn args_path(args: &str) -> Option<String> {
@@ -1503,7 +736,10 @@ fn render_block(
             ]));
             indented(lines, theme, width, |w, out| {
                 for line in textwrap::wrap(&block.text, w) {
-                    out.push(Line::styled(line.into_owned(), Style::default().fg(theme.red)));
+                    out.push(Line::styled(
+                        line.into_owned(),
+                        Style::default().fg(theme.red),
+                    ));
                 }
             });
         }
@@ -1524,7 +760,10 @@ fn render_block(
             ]));
             indented(lines, theme, width, |w, out| {
                 for line in textwrap::wrap(&block.text, w) {
-                    out.push(Line::styled(line.into_owned(), Style::default().fg(theme.red)));
+                    out.push(Line::styled(
+                        line.into_owned(),
+                        Style::default().fg(theme.red),
+                    ));
                 }
             });
         }
@@ -1846,46 +1085,10 @@ fn tool_row(
     Line::from(spans)
 }
 
-/// Split a heading line into its level and text, or None when it is not one.
-///
-/// Deeper levels are checked first so `###` is not read as `#` followed by
-/// two literal hashes.
-fn heading_of(raw: &str) -> Option<(usize, &str)> {
-    for level in (1..=5).rev() {
-        let marker = "#".repeat(level) + " ";
-        if let Some(body) = raw.strip_prefix(&marker) {
-            return Some((level, body));
-        }
-    }
-    None
-}
-
 /// Whether a rendered line is empty, used to avoid stacking blank lines.
 fn is_blank_line(line: Option<&Line<'static>>) -> bool {
     match line {
         None => true,
         Some(line) => line.spans.iter().all(|s| s.content.trim().is_empty()),
     }
-}
-
-/// Parse the inside of an emphasis span, layering the emphasis over whatever
-/// styling the nested markdown produces.
-///
-/// The outer style supplies weight and strikethrough; a nested code span keeps
-/// its own colour and background, since that is what identifies it as code.
-/// Plain runs take the outer style wholesale.
-fn nested_spans(body: &str, theme: &Theme, outer: Style) -> Vec<(String, Style)> {
-    let inner = markdown_spans(body, theme);
-    let plain = Style::default().fg(theme.text);
-    inner
-        .into_iter()
-        .map(|(text, style)| {
-            if style == plain {
-                (text, outer)
-            } else {
-                // Keep the nested run's own colours, add the outer modifiers.
-                (text, style.add_modifier(outer.add_modifier))
-            }
-        })
-        .collect()
 }

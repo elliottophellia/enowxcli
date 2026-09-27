@@ -15,6 +15,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 mod chrome;
 mod composer;
+mod markdown;
 mod pickers;
 mod popups;
 mod settings;
@@ -90,7 +91,7 @@ pub(crate) fn preview_markdown(
     theme: &crate::theme::Theme,
 ) -> Vec<String> {
     let mut lines: Vec<ratatui::text::Line<'static>> = Vec::new();
-    transcript::render_markdown(text, width, &mut lines, theme);
+    markdown::render_markdown(text, width, &mut lines, theme);
     lines_to_ansi(lines)
 }
 

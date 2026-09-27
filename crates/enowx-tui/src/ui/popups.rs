@@ -38,49 +38,52 @@ pub(super) fn draw_popup(frame: &mut Frame, app: &mut App) -> bool {
     }
 }
 
-fn popup_rect(area: Rect, width: u16, height: u16) -> Rect {
-    let width = width.min(area.width.saturating_sub(4));
-    let height = height.min(area.height.saturating_sub(2));
-    Rect {
-        x: area.x + area.width.saturating_sub(width) / 2,
-        y: area.y + area.height.saturating_sub(height) / 2,
-        width,
-        height,
-    }
-}
-
-fn frame_block(app: &App) -> Block<'static> {
-    Block::default()
-        .title(app.modal.title())
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(app.theme.accent))
-}
-
-fn search_row(app: &App, area: Rect, frame: &mut Frame, footer: &str) {
-    let text = format!("  search: {}_", app.modal_search);
+/// The search field an overlay's list filters by: a label, then the query and
+/// a caret, on the content's first row.
+fn search_row(app: &App, area: Rect, frame: &mut Frame) {
     frame.render_widget(
-        Paragraph::new(text).style(Style::default().fg(app.theme.text)),
-        area,
+        Paragraph::new(Line::from(vec![
+            Span::styled("search  ", Style::default().fg(app.theme.muted)),
+            Span::styled(
+                format!("{}_", app.modal_search),
+                Style::default().fg(app.theme.text),
+            ),
+        ])),
+        Rect::new(area.x, area.y, area.width, 1),
     );
-    if !footer.is_empty() {
-        let footer_area = Rect {
-            x: area.x,
-            y: area.y + 1,
-            width: area.width,
-            height: 1,
-        };
-        frame.render_widget(
-            Paragraph::new(format!("  {footer}")).style(Style::default().fg(app.theme.muted)),
-            footer_area,
-        );
-    }
 }
 
+/// The selected row's band, for lists whose rows carry their own marker (the
+/// on/off dot) in the marker column instead of the `›`.
 fn highlight_style(app: &App) -> Style {
     Style::default()
         .bg(app.theme.active_tab)
         .add_modifier(Modifier::BOLD)
+}
+
+/// Content split into the search row, a blank row, and the list.
+fn search_layout(content: Rect) -> (Rect, Rect) {
+    let search = Rect::new(content.x, content.y, content.width, 1);
+    let list = Rect::new(
+        content.x,
+        content.y + 2,
+        content.width,
+        content.height.saturating_sub(2),
+    );
+    (search, list)
+}
+
+/// Click targets for a list's visible rows: the whole row, and the first
+/// three columns where the on/off dot sits.
+fn register_rows(app: &mut App, list_area: Rect, count: usize) {
+    let visible = list_area.height as usize;
+    let start = app.modal_cursor.saturating_sub(visible.saturating_sub(1));
+    for (offset, row_idx) in (start..(start + visible).min(count)).enumerate() {
+        let y = list_area.y + offset as u16;
+        let row_rect = Rect::new(list_area.x, y, list_area.width, 1);
+        let mark_rect = Rect::new(list_area.x, y, 3.min(list_area.width), 1);
+        app.popup_rows.push((row_rect, mark_rect, row_idx));
+    }
 }
 
 // ------------------------------ Skills ------------------------------
@@ -90,94 +93,62 @@ fn draw_skills(frame: &mut Frame, app: &mut App) {
     if !rows.is_empty() && app.modal_cursor >= rows.len() {
         app.modal_cursor = rows.len() - 1;
     }
-    let area = frame.area();
-    let width = 92;
-    let height = ((rows.len() as u16) + 6)
-        .min(area.height.saturating_sub(2))
-        .max(8);
-    let popup = popup_rect(area, width, height);
-    frame.render_widget(Clear, popup);
-    let block = frame_block(app);
-    let inner = block.inner(popup);
-    frame.render_widget(block, popup);
-
-    let layout = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(2),
-        Constraint::Min(1),
-    ])
-    .split(inner);
-    search_row(
-        app,
-        layout[1],
+    // Search row, a blank row, the list, and the two edges.
+    let height = ((rows.len() as u16) + 4).max(8);
+    let (_, content) = overlay(
         frame,
+        app,
+        92,
+        height,
+        app.modal.title(),
         "Enter read · Tab enable/disable · Esc close",
     );
+    let (search, list_area) = search_layout(content);
+    search_row(app, search, frame);
 
     if rows.is_empty() {
         frame.render_widget(
-            Paragraph::new("no skills discovered — drop a SKILL.md under .agents/skills/")
+            Paragraph::new("No skills discovered. Drop a SKILL.md under .agents/skills/.")
                 .style(Style::default().fg(app.theme.muted)),
-            layout[2],
+            list_area,
         );
         return;
     }
 
+    let t = app.theme;
     let items: Vec<ListItem> = rows
         .iter()
         .map(|row| {
-            let mark = if row.enabled { "●" } else { "○" };
-            let color = if row.enabled {
-                app.theme.accent
+            let (mark, colour, name_style) = if row.enabled {
+                (
+                    "●",
+                    t.accent,
+                    Style::default().fg(t.text).add_modifier(Modifier::BOLD),
+                )
             } else {
-                app.theme.muted
-            };
-            let name_style = if row.enabled {
-                Style::default()
-                    .fg(app.theme.text)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(app.theme.muted)
+                ("○", t.muted, Style::default().fg(t.muted))
             };
             let scope = match row.scope {
                 SkillScope::Project => "project",
                 SkillScope::User => "user",
             };
             let desc = row.description.split('\n').next().unwrap_or("");
-            let line = Line::from(vec![
-                Span::styled(format!("  {mark} "), Style::default().fg(color)),
+            // The dot is this row's marker, on the marker column; the name
+            // starts on the text column like every other list.
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("{mark} "), Style::default().fg(colour)),
                 Span::styled(format!("{:<28}", row.name), name_style),
-                Span::styled(format!(" {scope:<8}"), Style::default().fg(app.theme.muted)),
-                Span::styled(trim(desc, 44), Style::default().fg(app.theme.text)),
-            ]);
-            ListItem::new(line)
+                Span::styled(format!(" {scope:<8}"), Style::default().fg(t.muted)),
+                Span::styled(
+                    trim(desc, list_area.width.saturating_sub(40) as usize),
+                    Style::default().fg(t.text),
+                ),
+            ]))
         })
         .collect();
     let mut state = ListState::default().with_selected(Some(app.modal_cursor));
-    let list_area = layout[2];
     app.popup_body = Some(list_area);
-    // Each row is one terminal line tall; record the row rect and a small
-    // mark rect (first ~4 cols) so mouse clicks can distinguish toggle vs
-    // select. Rendered rows can exceed the visible area; we only record what
-    // is actually visible.
-    let visible = list_area.height as usize;
-    let start = app.modal_cursor.saturating_sub(visible.saturating_sub(1));
-    for (offset, row_idx) in (start..(start + visible).min(rows.len())).enumerate() {
-        let y = list_area.y + offset as u16;
-        let row_rect = Rect {
-            x: list_area.x,
-            y,
-            width: list_area.width,
-            height: 1,
-        };
-        let mark_rect = Rect {
-            x: list_area.x,
-            y,
-            width: 5.min(list_area.width),
-            height: 1,
-        };
-        app.popup_rows.push((row_rect, mark_rect, row_idx));
-    }
+    register_rows(app, list_area, rows.len());
     frame.render_stateful_widget(
         List::new(items).highlight_style(highlight_style(app)),
         list_area,
@@ -192,30 +163,20 @@ fn draw_mcp(frame: &mut Frame, app: &mut App) {
     if !rows.is_empty() && app.modal_cursor >= rows.len() {
         app.modal_cursor = rows.len() - 1;
     }
-    let area = frame.area();
-    let width = 100;
-    let height = ((rows.len() as u16) + 6)
-        .min(area.height.saturating_sub(2))
-        .max(8);
-    let popup = popup_rect(area, width, height);
-    frame.render_widget(Clear, popup);
-    let block = frame_block(app);
-    let inner = block.inner(popup);
-    frame.render_widget(block, popup);
-
-    let layout = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(2),
-        Constraint::Min(1),
-    ])
-    .split(inner);
-    search_row(
-        app,
-        layout[1],
+    // Search row, a blank row, the list, and the two edges.
+    let height = ((rows.len() as u16) + 4).max(8);
+    let (_, content) = overlay(
         frame,
+        app,
+        100,
+        height,
+        app.modal.title(),
         "Enter edit · t tools · Tab enable/disable · Esc close",
     );
+    let (search, list_area) = search_layout(content);
+    search_row(app, search, frame);
 
+    let t = app.theme;
     let items: Vec<ListItem> = rows
         .iter()
         .map(|row| match row {
@@ -224,20 +185,16 @@ fn draw_mcp(frame: &mut Frame, app: &mut App) {
                 transport,
                 scope,
                 enabled,
-                detail,
+                target,
             } => {
-                let mark = if *enabled { "●" } else { "○" };
-                let color = if *enabled {
-                    app.theme.accent
+                let (mark, colour, name_style) = if *enabled {
+                    (
+                        "●",
+                        t.accent,
+                        Style::default().fg(t.text).add_modifier(Modifier::BOLD),
+                    )
                 } else {
-                    app.theme.muted
-                };
-                let name_style = if *enabled {
-                    Style::default()
-                        .fg(app.theme.text)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(app.theme.muted)
+                    ("○", t.muted, Style::default().fg(t.muted))
                 };
                 let transport = match transport {
                     McpTransport::Stdio => "stdio",
@@ -248,46 +205,29 @@ fn draw_mcp(frame: &mut Frame, app: &mut App) {
                     SkillScope::Project => "project",
                     SkillScope::User => "user",
                 };
-                let _ = detail;
                 ListItem::new(Line::from(vec![
-                    Span::styled(format!("  {mark} "), Style::default().fg(color)),
-                    Span::styled(format!("{:<24}", name), name_style),
+                    Span::styled(format!("{mark} "), Style::default().fg(colour)),
+                    Span::styled(format!("{name:<24}"), name_style),
+                    Span::styled(format!(" {transport:<6}"), Style::default().fg(t.muted)),
+                    Span::styled(format!(" {scope:<8}"), Style::default().fg(t.muted)),
                     Span::styled(
-                        format!(" {transport:<6}"),
-                        Style::default().fg(app.theme.muted),
+                        trim(target, list_area.width.saturating_sub(44) as usize),
+                        Style::default().fg(t.faint),
                     ),
-                    Span::styled(format!(" {scope:<8}"), Style::default().fg(app.theme.muted)),
                 ]))
             }
-            McpRow::AddNew => ListItem::new(Line::from(vec![Span::styled(
-                "  + Add new MCP server",
-                Style::default()
-                    .fg(app.theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            )])),
+            McpRow::AddNew => ListItem::new(Line::from(vec![
+                Span::styled("+ ", Style::default().fg(t.accent)),
+                Span::styled(
+                    "Add new MCP server",
+                    Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+                ),
+            ])),
         })
         .collect();
     let mut state = ListState::default().with_selected(Some(app.modal_cursor));
-    let list_area = layout[2];
     app.popup_body = Some(list_area);
-    let visible = list_area.height as usize;
-    let start = app.modal_cursor.saturating_sub(visible.saturating_sub(1));
-    for (offset, row_idx) in (start..(start + visible).min(rows.len())).enumerate() {
-        let y = list_area.y + offset as u16;
-        let row_rect = Rect {
-            x: list_area.x,
-            y,
-            width: list_area.width,
-            height: 1,
-        };
-        let mark_rect = Rect {
-            x: list_area.x,
-            y,
-            width: 5.min(list_area.width),
-            height: 1,
-        };
-        app.popup_rows.push((row_rect, mark_rect, row_idx));
-    }
+    register_rows(app, list_area, rows.len());
     frame.render_stateful_widget(
         List::new(items).highlight_style(highlight_style(app)),
         list_area,
@@ -298,43 +238,32 @@ fn draw_mcp(frame: &mut Frame, app: &mut App) {
 // ------------------------------ MCP form ------------------------------
 
 fn draw_mcp_form(frame: &mut Frame, app: &mut App) {
-    let area = frame.area();
-    let width = 78;
-    let height = 14;
-    let popup = popup_rect(area, width, height);
-    frame.render_widget(Clear, popup);
     // The same form adds and edits; say which, or an edit looks like it is
     // about to create a second entry.
     let title = if app.mcp_draft.name.trim().is_empty() {
-        " ADD MCP SERVER "
+        "ADD MCP SERVER"
     } else {
-        " EDIT MCP SERVER "
+        "EDIT MCP SERVER"
     };
-    // Built directly rather than via `frame_block`, whose title would be
-    // appended to rather than replaced by this one.
-    let block = Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(app.theme.accent));
-    let inner = block.inner(popup);
-    frame.render_widget(block, popup);
-
-    let layout = Layout::vertical([
-        Constraint::Length(MCP_FORM_FIELDS.len() as u16 + 1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-    ])
-    .split(inner);
-
+    let (_, content) = overlay(
+        frame,
+        app,
+        78,
+        MCP_FORM_FIELDS.len() as u16 + 5,
+        title,
+        "Tab/↓ next · ↑ prev · Space transport · Enter save · Esc cancel",
+    );
+    let t = app.theme;
     for (i, field) in MCP_FORM_FIELDS.iter().enumerate() {
+        let y = content.y + i as u16;
+        if y >= content.bottom() {
+            break;
+        }
         let selected = i == app.mcp_field;
         let label_style = if selected {
-            Style::default()
-                .fg(app.theme.accent)
-                .add_modifier(Modifier::BOLD)
+            Style::default().fg(t.accent).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(app.theme.muted)
+            Style::default().fg(t.muted)
         };
         let value = match field {
             McpFormField::Name => app.mcp_draft.name.clone(),
@@ -347,43 +276,28 @@ fn draw_mcp_form(frame: &mut Frame, app: &mut App) {
                 McpTransport::Sse => "sse".into(),
             },
         };
-        let caret = if selected { "▸ " } else { "  " };
         let empty = value_is_empty(field, app);
-        let value_display = if empty {
-            field.placeholder().to_string()
+        let (value, value_style) = if empty {
+            (field.placeholder().to_string(), Style::default().fg(t.muted))
         } else {
-            value
+            (value, Style::default().fg(t.text))
         };
-        let value_style = if empty {
-            Style::default().fg(app.theme.muted)
-        } else {
-            Style::default().fg(app.theme.text)
-        };
+        // Marker on column 2, the label on column 4 in a fixed column, and
+        // the value after it: every field's value starts on one column.
         let line = Line::from(vec![
-            Span::styled(caret, label_style),
-            Span::styled(format!("{:<28}", MCP_FORM_LABELS[i]), label_style),
-            Span::styled(value_display, value_style),
+            Span::styled(if selected { "› " } else { "  " }, Style::default().fg(t.accent)),
+            Span::styled(format!("{:<26}", MCP_FORM_LABELS[i]), label_style),
+            Span::styled(value, value_style),
         ]);
-        let row = Rect {
-            x: inner.x,
-            y: inner.y + i as u16,
-            width: inner.width,
-            height: 1,
-        };
+        let row = Rect::new(content.x, y, content.width, 1);
         app.mcp_field_rows.push((row, i));
         frame.render_widget(Paragraph::new(line), row);
     }
-
-    let footer = "Tab/↓ next · ↑ prev · Space cycles transport · Enter save · Esc cancel";
-    frame.render_widget(
-        Paragraph::new(footer).style(Style::default().fg(app.theme.muted)),
-        layout[1],
-    );
-    if !app.modal_error.is_empty() {
+    if !app.modal_error.is_empty() && content.height > 0 {
         frame.render_widget(
-            Paragraph::new(format!("  {}", app.modal_error))
-                .style(Style::default().fg(app.theme.red)),
-            layout[2],
+            Paragraph::new(trim(&app.modal_error, content.width as usize))
+                .style(Style::default().fg(t.red)),
+            Rect::new(content.x, content.bottom() - 1, content.width, 1),
         );
     }
 }
@@ -401,48 +315,36 @@ fn value_is_empty(field: &McpFormField, app: &App) -> bool {
 /// Simple confirm dialog for Ctrl+C on an empty composer. Y/Enter quits,
 /// N/Esc cancels. Kept small so it never covers the transcript.
 fn draw_quit_confirm(frame: &mut Frame, app: &mut App) {
-    let area = frame.area();
-    let width = 46;
-    let height = 6;
-    let popup = popup_rect(area, width, height);
-    frame.render_widget(Clear, popup);
-    let block = frame_block(app);
-    let inner = block.inner(popup);
-    frame.render_widget(block, popup);
+    let (_, content) = overlay(
+        frame,
+        app,
+        46,
+        7,
+        app.modal.title(),
+        "Y quit · N stay · Enter confirm",
+    );
     let t = app.theme;
-
-    let prompt = Rect {
-        x: inner.x + 2,
-        y: inner.y + 1,
-        width: inner.width.saturating_sub(4),
-        height: 1,
-    };
     frame.render_widget(
         Paragraph::new("Quit Enx? Unsent input will be lost.").style(Style::default().fg(t.text)),
-        prompt,
+        Rect::new(content.x, content.y + 1, content.width, 1),
     );
 
-    // Two buttons centered on the third row: `[  Yes  ]  [  No  ]`. Active
-    // one uses `active_tab` bg + accent fg so keyboard focus is obvious;
-    // idle one is muted. Both rects are registered for mouse click.
+    // Two buttons centred on the content's fourth row: `[  Yes  ]  [  No  ]`.
+    // The active one uses the selection band and the accent so keyboard
+    // focus is obvious; the idle one is muted. Both are click targets.
     let yes_label = "  Yes  ";
     let no_label = "  No  ";
     let gap = 2usize;
-    let total_w = yes_label.chars().count() + gap + no_label.chars().count() + 4; // 2 brackets pairs
-    let start = inner.x + (inner.width.saturating_sub(total_w as u16)) / 2;
-    let y = inner.y + 3;
-    let yes_rect = Rect {
-        x: start,
+    let total_w = yes_label.chars().count() + gap + no_label.chars().count() + 4;
+    let start = content.x + (content.width.saturating_sub(total_w as u16)) / 2;
+    let y = content.y + 3;
+    let yes_rect = Rect::new(start, y, (yes_label.chars().count() + 2) as u16, 1);
+    let no_rect = Rect::new(
+        yes_rect.x + yes_rect.width + gap as u16,
         y,
-        width: (yes_label.chars().count() + 2) as u16,
-        height: 1,
-    };
-    let no_rect = Rect {
-        x: yes_rect.x + yes_rect.width + gap as u16,
-        y,
-        width: (no_label.chars().count() + 2) as u16,
-        height: 1,
-    };
+        (no_label.chars().count() + 2) as u16,
+        1,
+    );
     app.quit_confirm_rects = [(yes_rect, true), (no_rect, false)];
 
     let active_style = Style::default()
@@ -456,17 +358,11 @@ fn draw_quit_confirm(frame: &mut Frame, app: &mut App) {
         (idle_style, active_style)
     };
     frame.render_widget(
-        Paragraph::new(vec![Line::from(vec![Span::styled(
-            format!("[{yes_label}]"),
-            yes_style,
-        )])]),
+        Paragraph::new(Line::styled(format!("[{yes_label}]"), yes_style)),
         yes_rect,
     );
     frame.render_widget(
-        Paragraph::new(vec![Line::from(vec![Span::styled(
-            format!("[{no_label}]"),
-            no_style,
-        )])]),
+        Paragraph::new(Line::styled(format!("[{no_label}]"), no_style)),
         no_rect,
     );
 }
@@ -481,51 +377,44 @@ fn draw_commands(frame: &mut Frame, app: &mut App) {
     if !rows.is_empty() && app.modal_cursor >= rows.len() {
         app.modal_cursor = rows.len() - 1;
     }
-    let area = frame.area();
-    let width = 74;
-    let height = ((rows.len() as u16) + 5)
-        .min(area.height.saturating_sub(2))
-        .max(8);
-    let popup = popup_rect(area, width, height);
-    frame.render_widget(Clear, popup);
-    let block = frame_block(app);
-    let inner = block.inner(popup);
-    frame.render_widget(block, popup);
-
-    let layout = Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).split(inner);
-    search_row(app, layout[0], frame, "↑↓ move · Enter run · Esc close");
+    // Search row, a blank row, the list, and the two edges.
+    let height = ((rows.len() as u16) + 4).max(8);
+    let (_, content) = overlay(
+        frame,
+        app,
+        74,
+        height,
+        app.modal.title(),
+        "↑↓ move · Enter run · Esc close",
+    );
+    let (search, list_area) = search_layout(content);
+    search_row(app, search, frame);
 
     if rows.is_empty() {
         frame.render_widget(
-            Paragraph::new("  no command matches").style(Style::default().fg(app.theme.muted)),
-            layout[1],
+            Paragraph::new("No command matches.").style(Style::default().fg(app.theme.muted)),
+            list_area,
         );
         return;
     }
 
+    let t = app.theme;
     let items: Vec<ListItem> = rows
         .iter()
         .map(|(name, summary)| {
             ListItem::new(Line::from(vec![
                 Span::styled(
-                    format!("  /{name:<10}"),
-                    Style::default()
-                        .fg(app.theme.accent)
-                        .add_modifier(Modifier::BOLD),
+                    format!("/{name:<11}"),
+                    Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled((*summary).to_string(), Style::default().fg(app.theme.muted)),
+                Span::styled((*summary).to_string(), Style::default().fg(t.muted)),
             ]))
         })
         .collect();
-    let mut state = ListState::default();
-    state.select(Some(app.modal_cursor));
+    let mut state = ListState::default().with_selected(Some(app.modal_cursor));
     frame.render_stateful_widget(
-        List::new(items).highlight_style(
-            Style::default()
-                .bg(app.theme.active_tab)
-                .add_modifier(Modifier::BOLD),
-        ),
-        layout[1],
+        super::pickers::selectable(List::new(items), &t),
+        list_area,
         &mut state,
     );
 }

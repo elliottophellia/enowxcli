@@ -4,7 +4,7 @@ use ratatui::layout::Position;
 
 impl App {
     pub(crate) fn select_tab(&mut self, index: usize) {
-        self.sidebar_tab = index.min(4);
+        self.sidebar_tab = index.min(crate::ui::TABS.len() - 1);
         self.sidebar_page = 0;
         self.show_sidebar = true;
     }

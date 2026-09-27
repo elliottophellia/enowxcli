@@ -37,11 +37,11 @@ fn a_trim_says_what_it_did() {
 fn the_sidebar_carries_the_running_total() {
     let mut app = TestApp::new();
     app.deliver_trimmed("bash", 4876, 620);
-    app.select_sidebar_tab(0);
+    // In the SESSION card, which is always on screen beside the chat.
     let row = app
-        .render_to_text(120, 34)
+        .side_column(120, 34)
         .into_iter()
-        .find(|r| r.contains("dipangkas"))
+        .find(|r| r.contains("trimmed") && r.contains("saved"))
         .expect("a trimmed row");
     assert!(row.contains('1'), "the count: {row}");
     assert!(row.contains("4,256"), "and what it saved: {row}");
@@ -52,11 +52,10 @@ fn the_sidebar_carries_the_running_total() {
 #[test]
 fn the_sidebar_row_is_absent_until_something_happens() {
     let mut app = TestApp::new();
-    app.select_sidebar_tab(0);
     assert!(
-        !app.render_to_text(120, 34)
+        !app.side_column(120, 34)
             .iter()
-            .any(|r| r.contains("dipangkas")),
+            .any(|r| r.contains("trimmed")),
         "nothing has been trimmed, so there is nothing to report"
     );
 }

@@ -1,0 +1,104 @@
+//! Render the whole app at any terminal size, as plain text, to check the
+//! grid without a terminal. Scenarios: session (default), empty, busy,
+//! palette, detail, rich.
+//! Run: cargo run -q -p enowx-tui --example snapshot -- 120 36 rich
+use enowx_tui::testing::TestApp;
+
+fn session() -> TestApp {
+    let mut app = TestApp::new();
+    app.push_user("perbagus sidebar dan rapikan layout transcript");
+    app.switch_agent("fe", "UI work in the terminal interface");
+    app.push_assistant(
+        "Saya cek dulu struktur sidebar dan bagian yang merender tab.\n\n\
+         Ada **tiga** hal yang perlu dirapikan:\n\n\
+         1. Lebar kolom label tidak konsisten antar tab\n\
+         2. Pemisah memakai garis yang nyaris tak terlihat\n\
+         3. Footer menimpa sudut kotak sidebar\n\n\
+         ```rust\nfn sidebar_width(total: u16) -> u16 {\n    (total * 2 / 5).clamp(38, 60)\n}\n```",
+    );
+    app.push_tool("t1", "read", r#"{"path":"crates/enowx-tui/src/ui/sidebar.rs"}"#, "use super::*;\n\npub(super) fn draw_sidebar(...) {\n    ...\n}\n");
+    app.push_tool("t2", "grep", r#"{"pattern":"draw_split_line","path":"crates"}"#, "crates/enowx-tui/src/ui/chrome.rs:316\ncrates/enowx-tui/src/ui/chrome.rs:144\n");
+    app.push_tool(
+        "t3",
+        "bash",
+        r#"{"command":"cargo test -p enowx-tui"}"#,
+        "running 304 tests\ntest result: ok. 304 passed; 0 failed\n",
+    );
+    app.push_assistant("Semua test lulus. Sidebar sekarang memakai grid dua kolom dengan lebar label tetap.");
+    app
+}
+
+/// States beyond the plain session, selected by the third argument.
+fn scenario(name: &str) -> TestApp {
+    match name {
+        "empty" => TestApp::new(),
+        "busy" => {
+            let mut app = session();
+            app.set_busy(true);
+            app.type_input("tambahkan juga test untuk layout sempit");
+            app
+        }
+        "palette" => {
+            let mut app = session();
+            app.type_input("/m");
+            app
+        }
+        "detail" => {
+            let mut app = session();
+            app.expand_tool("t3");
+            app.deliver_delegation_started("fe", "rapikan sidebar", "s-1");
+            app.deliver_delegation_finished("fe", "s-1", false);
+            app.deliver_delegation_started("review", "cek hasil layout", "s-2");
+            app.push_error("provider returned 429: rate limited");
+            app
+        }
+        "rich" => {
+            let mut app = TestApp::new();
+            app.set_show_reasoning(true);
+            app.set_show_tool_output(true);
+            app.push_user("ringkas perubahan layout dan tunjukkan diff-nya");
+            app.push_reasoning("The user wants a summary plus the diff. Check chrome.rs first.");
+            app.push_assistant(
+                "## Ringkasan\n\n\
+                 Layout sekarang memakai **grid** dengan `Grid::new` sebagai satu-satunya\n\
+                 sumber posisi. Lihat [catatan](https://example.com).\n\n\
+                 > Kotak tidak lagi punya bingkai luar.\n\n\
+                 | Bagian | Lebar | Catatan |\n|---|---|---|\n| chat | sisa | fleksibel |\n| side | 40 / 52 | bertingkat |\n\n\
+                 - poin pertama\n- poin kedua dengan `kode`\n",
+            );
+            app.push_tool(
+                "e1",
+                "edit",
+                r#"{"path":"src/ui/chrome.rs","old_text":"let side = 38;\nlet gap = 2;","new_text":"let side = 40;\nlet gap = 1;"}"#,
+                "edited at line 10",
+            );
+            app.push_tool(
+                "w1",
+                "write",
+                r##"{"path":"docs/grid.md","content":"# Grid\n\nOne edge for text."}"##,
+                "wrote docs/grid.md",
+            );
+            app.push_tool(
+                "td",
+                "todo",
+                r#"{"items":[{"state":"done","label":"frame and columns"},{"state":"in_progress","label":"chat content"},{"state":"pending","label":"popups"}]}"#,
+                "",
+            );
+            app.push_retry("provider returned 503", 2, 10);
+            app.push_assistant("Selesai. Semua kotak sejajar.");
+            app
+        }
+        _ => session(),
+    }
+}
+
+fn main() {
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    let nums: Vec<u16> = raw.iter().filter_map(|a| a.parse().ok()).collect();
+    let (w, h) = (nums.first().copied().unwrap_or(120), nums.get(1).copied().unwrap_or(36));
+    let name = raw.iter().find(|a| a.parse::<u16>().is_err()).map(String::as_str).unwrap_or("session");
+    let mut app = scenario(name);
+    for line in app.render_to_text(w, h) {
+        println!("{line}");
+    }
+}

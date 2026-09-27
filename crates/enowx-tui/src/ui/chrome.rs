@@ -1,152 +1,196 @@
 use super::*;
 
+/// Side column width at each breakpoint. Stepped rather than proportional, so
+/// the label and value columns inside its cards sit on the same characters
+/// from one terminal width to the next instead of drifting with every resize.
+const SIDE_REGULAR: u16 = 40;
+const SIDE_WIDE: u16 = 52;
+/// Narrower than this and the side column cannot sit beside a readable chat;
+/// its figures move into the status bar instead.
+const SIDE_MIN_WINDOW: u16 = 100;
+const WIDE_WINDOW: u16 = 160;
+/// Shorter than this and the side column is dropped: two stacked cards with a
+/// row or two each carry nothing the status bar does not.
+const SIDE_MIN_HEIGHT: u16 = 12;
+/// Shorter than this and the SESSION card goes, so the detail card keeps
+/// enough rows to be worth having; the card's figures join the status bar.
+const SESSION_MIN_HEIGHT: u16 = 18;
+
+/// Where every box sits, worked out once per frame from the window size.
+///
+/// One place decides the edges so they cannot disagree. The old layout had
+/// the header, sidebar, composer and footer each choose their own insets, and
+/// no two of them ended on the same column.
+pub(super) struct Grid {
+    /// Chat box, palette and composer, stacked.
+    pub main: Rect,
+    pub side: Option<Rect>,
+    /// The last row, full width.
+    pub status: Rect,
+    /// Whether the side column leads with the SESSION card.
+    pub session_card: bool,
+}
+
+impl Grid {
+    pub(super) fn new(area: Rect, show_sidebar: bool) -> Self {
+        let status = Rect::new(area.x, area.bottom().saturating_sub(1), area.width, 1);
+        let body = Rect::new(area.x, area.y, area.width, area.height.saturating_sub(1));
+        let fits = show_sidebar && area.width >= SIDE_MIN_WINDOW && area.height >= SIDE_MIN_HEIGHT;
+        if !fits {
+            return Self {
+                main: body,
+                side: None,
+                status,
+                session_card: false,
+            };
+        }
+        let side_w = if area.width >= WIDE_WINDOW {
+            SIDE_WIDE
+        } else {
+            SIDE_REGULAR
+        };
+        // One blank column between the columns: the two boxes' own edges
+        // already separate them, and a wider gap is a gutter with nothing in it.
+        Self {
+            main: Rect::new(body.x, body.y, body.width - side_w - 1, body.height),
+            side: Some(Rect::new(body.right() - side_w, body.y, side_w, body.height)),
+            status,
+            session_card: area.height >= SESSION_MIN_HEIGHT,
+        }
+    }
+}
+
 pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
     app.sidebar_area = None;
     app.sidebar_tabs.clear();
     app.sidebar_pages_area = None;
-    let border = Block::default()
-        .borders(if area.height <= 8 {
-            Borders::NONE
-        } else {
-            Borders::ALL
-        })
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(app.theme.border))
-        .style(Style::default().bg(app.theme.panel));
-    let inner = border.inner(area);
-    frame.render_widget(border, area);
-    // Three rows: the box's two edges and the row between them.
-    let header = if inner.height >= 12 { 3 } else { 0 };
-    let footer = if inner.height >= 10 { 1 } else { 0 };
-    // A blank row under the header box, matching the one above the composer:
-    // a box resting directly on the first message reads as containing it.
-    let gap = if header > 0 { 1 } else { 0 };
-    let parts = Layout::vertical([
-        Constraint::Length(header),
-        Constraint::Length(gap),
-        Constraint::Min(3),
-        Constraint::Length(footer),
-    ])
-    .split(inner);
-    if header > 0 {
-        draw_title(frame, app, parts[0]);
+    let grid = Grid::new(area, app.show_sidebar);
+    draw_main_column(frame, app, grid.main);
+    if let Some(side) = grid.side {
+        draw_sidebar(frame, app, side, grid.session_card);
     }
-    // The chat pane owns the window: telemetry only appears when both panes fit
-    // side by side, so shrinking the terminal never buries the conversation.
-    let sidebar = if app.show_sidebar && parts[2].width >= 100 && parts[2].height >= 12 {
-        (parts[2].width * 2 / 5).clamp(38, 60)
-    } else {
-        0
-    };
-    if sidebar > 0 {
-        let columns =
-            Layout::horizontal([Constraint::Min(52), Constraint::Length(sidebar)]).split(parts[2]);
-        draw_composer_pane(frame, app, columns[0]);
-        // The box runs down over the footer's row to close on the window
-        // frame. Closed on four sides, it would otherwise float a row above
-        // the status bar with a band of panel beneath it — the same rule
-        // stopping in mid-air that the old divider's carry-through fixed.
-        draw_sidebar(
-            frame,
-            app,
-            Rect::new(
-                columns[1].x,
-                columns[1].y,
-                columns[1].width,
-                columns[1].height + footer,
-            ),
-        );
-        // No pane labels. With the sidebar a box of its own, the header's
-        // lower edge spans the full width and belongs to neither pane, so a
-        // name written on it pointed at a rule that was not that pane's. The
-        // sidebar titles itself on its own top edge; the transcript below
-        // needs no label to be recognised.
-    } else {
-        draw_composer_pane(frame, app, parts[2]);
-    }
-    if footer > 0 {
-        // The footer stops where the sidebar's box begins. The box closes on
-        // this row, so a status bar running the full width writes its keys
-        // straight over the box's lower edge — `╰───Ctrl+P commands`, a
-        // corner with text through it.
-        let footer_area = if sidebar > 0 {
-            Rect::new(
-                parts[3].x,
-                parts[3].y,
-                parts[3].width.saturating_sub(sidebar),
-                parts[3].height,
-            )
-        } else {
-            parts[3]
-        };
-        draw_footer(frame, app, footer_area);
-    }
+    // The SESSION card's figures are said once: in the card when it is on
+    // screen, in the status bar when it is not.
+    let figures_elsewhere = grid.side.is_some() && grid.session_card;
+    draw_footer(frame, app, grid.status, !figures_elsewhere);
 }
 
-/// The header: a name badge, then the running context as a breadcrumb.
-///
-/// The three coloured dots and "PID 91731" that used to sit here were
-/// decoration — nobody reads a pid, and the dots imitated a window chrome the
-/// terminal already draws. What belongs at the top is what the next keystroke
-/// acts on: which workspace, which agent, which model.
-/// The header: a box, matching the composer at the other end of the window.
-///
-/// The pair frames the conversation between them, which a rule at the top
-/// and a box at the bottom did not — the two edges read as different kinds of
-/// thing. The agent, model and state are not repeated here; the status bar
-/// carries those, and saying them twice left neither line able to say
-/// anything else.
-fn draw_title(frame: &mut Frame, app: &App, area: Rect) {
-    let t = app.theme;
-    frame.render_widget(Block::default().style(Style::default().bg(t.subtle)), area);
-
-    // Inset by one column on each side, exactly as the composer's box is, so
-    // the two line up down the window rather than nearly lining up.
-    let boxed = Rect::new(
-        area.x + 1,
-        area.y,
-        area.width.saturating_sub(2),
-        area.height.min(3),
-    );
+/// A rounded box on the panel surface. Every box in the window is drawn by
+/// this, so they share one border, one fill and one corner.
+pub(super) fn panel_box(
+    frame: &mut Frame,
+    area: Rect,
+    border: ratatui::style::Color,
+    fill: ratatui::style::Color,
+) -> Rect {
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_type(ratatui::widgets::BorderType::Rounded)
-        .border_style(Style::default().fg(t.border))
-        .style(Style::default().bg(t.subtle));
-    let inner = block.inner(boxed);
-    frame.render_widget(block, boxed);
-    if inner.width == 0 || inner.height == 0 {
-        return;
-    }
-
-    let project = app
-        .workspace
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .into_owned();
-
-    let mut left = vec![
-        Span::styled(" ", Style::default()),
-        Span::styled(
-            project,
-            Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
-        ),
-    ];
-    if !app.title.is_empty() {
-        left.push(Span::styled("   ", Style::default().fg(t.faint)));
-        left.push(Span::styled(
-            crate::text::trim(&app.title, 48),
-            Style::default().fg(t.muted),
-        ));
-    }
-
-    draw_split_line(frame, Line::from(left), Line::default(), inner);
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(border))
+        .style(Style::default().bg(fill));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    inner
 }
 
-fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
+/// A title set into a box's top edge after one run of the rule, `╭─ title ─`,
+/// the way the detail card's tabs sit in its edge.
+pub(super) fn box_title(
+    frame: &mut Frame,
+    area: Rect,
+    spans: Vec<Span<'static>>,
+    fill: ratatui::style::Color,
+) {
+    if area.width <= 7 || area.height == 0 {
+        return;
+    }
+    let room = area.width.saturating_sub(5) as usize;
+    let mut line = Line::from(
+        std::iter::once(Span::raw(" "))
+            .chain(spans)
+            .chain(std::iter::once(Span::raw(" ")))
+            .collect::<Vec<_>>(),
+    );
+    if line.width() > room {
+        line = Line::styled(trim(&line.to_string(), room), line.style);
+    }
+    let width = line.width() as u16;
+    frame.render_widget(
+        Paragraph::new(line).style(Style::default().bg(fill)),
+        Rect::new(area.x + 2, area.y, width, 1),
+    );
+}
+
+/// Keys set into a box's bottom edge, `╰─ ↑↓ move · Esc close ─╯`, where the
+/// sidebar keeps its pager. A row of hints inside the box cost a row of the
+/// content it described.
+pub(super) fn box_hint(frame: &mut Frame, area: Rect, hint: &str, colour: ratatui::style::Color, fill: ratatui::style::Color) {
+    if hint.is_empty() || area.width <= 7 || area.height < 2 {
+        return;
+    }
+    let text = trim(&format!(" {hint} "), area.width.saturating_sub(5) as usize);
+    let width = text.chars().count() as u16;
+    frame.render_widget(
+        Paragraph::new(Line::styled(text, Style::default().fg(colour).bg(fill))),
+        Rect::new(area.x + 2, area.bottom() - 1, width, 1),
+    );
+}
+
+/// A centred overlay: the same rounded box as the layout's own, with an accent
+/// edge because it has the keyboard, its title in the top edge and its keys in
+/// the bottom one. Returns the box and its content area — inside the border
+/// with a column of padding each side, so content starts on the overlay's
+/// column 2 like the text in every other box.
+pub(super) fn overlay(
+    frame: &mut Frame,
+    app: &App,
+    width: u16,
+    height: u16,
+    title: &str,
+    hint: &str,
+) -> (Rect, Rect) {
     let t = app.theme;
-    frame.render_widget(Block::default().style(Style::default().bg(t.subtle)), area);
+    let area = frame.area();
+    let width = width.min(area.width.saturating_sub(4));
+    let height = height.min(area.height.saturating_sub(2));
+    let rect = Rect::new(
+        area.x + area.width.saturating_sub(width) / 2,
+        area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    );
+    frame.render_widget(Clear, rect);
+    panel_box(frame, rect, t.accent, t.panel);
+    let title = title.trim();
+    if !title.is_empty() {
+        box_title(
+            frame,
+            rect,
+            vec![Span::styled(
+                title.to_owned(),
+                Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+            )],
+            t.panel,
+        );
+    }
+    box_hint(frame, rect, hint, t.muted, t.panel);
+    let content = Rect::new(
+        rect.x + 2,
+        rect.y + 1,
+        rect.width.saturating_sub(4),
+        rect.height.saturating_sub(2),
+    );
+    (rect, content)
+}
+
+fn draw_footer(frame: &mut Frame, app: &App, area: Rect, show_figures: bool) {
+    let t = app.theme;
+    // Inset two columns each side, so the status bar's first and last
+    // characters sit on the same columns as the markers inside the boxes above.
+    if area.width < 8 {
+        return;
+    }
+    let area = Rect::new(area.x + 2, area.y, area.width - 4, area.height);
 
     // LEFT: spinner (busy only) + agent + model. Idle just shows agent + model.
     let mut left_spans: Vec<Span<'static>> = Vec::new();
@@ -181,9 +225,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         ));
         left_spans.push(Span::styled(
             format!("{} ", viewing.agent),
-            Style::default()
-                .fg(t.accent)
-                .add_modifier(ratatui::style::Modifier::BOLD),
+            Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
         ));
         left_spans.push(Span::styled(
             match state {
@@ -200,9 +242,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         let right = Line::from(vec![if moved_on > 0 {
             Span::styled(
                 format!("main chat +{moved_on} ↑"),
-                Style::default()
-                    .fg(t.yellow)
-                    .add_modifier(ratatui::style::Modifier::BOLD),
+                Style::default().fg(t.yellow).add_modifier(Modifier::BOLD),
             )
         } else {
             Span::styled(
@@ -236,76 +276,80 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     ));
     left_spans.push(Span::styled(
         format!(" {} ", app.active_agent()),
-        Style::default()
-            .fg(t.accent)
-            .bg(t.active_tab)
-            .add_modifier(Modifier::BOLD),
+        Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
     ));
-    // On the same surface as the agent, separated by a dot and set quieter:
-    // the pair reads as one block, with the agent — the part that changes
-    // hands — leading it.
+    // Quieter than the agent and joined to it by a dot: the pair reads as one
+    // block, with the agent — the part that changes hands — leading it.
     let model = app.model_label();
     left_spans.push(Span::styled(
         format!(
-            "· {} ",
+            "· {}",
             if model.is_empty() {
                 "no model".to_owned()
             } else {
                 model
             }
         ),
-        Style::default().fg(t.muted).bg(t.active_tab),
+        Style::default().fg(t.muted),
     ));
     if app.busy {
         left_spans.push(Span::styled(
             format!(
-                " {} ",
+                "  {}",
                 crate::app::fmt_elapsed(app.turn_started.elapsed().as_secs())
             ),
             Style::default().fg(t.yellow),
+        ));
+        // What the turn is doing right now — waiting on the model, thinking,
+        // writing, or which tool is running. A clock alone cannot tell a slow
+        // model from a long tool call.
+        left_spans.push(Span::styled(
+            format!(" · {}", app.activity.label()),
+            Style::default().fg(t.muted),
         ));
     }
     // The status line's own message, which is where a command's result lands.
     if !app.status.is_empty() && app.status != "ready" {
         left_spans.push(Span::styled(
-            format!(" {}", crate::text::trim(&app.status, 40)),
+            format!("  {}", crate::text::trim(&app.status, 40)),
             Style::default().fg(t.muted),
         ));
     }
 
-    // RIGHT: the keys, and the session's spend when there is room for it.
-    // `draw_split_line` drops the whole right side rather than truncating it,
-    // so the counts are added only when they will not push the keys off —
-    // the sidebar already carries them in full.
+    // RIGHT: the session's figures when no card is showing them, then the
+    // keys. `draw_split_line` drops the whole right side rather than
+    // truncating it, so the figures only come along when there is room.
     let mut right_spans: Vec<Span<'static>> = Vec::new();
-    // The footer stops at the pane divider, so this is the chat pane's width
-    // rather than the window's — a window wide enough for a sidebar leaves
-    // the footer about sixty columns.
-    let roomy = area.width >= 66;
-    if roomy && app.context_window > 0 && app.context_tokens > 0 {
+    if show_figures && area.width >= 66 && app.context_window > 0 {
         let pct = (app.context_tokens as u64 * 100 / app.context_window.max(1) as u64).min(999);
         right_spans.push(Span::styled(
-            format!("ctx {pct}%  "),
-            Style::default().fg(if pct >= 85 { t.red } else { t.faint }),
+            format!("ctx {pct}%"),
+            Style::default().fg(if pct >= 85 { t.red } else { t.muted }),
+        ));
+        let cost = crate::pricing::cost_usd(&app.config, app.tokens_in, app.tokens_out, 0);
+        right_spans.push(Span::styled(
+            format!("  {}   ", crate::pricing::format_cost(&app.config, cost)),
+            Style::default().fg(t.muted),
         ));
     }
     // The keys that apply right now, where the tip used to rotate. A tip is
     // read once; a key is looked up, and looking it up is the reason to keep
     // a row of chrome at all.
-    let hints: &[(&str, &str)] = if app.viewing.is_some() {
-        &[("Esc", "back")]
-    } else if app.busy {
+    let hints: &[(&str, &str)] = if app.busy {
         &[("Ctrl+C", "stop")]
     } else {
         &[("Ctrl+P", "commands"), ("/", "run one")]
     };
-    for (key, what) in hints {
+    for (index, (key, what)) in hints.iter().enumerate() {
+        if index > 0 {
+            right_spans.push(Span::raw("   "));
+        }
         right_spans.push(Span::styled(
             (*key).to_owned(),
             Style::default().fg(t.muted).add_modifier(Modifier::BOLD),
         ));
         right_spans.push(Span::styled(
-            format!(" {what}  "),
+            format!(" {what}"),
             Style::default().fg(t.faint),
         ));
     }
@@ -336,4 +380,3 @@ pub(super) fn draw_split_line(frame: &mut Frame, left: Line, right: Line, area: 
         );
     }
 }
-

@@ -8,31 +8,13 @@
 use crossterm::event::KeyCode;
 use enowx_tui::testing::TestApp;
 
-/// The sidebar half of each row. The transcript names the same agents
-/// ("fe started"), so searching a whole row finds the wrong one.
-///
-/// Taken by column rather than by splitting on `│`: the sidebar is a box with
-/// borders of its own, so counting rules in from the right lands inside it or
-/// past it depending on the row.
+/// The Agents tab, where delegations are listed.
+const AGENTS_TAB: usize = 0;
+
+/// The side column's rows. The transcript names the same agents ("fe
+/// started"), so searching a whole row finds the wrong one.
 fn sidebar_rows(app: &mut TestApp) -> Vec<String> {
-    let rows = app.render_to_text(120, 34);
-    // The column the box starts in, found from its titled top edge — the one
-    // row that is unambiguous, since the header and composer are boxed too.
-    //
-    // Counted in chars, not bytes: `find` gives a byte offset, the frame is
-    // drawn in multi-byte box glyphs, and the two are nine apart by this
-    // point in the row.
-    let start = rows
-        .iter()
-        .find_map(|row| {
-            let at = row.find("╭─ ")?;
-            Some(row[..at].chars().count())
-        })
-        .filter(|at| *at > 4)
-        .expect("the sidebar's titled top edge");
-    rows.into_iter()
-        .map(|row| row.chars().skip(start).collect())
-        .collect()
+    app.side_column(120, 34)
 }
 
 /// The tab lists what has been delegated, with its state.
@@ -41,9 +23,9 @@ fn the_agent_tab_lists_delegations() {
     let mut app = TestApp::new();
     app.deliver_delegation_started("fe", "write the HTML", "id-1");
     app.deliver_delegation_started("review", "check it", "id-2");
-    app.select_sidebar_tab(3);
-    let text = app.render_to_text(120, 34).join("\n");
-    assert!(text.contains("DIDELEGASIKAN"), "a section for them: {text}");
+    app.select_sidebar_tab(AGENTS_TAB);
+    let text = sidebar_rows(&mut app).join("\n");
+    assert!(text.contains("DELEGATED"), "a section for them: {text}");
     assert!(text.contains("fe"), "the first: {text}");
     assert!(text.contains("write the HTML"), "and its task: {text}");
     assert!(text.contains("review"), "the second: {text}");
@@ -57,7 +39,7 @@ fn a_running_delegation_is_marked_apart_from_a_finished_one() {
     app.deliver_delegation_started("fe", "write the HTML", "id-1");
     app.deliver_delegation_started("review", "check it", "id-2");
     app.deliver_delegation_finished("fe", "id-1", false);
-    app.select_sidebar_tab(3);
+    app.select_sidebar_tab(AGENTS_TAB);
     let rows = sidebar_rows(&mut app);
     let fe = rows
         .iter()
@@ -79,7 +61,7 @@ fn two_runs_of_one_agent_are_tracked_separately() {
     app.deliver_delegation_started("fe", "first job", "id-1");
     app.deliver_delegation_started("fe", "second job", "id-2");
     app.deliver_delegation_finished("fe", "id-1", false);
-    app.select_sidebar_tab(3);
+    app.select_sidebar_tab(AGENTS_TAB);
     let marks: Vec<char> = sidebar_rows(&mut app)
         .iter()
         .filter(|r| r.contains("fe"))
@@ -93,7 +75,7 @@ fn a_failed_delegation_is_shown_as_failed() {
     let mut app = TestApp::new();
     app.deliver_delegation_started("fe", "write the HTML", "id-1");
     app.deliver_delegation_finished("fe", "id-1", true);
-    app.select_sidebar_tab(3);
+    app.select_sidebar_tab(AGENTS_TAB);
     let row = sidebar_rows(&mut app)
         .into_iter()
         .find(|r| r.contains("fe") && (r.contains('✓') || r.contains('◆') || r.contains('✗')))
@@ -215,7 +197,7 @@ fn sending_while_viewing_returns_first() {
 fn the_rows_are_clickable() {
     let mut app = TestApp::new();
     app.deliver_delegation_started("fe", "write the HTML", "id-1");
-    app.select_sidebar_tab(3);
+    app.select_sidebar_tab(AGENTS_TAB);
     let _ = app.render_to_text(120, 34);
     assert!(
         app.delegation_rows() > 0,
@@ -321,8 +303,7 @@ fn the_refresh_is_rate_limited() {
 }
 
 fn footer_of(app: &mut TestApp) -> String {
-    let rows = app.render_to_text(110, 30);
-    rows[rows.len() - 2].clone()
+    app.status_bar(110, 30)
 }
 
 /// Events belong to the main conversation even while a branch is on screen.

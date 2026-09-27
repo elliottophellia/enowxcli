@@ -4,7 +4,7 @@ pub(super) fn draw_welcome(frame: &mut Frame, app: &App, area: Rect) {
     let (title, hint) = if app.config.is_ready() {
         (
             "What are we working on?",
-            "/sessions to resume · /help for commands",
+            "/resume to reopen a session · /help for commands",
         )
     } else if app.config.provider_active() && app.config.model.default.is_empty() {
         ("Choose a model", "Open /model to select a model.")
@@ -35,12 +35,52 @@ pub(super) fn draw_welcome(frame: &mut Frame, app: &App, area: Rect) {
             ));
         }
     }
-    frame.render_widget(Paragraph::new(lines), area);
+    frame.render_widget(
+        Paragraph::new(lines),
+        Rect::new(
+            area.x + GUTTER as u16,
+            area.y,
+            area.width.saturating_sub(GUTTER as u16),
+            area.height,
+        ),
+    );
+}
+
+/// Columns reserved at the transcript's left for markers: `▌` for the user,
+/// `✓`/`✗` for a tool, `↳` for a handover. Every block's text starts after it,
+/// so the conversation has one left edge however the blocks alternate.
+pub(super) const GUTTER: usize = 2;
+
+/// Render into a scratch buffer `GUTTER` narrower, then shift every line onto
+/// the text column. The gutter keeps the panel's own colour, so a block with a
+/// tinted background (code, a card) starts on the text column rather than
+/// bleeding under the markers.
+fn indented(
+    lines: &mut Vec<Line<'static>>,
+    theme: &Theme,
+    width: usize,
+    render: impl FnOnce(usize, &mut Vec<Line<'static>>),
+) {
+    let mut inner: Vec<Line<'static>> = Vec::new();
+    render(width.saturating_sub(GUTTER).max(1), &mut inner);
+    for mut line in inner {
+        line.spans
+            .insert(0, Span::styled(" ".repeat(GUTTER), Style::default().bg(theme.panel)));
+        lines.push(line);
+    }
+}
+
+/// Shift every line from `from` onwards onto the text column.
+fn gutter_from(lines: &mut [Line<'static>], from: usize, theme: &Theme) {
+    for line in lines.iter_mut().skip(from) {
+        line.spans
+            .insert(0, Span::styled(" ".repeat(GUTTER), Style::default().bg(theme.panel)));
+    }
 }
 
 pub(super) fn draw_transcript(frame: &mut Frame, app: &mut App, area: Rect) {
     let theme = app.theme;
-    let width = area.width.saturating_sub(1).max(1) as usize;
+    let width = area.width.max(1) as usize;
     app.tool_header_markers.clear();
     app.tool_header_rects.clear();
     app.file_link_markers.clear();
@@ -279,57 +319,6 @@ fn highlight_line(
     }
 }
 
-/// Card style: a one-row header with a solid background, then a body block
-/// with a subtle background that extends to the right edge so the whole card
-/// reads as one continuous surface. All colors come from the active theme so
-/// switching themes restyles every card at once.
-fn card(
-    lines: &mut Vec<Line<'static>>,
-    title: &str,
-    text: &str,
-    width: usize,
-    accent: ratatui::style::Color,
-    theme: &Theme,
-) {
-    let inner_w = width.saturating_sub(2).max(1);
-    let heading = trim(title, inner_w);
-    let heading_len = heading.width();
-    let header_pad = inner_w.saturating_sub(heading_len);
-    // Header: bold title on the accent color, padded to full width.
-    lines.push(Line::from(vec![Span::styled(
-        format!("  {heading}{}", " ".repeat(header_pad)),
-        Style::default()
-            .fg(theme.canvas)
-            .bg(accent)
-            .add_modifier(Modifier::BOLD),
-    )]));
-    // Body: markdown-rendered lines painted onto the subtle background with
-    // a two-column left padding, right-padded to the same width.
-    let body_w = width.saturating_sub(4).max(1);
-    let mut inner: Vec<Line<'static>> = Vec::new();
-    render_markdown(text, body_w, &mut inner, theme);
-    if inner.is_empty() {
-        inner.push(Line::default());
-    }
-    for row in inner {
-        let row_w = row.width();
-        let pad = body_w.saturating_sub(row_w);
-        let mut spans: Vec<Span<'static>> = Vec::new();
-        spans.push(Span::styled("  ", Style::default().bg(theme.subtle)));
-        for span in row.spans {
-            // Repaint each span's background so gaps between spans still
-            // show the card tint.
-            let style = span.style.bg(theme.subtle);
-            spans.push(Span::styled(span.content.into_owned(), style));
-        }
-        spans.push(Span::styled(
-            format!("{}  ", " ".repeat(pad)),
-            Style::default().bg(theme.subtle),
-        ));
-        lines.push(Line::from(spans));
-    }
-}
-
 pub(crate) fn render_markdown(
     text: &str,
     width: usize,
@@ -349,24 +338,31 @@ pub(crate) fn render_markdown(
         // Fenced code block.
         if let Some(rest) = raw.trim_start().strip_prefix("```") {
             in_code = !in_code;
-            let bar = if in_code {
+            if in_code {
+                // The language on the block's first row, on the same bar as
+                // the code below it — the way a tool's output is drawn. It was
+                // a `┌ lang` cap with a matching `└` row closing the block,
+                // two rows of drawing around every snippet, and the closing
+                // one carried nothing at all.
                 let lang = rest.trim();
                 code_syntax = crate::syntax::lookup(lang);
                 code_state = crate::syntax::State::default();
-                if lang.is_empty() {
-                    "┌ code".to_string()
-                } else {
-                    format!("┌ {lang}")
-                }
+                let label = if lang.is_empty() { "code" } else { lang };
+                let pad = width.saturating_sub(2 + unicode_width_of(label));
+                lines.push(Line::from(vec![
+                    Span::styled("│ ", Style::default().fg(theme.muted).bg(theme.subtle)),
+                    Span::styled(
+                        label.to_owned(),
+                        Style::default()
+                            .fg(theme.muted)
+                            .bg(theme.subtle)
+                            .add_modifier(Modifier::ITALIC),
+                    ),
+                    Span::styled(" ".repeat(pad), Style::default().bg(theme.subtle)),
+                ]));
             } else {
                 code_syntax = None;
-                "└".into()
-            };
-            let pad = width.saturating_sub(unicode_width_of(&bar));
-            lines.push(Line::from(vec![
-                Span::styled(bar, Style::default().fg(theme.muted).bg(theme.subtle)),
-                Span::styled(" ".repeat(pad), Style::default().bg(theme.subtle)),
-            ]));
+            }
             i += 1;
             continue;
         }
@@ -1219,17 +1215,32 @@ fn render_block(
             user_card(lines, &block.text, width, theme);
         }
         TranscriptKind::Assistant => {
-            render_markdown(&block.text, width, lines, theme);
+            indented(lines, theme, width, |w, out| {
+                render_markdown(&block.text, w, out, theme)
+            });
         }
         TranscriptKind::Reasoning if show_reasoning => {
-            card(
-                lines,
-                "THOUGHT TRACE",
-                &block.text,
-                width,
-                theme.accent2,
-                theme,
-            );
+            // Quiet on purpose: the model's working, not its answer. A marker
+            // in the gutter and the text dimmed and slanted says "this is the
+            // thinking" without the accent-filled band it used to sit under,
+            // which was the loudest thing in the transcript.
+            lines.push(Line::from(vec![
+                Span::styled("✻ ", Style::default().fg(theme.accent2)),
+                Span::styled(
+                    "thinking",
+                    Style::default()
+                        .fg(theme.muted)
+                        .add_modifier(Modifier::BOLD | Modifier::ITALIC),
+                ),
+            ]));
+            indented(lines, theme, width, |w, out| {
+                render_markdown(&block.text, w, out, theme);
+                for line in out.iter_mut() {
+                    for span in line.spans.iter_mut() {
+                        span.style = span.style.fg(theme.muted).add_modifier(Modifier::ITALIC);
+                    }
+                }
+            });
         }
         TranscriptKind::Reasoning => return,
         TranscriptKind::Brief { agent, id } => {
@@ -1332,10 +1343,17 @@ fn render_block(
                     // Header path (write, bash) is also a link target.
                     register_detail_file_link(name, args, header_y_marker, file_links);
                     if expanded || *error {
+                        // Rendered two columns narrower and shifted onto the
+                        // text column afterwards, so the body sits under the
+                        // tool's name rather than under its status icon.
+                        // Lines still go straight into `lines`, which keeps
+                        // the file-link rows the renderers record correct.
+                        let body_start = lines.len();
+                        let width = width.saturating_sub(GUTTER).max(1);
                         if let Some(sub) = subtitle {
-                            for wrapped in textwrap::wrap(&sub, width.saturating_sub(4).max(1)) {
+                            for wrapped in textwrap::wrap(&sub, width) {
                                 lines.push(Line::from(vec![
-                                    Span::styled("    ", Style::default().fg(theme.muted)),
+                                    Span::styled("", Style::default().fg(theme.muted)),
                                     Span::styled(
                                         wrapped.into_owned(),
                                         Style::default().fg(theme.muted),
@@ -1420,14 +1438,11 @@ fn render_block(
                                 }
                             }
                             ToolBody::Diff {
-                                path,
                                 old,
                                 new,
                                 start_line,
                             } => {
-                                render_diff(
-                                    &path, &old, &new, start_line, width, lines, theme, file_links,
-                                );
+                                render_diff(&old, &new, start_line, width, lines, theme);
                             }
                             ToolBody::Preview { content, total } => {
                                 crate::ui::tool::render_preview(
@@ -1443,16 +1458,15 @@ fn render_block(
                                 crate::ui::tool::render_todo(&items, width, lines, theme);
                             }
                         }
+                        gutter_from(lines, body_start, theme);
                     }
                 }
             }
         }
         TranscriptKind::Notice => {
-            let mut inner: Vec<Line<'static>> = Vec::new();
-            render_markdown(&block.text, width, &mut inner, theme);
-            for line in inner {
-                lines.push(line);
-            }
+            indented(lines, theme, width, |w, out| {
+                render_markdown(&block.text, w, out, theme)
+            });
         }
         TranscriptKind::Retry => {
             // Red like an error, because it is one — the turn simply has
@@ -1463,16 +1477,18 @@ fn render_block(
             } else {
                 "retry".to_string()
             };
-            lines.push(Line::styled(
-                label,
-                Style::default().fg(theme.red).add_modifier(Modifier::BOLD),
-            ));
-            for line in textwrap::wrap(&block.text, width.saturating_sub(3)) {
-                lines.push(Line::styled(
-                    format!("│ {line}"),
-                    Style::default().fg(theme.red),
-                ));
-            }
+            lines.push(Line::from(vec![
+                Span::styled("↻ ", Style::default().fg(theme.red)),
+                Span::styled(
+                    label,
+                    Style::default().fg(theme.red).add_modifier(Modifier::BOLD),
+                ),
+            ]));
+            indented(lines, theme, width, |w, out| {
+                for line in textwrap::wrap(&block.text, w) {
+                    out.push(Line::styled(line.into_owned(), Style::default().fg(theme.red)));
+                }
+            });
         }
         TranscriptKind::Error => {
             // `×N` says the same failure is still arriving. Without it the
@@ -1482,24 +1498,28 @@ fn render_block(
             } else {
                 "error".to_string()
             };
-            lines.push(Line::styled(
-                label,
-                Style::default().fg(theme.red).add_modifier(Modifier::BOLD),
-            ));
-            for line in textwrap::wrap(&block.text, width.saturating_sub(3)) {
-                lines.push(Line::styled(
-                    format!("│ {line}"),
-                    Style::default().fg(theme.red),
-                ));
-            }
+            lines.push(Line::from(vec![
+                Span::styled("✗ ", Style::default().fg(theme.red)),
+                Span::styled(
+                    label,
+                    Style::default().fg(theme.red).add_modifier(Modifier::BOLD),
+                ),
+            ]));
+            indented(lines, theme, width, |w, out| {
+                for line in textwrap::wrap(&block.text, w) {
+                    out.push(Line::styled(line.into_owned(), Style::default().fg(theme.red)));
+                }
+            });
         }
         TranscriptKind::System => {
-            for line in block.text.lines() {
-                lines.push(Line::styled(
-                    line.to_string(),
-                    Style::default().fg(theme.muted),
-                ));
-            }
+            indented(lines, theme, width, |_, out| {
+                for line in block.text.lines() {
+                    out.push(Line::styled(
+                        line.to_string(),
+                        Style::default().fg(theme.muted),
+                    ));
+                }
+            });
         }
     }
     // Tool rows stack directly on top of each other: a blank line between
@@ -1525,27 +1545,21 @@ fn switch_marker_text(switch: &enowx_core::session::AgentSwitch) -> String {
     }
 }
 
-/// A dim rule carrying the handover, drawn across the transcript's width.
+/// A handover: `↳` in the gutter, then who took over and why, dimmed.
 ///
-/// Dim and rule-shaped so it reads as punctuation between two agents' work
-/// rather than as something either of them said.
+/// It used to be a rule drawn across the transcript with the label set into
+/// it. The rule was the part nobody could see in a dark theme, and the label
+/// then started on a different column from everything else.
+///
+/// No blank row above it: the block before always ends on one already.
 fn switch_marker(lines: &mut Vec<Line<'static>>, text: &str, width: usize, theme: &Theme) {
-    lines.push(Line::default());
-    // Two rule characters and the spaces around the label; below that the
-    // label alone is worth more than a rule that has no room to read as one.
-    let label = trim(text, width.saturating_sub(6).max(1));
-    let rule = width.saturating_sub(label.width() + 3);
     lines.push(Line::from(vec![
-        Span::styled("── ", Style::default().fg(theme.faint)),
+        Span::styled("↳ ", Style::default().fg(theme.accent2)),
         Span::styled(
-            label,
+            trim(text, width.saturating_sub(GUTTER).max(1)),
             Style::default()
                 .fg(theme.muted)
                 .add_modifier(Modifier::ITALIC),
-        ),
-        Span::styled(
-            format!(" {}", "─".repeat(rule.saturating_sub(1))),
-            Style::default().fg(theme.faint),
         ),
     ]));
     lines.push(Line::default());
@@ -1744,12 +1758,13 @@ fn refresh_render_cache(app: &mut App, width: usize) {
 /// rather than allowed to push the column out.
 const VERB_COLUMN: usize = 10;
 
-/// One tool-call row: `▸ ✓ verb       argument            metric`.
+/// One tool-call row: `✓ verb       argument            metric ▸`.
 ///
-/// The chevron column is present on every row, blank when the row has no body
-/// to open, so summary and expandable rows share a left edge instead of
-/// stepping in and out by two characters. The metric is flush right, which
-/// makes a column of counts scannable down the page.
+/// The status icon sits in the transcript's marker gutter and the verb starts
+/// on the text column, like every other block's text. The chevron has a
+/// column of its own at the far right, blank when there is nothing to open, so
+/// rows with and without a body share both edges: the verbs line up on the
+/// left and the metrics are flush right in one column.
 fn tool_row(
     parts: &crate::ui::tool::RowParts,
     chevron: Option<&str>,
@@ -1789,26 +1804,28 @@ fn tool_row(
     let verb_pad = VERB_COLUMN.saturating_sub(unicode_width_of(&verb));
 
     let mut spans = vec![
-        Span::styled(format!("{} ", chevron.unwrap_or(" ")), faint),
         Span::styled(format!("{} ", icon.0), Style::default().fg(icon.1)),
         Span::styled(verb, Style::default().fg(theme.accent)),
         Span::raw(" ".repeat(verb_pad + 2)),
     ];
+    // The space and the chevron column at the far right.
+    const TAIL: usize = 2;
 
     // Whatever is left after the fixed columns and the right-hand text.
     let used: usize = spans.iter().map(|s| unicode_width_of(&s.content)).sum();
     let budget = width
-        .saturating_sub(used + unicode_width_of(&right) + 2)
+        .saturating_sub(used + unicode_width_of(&right) + 2 + TAIL)
         .max(8);
     let arg = trim(&parts.arg, budget);
     let arg_w = unicode_width_of(&arg);
     spans.push(Span::styled(arg, Style::default().fg(theme.text)));
 
     let gap = width
-        .saturating_sub(used + arg_w + unicode_width_of(&right))
+        .saturating_sub(used + arg_w + unicode_width_of(&right) + TAIL)
         .max(1);
     spans.push(Span::raw(" ".repeat(gap)));
     spans.push(Span::styled(right, right_style));
+    spans.push(Span::styled(format!(" {}", chevron.unwrap_or(" ")), faint));
     Line::from(spans)
 }
 

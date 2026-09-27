@@ -245,7 +245,7 @@ impl App {
                     session_id,
                     state: crate::app::DelegationState::Running,
                 });
-                self.select_tab(3);
+                self.select_tab(crate::ui::AGENTS_TAB);
             }
             Event::DelegationFinished {
                 agent,

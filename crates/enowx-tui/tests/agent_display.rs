@@ -10,21 +10,21 @@ use enowx_tui::testing::TestApp;
 const W: u16 = 120;
 const H: u16 = 40;
 
-/// The AGENT tab.
-const AGENT_TAB: usize = 3;
+/// The Agents tab.
+const AGENT_TAB: usize = 0;
 
 fn screen(app: &mut TestApp) -> Vec<String> {
     app.render_to_text(W, H)
 }
 
-/// Rows of the sidebar's AGENT tab, paged through so an entry below the fold
-/// still counts as shown — the roster is longer than one page.
+/// Rows of the side column's Agents tab, paged through so an entry below the
+/// fold still counts as shown.
 fn agent_tab_rows(app: &mut TestApp) -> Vec<String> {
     app.select_sidebar_tab(AGENT_TAB);
-    let mut rows = screen(app);
+    let mut rows = app.side_column(W, H);
     for _ in 0..8 {
         app.page_sidebar_next();
-        rows.extend(screen(app));
+        rows.extend(app.side_column(W, H));
     }
     rows
 }
@@ -44,10 +44,12 @@ fn the_agent_tab_lists_the_roster() {
             roster.contains(&name.to_string()),
             "{name} should be in the roster the sidebar draws from"
         );
+        // The active agent carries a `›`; it still names the agent.
         assert!(
-            rows.iter()
-                .any(|row| row.split_whitespace().any(|w| w == name)),
-            "the AGENT tab should name `{name}`"
+            rows.iter().any(|row| row
+                .split_whitespace()
+                .any(|w| w.trim_start_matches('›') == name)),
+            "the Agents tab should name `{name}`"
         );
     }
 }
@@ -60,19 +62,15 @@ fn the_agent_tab_marks_the_active_agent() {
     let active = app.active_agent();
     let rows = agent_tab_rows(&mut app);
 
-    // `agent_tab_rows` pages through the sidebar and concatenates every
-    // screen, so a row on the last page arrives once per extra page — with
-    // whatever trailing padding that page had. Compare the agent names the
-    // marker sits against, not the rendered rows.
+    // `agent_tab_rows` pages through the column and concatenates every page,
+    // so a row can arrive more than once. Compare the names the marker is
+    // attached to, not the rendered rows. The marker is text, not only
+    // colour: under NO_COLOR a colour-only mark says nothing.
     let mut marked: Vec<String> = rows
         .iter()
-        .filter(|row| row.contains("active"))
-        .filter_map(|row| {
-            row.split_whitespace()
-                .skip_while(|w| *w != "▸")
-                .nth(1)
-                .map(str::to_owned)
-        })
+        .flat_map(|row| row.split_whitespace().map(str::to_owned).collect::<Vec<_>>())
+        .filter_map(|word| word.strip_prefix('›').map(str::to_owned))
+        .filter(|name| !name.is_empty())
         .collect();
     marked.sort();
     marked.dedup();
@@ -83,7 +81,7 @@ fn the_agent_tab_marks_the_active_agent() {
     );
 }
 
-/// The roster is names only, one row each.
+/// The roster is names only.
 ///
 /// Each entry used to carry a one-line description under it. That is reference
 /// material for picking an agent by hand — sixteen names plus sixteen lines of
@@ -104,21 +102,28 @@ fn the_roster_is_names_only() {
     );
 }
 
-/// One row per agent, so a sixteen-agent roster costs sixteen rows.
+/// Names flow several to a row, so a sixteen-agent roster costs a handful of
+/// rows rather than sixteen.
 #[test]
-fn each_roster_entry_is_one_row() {
+fn the_roster_flows_names_across_rows() {
     let mut app = TestApp::new();
     app.select_sidebar_tab(AGENT_TAB);
-    let rows = screen(&mut app);
+    let rows = app.side_column(W, H);
     let fe = rows
         .iter()
-        .position(|row| row.split_whitespace().any(|w| w == "fe"))
+        .find(|row| row.split_whitespace().any(|w| w.trim_start_matches('›') == "fe"))
         .expect("the roster should name `fe`");
-    // The very next row is the next agent, not a continuation of this one.
-    let after = rows.get(fe + 1).expect("a row below fe");
+    let names_on_row = fe
+        .split_whitespace()
+        .filter(|w| !w.starts_with('│'))
+        .count();
     assert!(
-        !after.contains("accessibility") && !after.contains("frontend"),
-        "fe's entry should end at its name: {after:?}"
+        names_on_row > 2,
+        "fe should share its row with other agents: {fe:?}"
+    );
+    assert!(
+        !fe.contains("accessibility") && !fe.contains("frontend"),
+        "and carry no description: {fe:?}"
     );
 }
 

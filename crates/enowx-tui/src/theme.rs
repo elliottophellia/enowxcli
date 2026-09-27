@@ -15,6 +15,10 @@ pub struct Theme {
     pub subtle: Color,
     /// Selected sidebar tab.
     pub active_tab: Color,
+    /// Box outlines. About 2.4:1 against `panel`: the layout is a grid of
+    /// boxes, and the old values (1.2–1.3:1) drew outlines nobody could see.
+    /// Still well under `muted` text (~4.8:1), so a rule never competes with
+    /// what it frames.
     pub border: Color,
     pub text: Color,
     pub muted: Color,
@@ -34,7 +38,7 @@ pub const THEMES: [Theme; 5] = [
         panel: Color::Rgb(13, 17, 23),
         subtle: Color::Rgb(19, 25, 35),
         active_tab: Color::Rgb(24, 34, 50),
-        border: Color::Rgb(28, 36, 51),
+        border: Color::Rgb(72, 83, 98),
         text: Color::Rgb(226, 232, 240),
         muted: Color::Rgb(114, 130, 153),
         faint: Color::Rgb(114, 130, 153),
@@ -51,7 +55,7 @@ pub const THEMES: [Theme; 5] = [
         panel: Color::Rgb(13, 18, 15),
         subtle: Color::Rgb(19, 28, 22),
         active_tab: Color::Rgb(26, 41, 31),
-        border: Color::Rgb(27, 45, 34),
+        border: Color::Rgb(68, 86, 74),
         text: Color::Rgb(236, 253, 245),
         muted: Color::Rgb(109, 137, 119),
         faint: Color::Rgb(109, 137, 119),
@@ -68,7 +72,7 @@ pub const THEMES: [Theme; 5] = [
         panel: Color::Rgb(13, 13, 20),
         subtle: Color::Rgb(20, 20, 32),
         active_tab: Color::Rgb(34, 30, 51),
-        border: Color::Rgb(36, 36, 54),
+        border: Color::Rgb(79, 79, 97),
         text: Color::Rgb(241, 245, 249),
         muted: Color::Rgb(125, 125, 150),
         faint: Color::Rgb(125, 125, 150),
@@ -85,7 +89,7 @@ pub const THEMES: [Theme; 5] = [
         panel: Color::Rgb(8, 8, 8),
         subtle: Color::Rgb(17, 17, 17),
         active_tab: Color::Rgb(26, 26, 26),
-        border: Color::Rgb(34, 34, 34),
+        border: Color::Rgb(74, 78, 87),
         text: Color::Rgb(243, 244, 246),
         muted: Color::Rgb(118, 125, 139),
         faint: Color::Rgb(118, 125, 139),
@@ -102,7 +106,7 @@ pub const THEMES: [Theme; 5] = [
         panel: Color::Rgb(22, 24, 32),
         subtle: Color::Rgb(28, 31, 42),
         active_tab: Color::Rgb(38, 34, 46),
-        border: Color::Rgb(42, 46, 58),
+        border: Color::Rgb(80, 86, 100),
         text: Color::Rgb(203, 210, 224),
         muted: Color::Rgb(139, 147, 167),
         faint: Color::Rgb(139, 147, 167),

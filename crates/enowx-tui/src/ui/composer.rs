@@ -1,42 +1,108 @@
 use super::*;
 
-pub(super) fn draw_composer_pane(frame: &mut Frame, app: &mut App, area: Rect) {
-    let t = app.theme;
-    // The field spans the pane minus the prompt marker and one trailing column.
-    let width = area.width.saturating_sub(3).max(1) as usize;
-    let (input, row, col) = input_rows(&app.input, app.cursor, width);
-    // Two rows of breathing room by default, growing to eight so a pasted block
-    // stays readable, and never past half the pane so the chat keeps its space.
-    let cap = (area.height / 2).clamp(5, 11);
-    // The box's two edges. The blank row that keeps its lower edge off the
-    // status bar is added to the pane below, not inside the box, or the box
-    // grows an empty line under the text.
+/// The main column: the chat box, the command palette when one is being
+/// typed, and the composer, stacked on the same two edges.
+pub(super) fn draw_main_column(frame: &mut Frame, app: &mut App, area: Rect) {
+    // The field runs from column 4 (after the border, a space, the prompt
+    // and a space) to one column shy of the right border.
+    let field_w = area.width.saturating_sub(6).max(1) as usize;
+    let (input, row, col) = input_rows(&app.input, app.cursor, field_w);
+    // The box's two edges.
     const FRAME: u16 = 2;
-    /// One row between the box and the status bar: a border resting directly
-    /// on the bar reads as part of it rather than as the edge of a field.
-    const GAP: u16 = 1;
+    // One row of text by default, growing to eight so a pasted block stays
+    // readable, and never past half the column so the chat keeps its space.
+    let cap = (area.height / 2).clamp(FRAME + 1, 10);
     let ih = (input.len().clamp(1, 8) as u16 + FRAME).min(cap);
-    // Chip row above the input surfaces pasted or dropped images and their errors.
-    // Attachments now render as inline `[Image N]` chips inside the field.
-    let ah = if app.attach_error.is_some() { 1 } else { 0 };
     let matches = app.command_matches();
+    // The palette is a box of its own between the chat and the composer, so
+    // opening it shortens the chat box rather than painting over its rows.
+    // It never takes the chat below three rows, and it needs at least one
+    // row of its own to be worth drawing.
     let ph = if matches.is_empty() {
         0
     } else {
-        (matches.len().min(10) as u16).min(area.height.saturating_sub(ih + ah + 1))
+        let wanted = matches.len().min(10) as u16 + FRAME;
+        let room = area.height.saturating_sub(ih + 3);
+        if room > FRAME {
+            wanted.min(room)
+        } else {
+            0
+        }
     };
-    let rows = Layout::vertical([
-        Constraint::Min(1),
-        Constraint::Length(ph),
-        Constraint::Length(ah),
-        Constraint::Length(ih),
-        Constraint::Length(GAP),
-    ])
-    .split(area);
-    let stream = rows[0].inner(Margin {
-        horizontal: 1,
-        vertical: 0,
-    });
+    let chat_h = area.height.saturating_sub(ih + ph);
+    draw_chat_box(frame, app, Rect::new(area.x, area.y, area.width, chat_h));
+    if ph > 0 {
+        draw_palette(
+            frame,
+            app,
+            Rect::new(area.x, area.y + chat_h, area.width, ph),
+            &matches,
+        );
+    }
+    draw_composer_box(
+        frame,
+        app,
+        Rect::new(area.x, area.y + chat_h + ph, area.width, ih),
+        &input,
+        row,
+        col,
+    );
+}
+
+/// The conversation, in a box titled with the project and the session.
+///
+/// The title replaces the header box that used to sit above everything: four
+/// rows of chrome to print one word.
+fn draw_chat_box(frame: &mut Frame, app: &mut App, area: Rect) {
+    if area.height < 3 {
+        return;
+    }
+    let t = app.theme;
+    let inner = panel_box(frame, area, t.border, t.panel);
+    let mut title: Vec<Span<'static>> = Vec::new();
+    if let Some(viewing) = app.viewing.as_ref() {
+        // Not the conversation: say whose work is on screen, where the
+        // conversation's own name would otherwise be.
+        title.push(Span::styled(
+            viewing.agent.clone(),
+            Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+        ));
+        title.push(Span::styled(
+            " · sub-agent transcript",
+            Style::default().fg(t.muted),
+        ));
+    } else {
+        let project = app
+            .workspace
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        title.push(Span::styled(
+            project,
+            Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+        ));
+        if !app.title.is_empty() {
+            title.push(Span::styled(" · ", Style::default().fg(t.faint)));
+            title.push(Span::styled(
+                crate::text::trim(&app.title, 60),
+                Style::default().fg(t.muted),
+            ));
+        }
+    }
+    box_title(frame, area, title, t.panel);
+    // One column of padding inside the border: markers land on the box's
+    // column 2 and text on column 4, the same columns as the composer's
+    // prompt and field below.
+    let stream = Rect::new(
+        inner.x + 1,
+        inner.y,
+        inner.width.saturating_sub(2),
+        inner.height,
+    );
+    if stream.width == 0 || stream.height == 0 {
+        return;
+    }
     if app.blocks.is_empty() {
         app.scroll = 0;
         app.max_scroll = 0;
@@ -44,95 +110,108 @@ pub(super) fn draw_composer_pane(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         draw_transcript(frame, app, stream);
     }
-    if ph > 0 {
-        let start = app
-            .palette_cursor
-            .saturating_sub(ph.saturating_sub(1) as usize);
-        // Paint the palette background across the whole row first so the
-        // highlight and idle rows both extend to the pane edge.
+}
+
+fn draw_palette(frame: &mut Frame, app: &App, area: Rect, matches: &[(&str, &str)]) {
+    let t = app.theme;
+    let inner = panel_box(frame, area, t.border, t.panel);
+    box_title(
+        frame,
+        area,
+        vec![Span::styled(
+            "COMMANDS",
+            Style::default().fg(t.muted).add_modifier(Modifier::BOLD),
+        )],
+        t.panel,
+    );
+    let rows = inner.height as usize;
+    let start = app.palette_cursor.saturating_sub(rows.saturating_sub(1));
+    for (offset, (index, (name, summary))) in
+        matches.iter().enumerate().skip(start).take(rows).enumerate()
+    {
+        let selected = index == app.palette_cursor;
+        // Marker on column 2 and the command on column 4, like every other
+        // row in the column.
+        let line = Line::from(vec![
+            Span::styled(
+                format!(" {} ", if selected { "›" } else { " " }),
+                Style::default().fg(t.accent),
+            ),
+            Span::styled(
+                format!("/{name:<11}"),
+                Style::default().fg(if selected { t.accent } else { t.text }),
+            ),
+            Span::styled(format!(" {summary}"), Style::default().fg(t.muted)),
+        ]);
         frame.render_widget(
-            Block::default().style(Style::default().bg(t.subtle)),
-            rows[1],
-        );
-        let visible = matches.iter().enumerate().skip(start).take(ph as usize);
-        for (offset, (index, (name, summary))) in visible.enumerate() {
-            let selected = index == app.palette_cursor;
-            let row = Rect::new(rows[1].x, rows[1].y + offset as u16, rows[1].width, 1);
-            let style = Style::default()
-                .fg(if selected { t.accent } else { t.muted })
-                .bg(if selected { t.active_tab } else { t.subtle });
-            frame.render_widget(
-                Paragraph::new(format!(
-                    "  {marker} /{name:<10} {summary}",
-                    marker = if selected { "›" } else { " " },
-                ))
-                .style(style),
-                row,
-            );
-        }
-    }
-    if let Some(error) = app.attach_error.as_deref() {
-        frame.render_widget(
-            Paragraph::new(error.to_owned()).style(Style::default().fg(t.red).bg(t.subtle)),
-            Rect::new(area.x + 2, rows[2].y, area.width.saturating_sub(4), 1),
+            Paragraph::new(line).style(Style::default().bg(if selected {
+                t.active_tab
+            } else {
+                t.panel
+            })),
+            Rect::new(inner.x, inner.y + offset as u16, inner.width, 1),
         );
     }
+}
+
+fn draw_composer_box(
+    frame: &mut Frame,
+    app: &mut App,
+    boxed: Rect,
+    input: &[String],
+    row: usize,
+    col: usize,
+) {
+    let t = app.theme;
     // A box rather than a rule. The composer is a field the user types into,
     // and a border around it says that where a line above it only said
     // "something changes here". The border colours when a command is being
     // typed, so the difference is visible before Enter decides it.
-    let boxed = Rect::new(
-        rows[3].x + 1,
-        rows[3].y,
-        rows[3].width.saturating_sub(2),
-        rows[3].height,
-    );
     let command = app.input.starts_with('/');
-    frame.render_widget(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_type(ratatui::widgets::BorderType::Rounded)
-            .border_style(Style::default().fg(if command {
-                t.accent2
-            } else if app.busy {
-                t.yellow
-            } else {
-                t.border
-            }))
-            .style(Style::default().bg(t.subtle)),
+    panel_box(
+        frame,
         boxed,
+        if command {
+            t.accent2
+        } else if app.busy {
+            t.yellow
+        } else {
+            t.border
+        },
+        t.subtle,
     );
-    // Only when the composer is about to do something other than send a
-    // message. "MESSAGE" on every frame restated what the `❯` already says,
-    // and a label that is always there stops being read.
-    let label = if app.busy {
-        Some((" QUEUED ", t.yellow))
+    // Set into the top edge, and only when the composer is about to do
+    // something other than send a message. "MESSAGE" on every frame restated
+    // what the `❯` already says, and a label that is always there stops being
+    // read. An attachment error outranks both: it is why the send will fail.
+    let label: Option<(String, ratatui::style::Color)> = if let Some(error) = app.attach_error.as_deref() {
+        Some((error.to_owned(), t.red))
+    } else if app.busy {
+        Some(("QUEUED".to_owned(), t.yellow))
     } else if !app.attachments.is_empty() {
-        Some((" WITH IMAGES ", t.accent2))
+        Some(("WITH IMAGES".to_owned(), t.accent2))
     } else {
         None
     };
     if let Some((label, colour)) = label.filter(|_| boxed.width > 30) {
-        frame.render_widget(
-            Paragraph::new(Line::styled(
+        box_title(
+            frame,
+            boxed,
+            vec![Span::styled(
                 label,
-                Style::default().fg(colour).bg(t.subtle),
-            )),
-            Rect::new(
-                boxed.x + 2,
-                boxed.y,
-                (label.chars().count() as u16).min(boxed.width.saturating_sub(4)),
-                1,
-            ),
+                Style::default().fg(colour).add_modifier(Modifier::BOLD),
+            )],
+            t.subtle,
         );
     }
-    // Field spans from just after the prompt marker to one column shy of the
-    // right edge so long lines land inside a visible bg strip on both sides.
+    if boxed.height < 3 {
+        return;
+    }
     let field = Rect::new(
         boxed.x + 4,
         boxed.y + 1,
         boxed.width.saturating_sub(6),
-        ih.saturating_sub(FRAME),
+        boxed.height.saturating_sub(2),
     );
     // The marker colours to say a command is being typed; it does not change
     // glyph. The `/` the user typed is already the first character in the
@@ -140,15 +219,11 @@ pub(super) fn draw_composer_pane(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(
         Paragraph::new("❯").style(
             Style::default()
-                .fg(if app.input.starts_with('/') {
-                    t.accent2
-                } else {
-                    t.accent
-                })
+                .fg(if command { t.accent2 } else { t.accent })
                 .bg(t.subtle)
                 .add_modifier(Modifier::BOLD),
         ),
-        Rect::new(boxed.x + 2, field.y, 1, field.height),
+        Rect::new(boxed.x + 2, field.y, 1, 1),
     );
     let field_w = field.width as usize;
     let offset = row.saturating_sub(field.height.saturating_sub(1) as usize);

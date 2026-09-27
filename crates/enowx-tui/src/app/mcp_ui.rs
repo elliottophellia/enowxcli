@@ -17,7 +17,9 @@ pub(crate) enum McpRow {
         transport: McpTransport,
         scope: SkillScope,
         enabled: bool,
-        detail: String,
+        /// What the server runs or where it lives: the one thing that tells
+        /// two servers apart once the name is not enough.
+        target: String,
     },
     AddNew,
 }
@@ -88,7 +90,7 @@ impl App {
                 transport: s.transport,
                 scope: s.scope,
                 enabled: s.enabled,
-                detail: describe_server(s),
+                target: s.command_or_url.clone(),
             })
             .collect();
         rows.push(McpRow::AddNew);
@@ -257,15 +259,3 @@ impl App {
     }
 }
 
-fn describe_server(server: &McpServer) -> String {
-    let transport = match server.transport {
-        McpTransport::Stdio => "stdio",
-        McpTransport::Http => "http",
-        McpTransport::Sse => "sse",
-    };
-    let scope = match server.scope {
-        SkillScope::Project => "project",
-        SkillScope::User => "user",
-    };
-    format!("{transport} · {scope} · {}", server.command_or_url)
-}

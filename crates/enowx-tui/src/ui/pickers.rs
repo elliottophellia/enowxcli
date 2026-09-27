@@ -1,5 +1,9 @@
 use super::settings::draw_settings;
 use super::*;
+use ratatui::text::Text;
+
+/// Keys every list overlay shares, in its bottom edge.
+const LIST_HINT: &str = "↑↓ move · Enter select · Esc close";
 
 pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
     app.modal_rows.clear();
@@ -9,7 +13,7 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
         return;
     }
     if app.modal == Modal::MessageEdit {
-        draw_message_edit(frame, app, area);
+        draw_message_edit(frame, app);
         return;
     }
     let width = area.width.saturating_sub(4).min(
@@ -35,74 +39,75 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
     } else {
         1
     };
-    let footer = if app.modal == Modal::Models { 2 } else { 0 };
     let body = if app.modal == Modal::Models {
         (app.modal_items.len() as u16).max(3)
     } else {
         (app.modal_items.len() as u16 * per_row).min(20)
     };
-    let height = (body + footer + 2).min(area.height.saturating_sub(2));
-    let modal = Rect {
-        x: area.x + area.width.saturating_sub(width) / 2,
-        y: area.y + area.height.saturating_sub(height) / 2,
-        width,
-        height,
+    let hint = if app.modal != Modal::Models {
+        LIST_HINT
+    } else if app.modal_items.is_empty() {
+        "F5 retry · F2 enter an ID · Esc cancel"
+    } else {
+        "Enter uses it now · F5 refresh · Esc cancel"
     };
-    frame.render_widget(Clear, modal);
-    let title = app.modal.title();
-    let block = Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(app.theme.accent));
-    let inner = block.inner(modal);
-    frame.render_widget(block, modal);
+    let (_, content) = overlay(frame, app, width, body + 2, app.modal.title(), hint);
     if app.modal == Modal::Models {
-        let rows = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(inner);
-        draw_model_list(frame, app, rows[0]);
-        let hint = if app.modal_items.is_empty() {
-            "F5 retry  ·  F2 enter an ID  ·  Esc cancel"
-        } else {
-            "Enter uses the model right away  ·  F5 refresh  ·  Esc cancel"
-        };
-        frame.render_widget(
-            Paragraph::new(hint).style(Style::default().fg(app.theme.faint)),
-            rows[1],
-        );
+        draw_model_list(frame, app, content);
         return;
     }
-    let mut y = inner.y;
+    let t = app.theme;
+    let mut y = content.y;
     let items: Vec<ListItem> = app
         .modal_items
         .iter()
         .enumerate()
         .map(|(index, (id, description))| {
             let selected = index == app.modal_cursor;
-            let marker = if selected { "❯ " } else { "  " };
-            let label = if app.modal == Modal::Sessions {
+            let label = Style::default().fg(if selected { t.accent } else { t.text });
+            let label = if selected {
+                label.add_modifier(Modifier::BOLD)
+            } else {
+                label
+            };
+            // The name on the text column and what it does under it, on the
+            // same column: the marker has the two columns to their left.
+            let text = if app.modal == Modal::Sessions {
                 // Session picker rows hide the internal id, keeping the visible
                 // list to the title and metadata the user recognises.
-                format!("{marker}{description}")
+                Text::from(Line::styled(description.clone(), label))
             } else {
-                format!("{marker}{id}\n    {description}")
+                Text::from(vec![
+                    Line::styled(id.clone(), label),
+                    Line::styled(description.clone(), Style::default().fg(t.muted)),
+                ])
             };
-            let rows = label.matches('\n').count() as u16 + 1;
-            if y + rows <= inner.bottom() {
+            let rows = text.lines.len() as u16;
+            if y + rows <= content.bottom() {
                 app.modal_rows
-                    .push((Rect::new(inner.x, y, inner.width, rows), index));
+                    .push((Rect::new(content.x, y, content.width, rows), index));
                 y += rows;
             }
-            ListItem::new(label).style(if selected {
-                Style::default()
-                    .fg(app.theme.accent)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(app.theme.text)
-            })
+            ListItem::new(text)
         })
         .collect();
     let mut state = ListState::default().with_selected(Some(app.modal_cursor));
-    frame.render_stateful_widget(List::new(items), inner, &mut state);
+    frame.render_stateful_widget(
+        selectable(List::new(items), &t),
+        content,
+        &mut state,
+    );
+}
+
+/// A list whose selected row carries the `›` marker in the two columns before
+/// the text and a tinted band, the same way in every overlay.
+///
+/// The band sets only the background. A foreground in it would repaint every
+/// cell of the row and flatten the name/description colours into one.
+pub(super) fn selectable<'a>(list: List<'a>, t: &Theme) -> List<'a> {
+    list.highlight_symbol("› ")
+        .highlight_spacing(ratatui::widgets::HighlightSpacing::Always)
+        .highlight_style(Style::default().bg(t.active_tab))
 }
 
 pub(super) fn draw_model_list(frame: &mut Frame, app: &App, area: Rect) {
@@ -130,75 +135,64 @@ pub(super) fn draw_model_list(frame: &mut Frame, app: &App, area: Rect) {
         );
         return;
     }
+    let t = app.theme;
     let items: Vec<ListItem> = app
         .modal_items
         .iter()
         .enumerate()
         .map(|(index, (id, description))| {
             let selected = index == app.modal_cursor;
-            let marker = if selected { "❯ " } else { "  " };
-            let label = if description.is_empty() {
-                format!("{marker}{id}")
-            } else {
-                format!("{marker}{id}  ({description})")
-            };
-            ListItem::new(label).style(if selected {
-                Style::default()
-                    .fg(app.theme.accent)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(app.theme.text)
-            })
+            let mut spans = vec![Span::styled(
+                id.clone(),
+                if selected {
+                    Style::default().fg(t.accent).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(t.text)
+                },
+            )];
+            if !description.is_empty() {
+                spans.push(Span::styled(
+                    format!("  {description}"),
+                    Style::default().fg(t.muted),
+                ));
+            }
+            ListItem::new(Line::from(spans))
         })
         .collect();
     let mut state = ListState::default().with_selected(Some(app.modal_cursor));
-    frame.render_stateful_widget(List::new(items), area, &mut state);
+    frame.render_stateful_widget(selectable(List::new(items), &t), area, &mut state);
 }
 
 /// The prompt being edited before it is sent again. A plain field rather than
 /// the settings form: there is one value, and Enter sends it.
-fn draw_message_edit(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_message_edit(frame: &mut Frame, app: &App) {
     let t = app.theme;
+    let area = frame.area();
     let width = area.width.saturating_sub(4).min(80);
-    // Room for the draft as it grows, without swallowing the screen.
-    let text_rows = (app.message_draft.len() / width.max(1) as usize + 1).clamp(1, 8) as u16;
-    let height = (text_rows + 4).min(area.height.saturating_sub(2));
-    let modal = Rect {
-        x: area.x + area.width.saturating_sub(width) / 2,
-        y: area.y + area.height.saturating_sub(height) / 2,
+    // Room for the draft as it grows, without swallowing the screen. The
+    // content is four columns narrower than the box: border and padding.
+    let text_w = width.saturating_sub(4).max(1) as usize;
+    let text_rows = (app.message_draft.chars().count() / text_w + 1).clamp(1, 8) as u16;
+    let (_, content) = overlay(
+        frame,
+        app,
         width,
-        height,
-    };
-    frame.render_widget(Clear, modal);
-    let block = Block::default()
-        .title(app.modal.title())
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(t.accent));
-    let inner = block.inner(modal);
-    frame.render_widget(block, modal);
-
-    let inner = inner.inner(Margin {
-        horizontal: 1,
-        vertical: 0,
-    });
-    let rows = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
+        text_rows + 2,
+        app.modal.title(),
+        "Enter sends from here · Esc cancels",
+    );
     frame.render_widget(
         Paragraph::new(app.message_draft.clone())
             .wrap(ratatui::widgets::Wrap { trim: false })
             .style(Style::default().fg(t.text)),
-        rows[0],
-    );
-    frame.render_widget(
-        Paragraph::new("Enter sends from here  ·  Esc cancels").style(Style::default().fg(t.faint)),
-        rows[1],
+        content,
     );
     // Put the caret where typing will land.
     let before = &app.message_draft[..app.message_draft_cursor];
-    let w = rows[0].width.max(1);
+    let w = content.width.max(1);
     let col = (before.chars().count() as u16) % w;
     let row = (before.chars().count() as u16) / w;
-    if row < rows[0].height {
-        frame.set_cursor_position((rows[0].x + col, rows[0].y + row));
+    if row < content.height {
+        frame.set_cursor_position((content.x + col, content.y + row));
     }
 }

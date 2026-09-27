@@ -71,12 +71,11 @@ pub(super) enum ToolBody<'a> {
     /// Output the classifier reformatted (currently: pretty-printed JSON), so
     /// it is owned rather than borrowed from the raw result.
     Formatted(String),
-    /// Per-line unified diff derived from an `edit` tool's args.
     /// Per-line unified diff derived from an `edit` tool's args. `start_line`
     /// is where the region begins in the target file so the gutter can show
-    /// real file line numbers instead of resetting to 1.
+    /// real file line numbers instead of resetting to 1. The path is not
+    /// carried: the tool row above the body names the file.
     Diff {
-        path: String,
         old: String,
         new: String,
         start_line: usize,
@@ -158,7 +157,7 @@ pub(super) fn render_tree(
         let row_idx = lines.len();
         file_markers.push((row_idx, path));
         lines.push(Line::from(vec![
-            Span::styled(format!("  {connector} "), Style::default().fg(theme.muted)),
+            Span::styled(format!("{connector} "), Style::default().fg(theme.muted)),
             Span::styled(
                 clipped,
                 Style::default()
@@ -170,7 +169,7 @@ pub(super) fn render_tree(
     if items.len() > shown {
         let extra = items.len() - shown;
         lines.push(Line::styled(
-            format!("  └─ {extra} more"),
+            format!("└─ {extra} more"),
             Style::default().fg(theme.muted),
         ));
     }
@@ -217,7 +216,7 @@ pub(super) fn render_todo(
         };
         let clipped = trim(&it.label, text_w);
         lines.push(Line::from(vec![
-            Span::styled(format!("  {connector} "), Style::default().fg(theme.muted)),
+            Span::styled(format!("{connector} "), Style::default().fg(theme.muted)),
             Span::styled(format!("{icon} "), style),
             Span::styled(clipped, style),
         ]));
@@ -262,11 +261,15 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
             // The `edit` tool ends its output with `at line N`; use that so
             // the diff gutter shows real file line numbers instead of `1..`.
             let start_line = parse_start_line(result).unwrap_or(1);
+            // The size of the change is the edit's metric, in the right-hand
+            // column where every other tool puts its count. It used to be on
+            // a row of its own under the header, beside the path the header
+            // had already named.
+            let (adds, dels) = diff_counts(&old, &new);
             ToolRender::Detail {
-                header: RowParts::new("edit", path.clone(), String::new()),
+                header: RowParts::new("edit", path.clone(), format!("+{adds} -{dels}")),
                 subtitle: None,
                 body: ToolBody::Diff {
-                    path: path.clone(),
                     old,
                     new,
                     start_line,
@@ -513,74 +516,45 @@ pub(super) fn render_preview(
 pub(super) const DIFF_PREVIEW_MAX: usize = 15;
 
 #[allow(clippy::too_many_arguments)]
+/// Lines added and removed by an edit, for the tool row's metric.
+///
+/// Same LCS as the rendered diff so the two agree. An edit big enough to make
+/// that quadratic is counted as a whole-block replacement instead.
+fn diff_counts(old: &str, new: &str) -> (usize, usize) {
+    let a: Vec<&str> = old.split('\n').collect();
+    let b: Vec<&str> = new.split('\n').collect();
+    if a.len().saturating_mul(b.len()) > 4_000_000 {
+        return (b.len(), a.len());
+    }
+    let ops = lcs_diff(&a, &b);
+    let adds = ops.iter().filter(|op| matches!(op, DiffOp::Add(_))).count();
+    let dels = ops.iter().filter(|op| matches!(op, DiffOp::Del(_))).count();
+    (adds, dels)
+}
+
+/// The body of an `edit`: changed lines with their file line numbers.
+///
+/// No header row of its own. The tool row above already names the file,
+/// carries the +/- counts and opens the file on a click.
 pub(super) fn render_diff(
-    path: &str,
     old: &str,
     new: &str,
     start_line: usize,
     width: usize,
     lines: &mut Vec<Line<'static>>,
     theme: &Theme,
-    file_markers: &mut Vec<(usize, String)>,
 ) {
     let old_lines: Vec<&str> = old.split('\n').collect();
     let new_lines: Vec<&str> = new.split('\n').collect();
     let ops = lcs_diff(&old_lines, &new_lines);
-    let adds = ops.iter().filter(|op| matches!(op, DiffOp::Add(_))).count();
-    let dels = ops.iter().filter(|op| matches!(op, DiffOp::Del(_))).count();
 
     let text = Style::default().fg(theme.text);
     let dim = Style::default().fg(theme.muted);
     let add_c = Style::default().fg(theme.green);
     let del_c = Style::default().fg(theme.red);
 
-    // Header: single line, no frame. Register the path so a click on this
-    // header row opens the file with the OS default app.
-    let header_idx = lines.len();
-    file_markers.push((header_idx, path.to_string()));
     let bg = theme.subtle;
     let border = Style::default().fg(theme.accent).bg(bg);
-    let header_left_w = 2
-        + "✎ Edit: 📄 ".chars().count()
-        + path.chars().count()
-        + " · +/-".chars().count()
-        + adds.to_string().len()
-        + dels.to_string().len();
-    let header_pad = width.saturating_sub(header_left_w + 1);
-    lines.push(Line::from(vec![
-        Span::styled("│ ", border),
-        Span::styled(
-            "✎ ",
-            Style::default()
-                .fg(theme.accent)
-                .bg(bg)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(
-            path.to_string(),
-            Style::default()
-                .fg(theme.text)
-                .bg(bg)
-                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-        ),
-        Span::styled(" · ", Style::default().fg(theme.muted).bg(bg)),
-        Span::styled(
-            format!("+{adds}"),
-            Style::default()
-                .fg(theme.green)
-                .bg(bg)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled("/", Style::default().fg(theme.muted).bg(bg)),
-        Span::styled(
-            format!("-{dels}"),
-            Style::default()
-                .fg(theme.red)
-                .bg(bg)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::styled(" ".repeat(header_pad), Style::default().bg(bg)),
-    ]));
 
     let total_target = start_line + old_lines.len().max(new_lines.len());
     let num_w = total_target.to_string().len().max(2);
@@ -761,17 +735,22 @@ fn lcs_diff(a: &[&str], b: &[&str]) -> Vec<DiffOp> {
     let mut ops = Vec::new();
     let mut i = n;
     let mut j = m;
+    // The walk runs backwards and is reversed at the end, so on a tie it
+    // takes the addition: that puts each deletion ahead of the addition that
+    // replaced it once reversed — the order a diff is read in, and the order
+    // `pair_replacements` matches on. Preferring the deletion here read every
+    // replaced line backwards and left none of them paired.
     while i > 0 && j > 0 {
         if a[i - 1] == b[j - 1] {
             ops.push(DiffOp::Keep(a[i - 1].to_string()));
             i -= 1;
             j -= 1;
-        } else if dp[i - 1][j] >= dp[i][j - 1] {
-            ops.push(DiffOp::Del(a[i - 1].to_string()));
-            i -= 1;
-        } else {
+        } else if dp[i][j - 1] >= dp[i - 1][j] {
             ops.push(DiffOp::Add(b[j - 1].to_string()));
             j -= 1;
+        } else {
+            ops.push(DiffOp::Del(a[i - 1].to_string()));
+            i -= 1;
         }
     }
     while i > 0 {
@@ -1081,6 +1060,29 @@ mod tests {
         assert_eq!(pairs[2], Some("new two".to_string()));
         assert_eq!(pairs[3], Some("old one".to_string()));
         assert_eq!(pairs[4], Some("old two".to_string()));
+    }
+
+    /// The real diff, not a hand-built op list: a replaced line must come out
+    /// as its deletion followed by its addition. The pairing tests above build
+    /// that order themselves, which is how an LCS emitting the addition first
+    /// went unnoticed — the diff read backwards, and no replaced line was ever
+    /// paired, so word-level emphasis never showed.
+    #[test]
+    fn a_replacement_reads_deletion_first_and_pairs() {
+        let ops = lcs_diff(&["keep", "let side = 38;"], &["keep", "let side = 40;"]);
+        let kinds: Vec<&str> = ops
+            .iter()
+            .map(|op| match op {
+                DiffOp::Keep(_) => "keep",
+                DiffOp::Del(_) => "del",
+                DiffOp::Add(_) => "add",
+            })
+            .collect();
+        assert_eq!(kinds, ["keep", "del", "add"]);
+        let refs: Vec<&DiffOp> = ops.iter().collect();
+        let pairs = pair_replacements(&refs);
+        assert_eq!(pairs[1].as_deref(), Some("let side = 40;"));
+        assert_eq!(pairs[2].as_deref(), Some("let side = 38;"));
     }
 
     #[test]

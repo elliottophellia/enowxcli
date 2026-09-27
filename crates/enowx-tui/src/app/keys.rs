@@ -335,7 +335,7 @@ impl App {
         }
         if key.modifiers.contains(KeyModifiers::ALT) {
             match key.code {
-                KeyCode::Char(c @ '1'..='5') => {
+                KeyCode::Char(c @ '1'..='4') => {
                     self.select_tab(c as usize - '1' as usize);
                     return Ok(());
                 }
@@ -383,18 +383,18 @@ impl App {
         }
 
         match key.code {
-            KeyCode::F(index @ 1..=5) => {
+            KeyCode::F(index @ 1..=4) => {
                 self.select_tab(index as usize - 1);
                 return Ok(());
             }
             KeyCode::F(6) => {
                 self.log_filter = (self.log_filter + 1) % crate::logs::FILTERS.len();
-                self.select_tab(4);
+                self.select_tab(crate::ui::LOG_TAB);
                 return Ok(());
             }
             KeyCode::F(7) => {
                 self.log_detail = !self.log_detail;
-                self.select_tab(4);
+                self.select_tab(crate::ui::LOG_TAB);
                 return Ok(());
             }
             KeyCode::Enter => {

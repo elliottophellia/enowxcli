@@ -1,4 +1,4 @@
-//! The LOGS tab: what the harness did, as opposed to what was said.
+//! The Log tab: what the harness did, as opposed to what was said.
 //!
 //! The transcript carries the conversation. It does not say that a turn was
 //! handed to another agent, that a request was retried, or how long a model
@@ -8,38 +8,26 @@
 use crossterm::event::KeyCode;
 use enowx_tui::testing::TestApp;
 
-const LOGS_TAB: usize = 4;
+const LOG_TAB: usize = 3;
 
-/// The sidebar's half of each row.
-///
-/// Taken by column rather than by splitting on `│`: the sidebar is a box with
-/// borders of its own, so counting rules in from the right lands inside it or
-/// past it depending on the row. The column is found from the box's titled top
-/// edge, counted in chars — `find` gives a byte offset, and the frame's
-/// multi-byte glyphs put the two well apart by this point in the row.
+/// The side column, showing the Log tab.
 fn logs(app: &mut TestApp) -> String {
-    app.select_sidebar_tab(LOGS_TAB);
-    let rows = app.render_to_text(120, 34);
-    let start = rows
-        .iter()
-        .find_map(|row| {
-            let at = row.find("╭─ ")?;
-            Some(row[..at].chars().count())
-        })
-        .filter(|at| *at > 4)
-        .expect("the sidebar's titled top edge");
-    rows.into_iter()
-        .map(|row| row.chars().skip(start).collect::<String>())
-        .collect::<Vec<_>>()
-        .join("\n")
+    app.select_sidebar_tab(LOG_TAB);
+    let side = app.side_column(120, 34);
+    assert!(!side.is_empty(), "the side column should be on screen at 120x34");
+    side.join("\n")
 }
 
 #[test]
-fn the_fifth_tab_is_logs() {
+fn the_fourth_tab_is_the_log() {
     let mut app = TestApp::new();
-    app.select_sidebar_tab(LOGS_TAB);
-    let text = app.render_to_text(120, 34).join("\n");
-    assert!(text.contains("LOGS"), "the tab should be named: {text}");
+    app.select_sidebar_tab(LOG_TAB);
+    let text = app.side_column(120, 34).join("\n");
+    assert!(text.contains("Log"), "the tab should be named: {text}");
+    assert!(
+        text.contains("F6 filter"),
+        "and its keys should be what is showing: {text}"
+    );
     assert!(
         !text.contains("BOUNDARIES"),
         "the config tab it replaced should be gone: {text}"
@@ -50,7 +38,7 @@ fn the_fifth_tab_is_logs() {
 fn an_empty_session_says_so() {
     let mut app = TestApp::new();
     assert!(
-        logs(&mut app).contains("belum ada yang tercatat"),
+        logs(&mut app).contains("Nothing logged yet."),
         "an empty log should say it is empty rather than looking broken"
     );
 }
@@ -156,9 +144,12 @@ fn the_filter_cycles_back_to_everything() {
         app.press(KeyCode::F(6), false).expect("F6");
     }
     let text = logs(&mut app);
-    // The unfiltered heading names no filter: "N baris log" rather than
-    // "N baris · saring <kind>".
-    assert!(text.contains("baris log"), "back to everything: {text}");
+    // The unfiltered heading names no filter: "N entries" rather than
+    // "N entries · filtered to <kind>".
+    assert!(
+        (text.contains("entry") || text.contains("entries")) && !text.contains("filtered to"),
+        "back to everything: {text}"
+    );
     assert!(text.contains("trimmed bash"), "and showing it: {text}");
 }
 
@@ -168,9 +159,9 @@ fn the_filter_keys_bring_the_tab_forward() {
     let mut app = TestApp::new();
     app.select_sidebar_tab(0);
     app.press(KeyCode::F(6), false).expect("F6");
-    let text = app.render_to_text(120, 34).join("\n");
+    let text = app.side_column(120, 34).join("\n");
     assert!(
-        text.contains("F6 saring"),
+        text.contains("F6 filter"),
         "F6 should show the log it just filtered: {text}"
     );
 }

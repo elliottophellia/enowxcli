@@ -161,6 +161,58 @@ impl TestApp {
             .collect()
     }
 
+    /// The side column's rows as drawn at this size, or nothing when it is
+    /// hidden.
+    ///
+    /// Cut by the area the app recorded while drawing rather than found by
+    /// searching for a title or a border glyph: helpers that located the
+    /// sidebar by what it looked like broke every time its decoration changed,
+    /// and a whole-row search picked up the wrong pane.
+    pub fn side_column(&mut self, width: u16, height: u16) -> Vec<String> {
+        let rows = self.render_to_text(width, height);
+        let Some(area) = self.inner.sidebar_area else {
+            return Vec::new();
+        };
+        rows.iter()
+            .skip(area.y as usize)
+            .take(area.height as usize)
+            .map(|row| {
+                row.chars()
+                    .skip(area.x as usize)
+                    .take(area.width as usize)
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Where the side column was drawn in the last render, as (x, y, width,
+    /// height), or None when it was hidden.
+    pub fn side_area(&self) -> Option<(u16, u16, u16, u16)> {
+        self.inner
+            .sidebar_area
+            .map(|area| (area.x, area.y, area.width, area.height))
+    }
+
+    /// The chat column above the status bar: every row cut where the side
+    /// column begins, or whole when it is hidden.
+    pub fn main_column(&mut self, width: u16, height: u16) -> Vec<String> {
+        let rows = self.render_to_text(width, height);
+        let end = self
+            .inner
+            .sidebar_area
+            .map(|area| area.x.saturating_sub(1) as usize)
+            .unwrap_or(width as usize);
+        rows.iter()
+            .take((height as usize).saturating_sub(1))
+            .map(|row| row.chars().take(end).collect())
+            .collect()
+    }
+
+    /// The status bar: the window's last row.
+    pub fn status_bar(&mut self, width: u16, height: u16) -> String {
+        self.render_to_text(width, height).pop().unwrap_or_default()
+    }
+
     /// Drop every cached block so the next draw re-renders from scratch.
     pub fn clear_render_cache(&mut self) {
         self.inner.render_cache.clear();
@@ -540,6 +592,20 @@ impl TestApp {
 impl TestApp {
     /// Background colour of each cell in a row, as hex, for spotting seams
     /// where two panes meet.
+    /// Whether each cell of one row is drawn bold: the selected tab and the
+    /// active agent are marked by weight as well as colour.
+    pub fn row_bold(&mut self, width: u16, height: u16, row: u16) -> Vec<bool> {
+        use ratatui::backend::TestBackend;
+        use ratatui::style::Modifier;
+        use ratatui::Terminal;
+        let mut term = Terminal::new(TestBackend::new(width, height)).unwrap();
+        term.draw(|f| crate::ui::draw(f, &mut self.inner)).unwrap();
+        let buffer = term.backend().buffer().clone();
+        (0..width)
+            .map(|x| buffer[(x, row)].modifier.contains(Modifier::BOLD))
+            .collect()
+    }
+
     pub fn row_backgrounds(&mut self, width: u16, height: u16, row: u16) -> Vec<String> {
         use ratatui::backend::TestBackend;
         use ratatui::style::Color;

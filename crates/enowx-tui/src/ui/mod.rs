@@ -6,7 +6,7 @@ use crate::{
     theme::Theme,
 };
 use ratatui::{
-    layout::{Alignment, Constraint, Layout, Margin, Rect},
+    layout::{Alignment, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph},
@@ -26,6 +26,7 @@ use composer::*;
 use pickers::*;
 use popups::draw_popup;
 use sidebar::*;
+pub(crate) use sidebar::{AGENTS_TAB, LOG_TAB, TABS};
 use transcript::*;
 
 /// One transcript block's rendered output, cached between frames.
@@ -74,14 +75,9 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
     if area.width < 20 || area.height < 8 {
         return;
     }
-    draw_main(
-        frame,
-        app,
-        area.inner(Margin {
-            horizontal: if area.width >= 60 { 2 } else { 1 },
-            vertical: 0,
-        }),
-    );
+    // No margin and no window frame: the boxes themselves are the layout,
+    // and a frame around them drew a second edge beside every first one.
+    draw_main(frame, app, area);
     if app.modal != Modal::None && !draw_popup(frame, app) {
         draw_modal(frame, app);
     }
@@ -109,17 +105,10 @@ pub(crate) fn preview_diff(
     theme: &crate::theme::Theme,
 ) -> Vec<String> {
     let mut lines: Vec<ratatui::text::Line<'static>> = Vec::new();
-    let mut markers: Vec<(usize, String)> = Vec::new();
-    tool::render_diff(
-        path,
-        old,
-        new,
-        start_line,
-        width,
-        &mut lines,
-        theme,
-        &mut markers,
-    );
+    // The path is not drawn: in a session the tool row above the diff names
+    // the file. Kept in the signature so preview callers stay unchanged.
+    let _ = path;
+    tool::render_diff(old, new, start_line, width, &mut lines, theme);
     lines_to_ansi(lines)
 }
 

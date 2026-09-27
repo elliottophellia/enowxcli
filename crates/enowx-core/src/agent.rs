@@ -255,24 +255,28 @@ impl Agent {
         *self.mcp_clients.lock().await = clients;
     }
 
-    /// The agent holding `session`, falling back to the router.
+    /// The agent holding `session`, falling back to the orchestrator.
     ///
     /// A session naming an agent that has since been deleted from disk would
-    /// otherwise have no prompt at all; routing from the router is a better
-    /// failure than running with an empty system message.
+    /// otherwise have no prompt at all; routing from the orchestrator is a
+    /// better failure than running with an empty system message.
     fn active_agent(&self, session: &Session) -> crate::agent_def::AgentDef {
         let wanted = session.agent_or_default();
         let roster = &self.discovery.agents;
         roster
             .iter()
             .find(|a| a.name == wanted)
-            .or_else(|| roster.iter().find(|a| a.name == "router"))
+            .or_else(|| {
+                roster
+                    .iter()
+                    .find(|a| a.name == crate::agent_def::ORCHESTRATOR)
+            })
             .cloned()
             .unwrap_or_else(|| {
                 crate::agent_def::builtin_agents()
                     .into_iter()
-                    .find(|a| a.name == "router")
-                    .expect("the router always ships")
+                    .find(|a| a.name == crate::agent_def::ORCHESTRATOR)
+                    .expect("the orchestrator always ships")
             })
     }
 
@@ -324,8 +328,8 @@ impl Agent {
         for agent in &self.discovery.agents {
             // Never offer an agent the asker cannot actually reach, or itself.
             if agent.name == asking.name
-                || agent.name == "compactor"
-                || agent.name == "router"
+                || !agent.is_routable()
+                || agent.name == crate::agent_def::ORCHESTRATOR
                 || !asking.delegation.may_call(&agent.name)
             {
                 continue;
@@ -712,11 +716,18 @@ impl Agent {
         let tools_registry = self.tools.read().await;
         let mut schemas = tools_registry.schemas_for_agent(&active.tools, Some(&self.discovery));
         if active.delegation != crate::agent_def::Delegation::None {
-            // Only the router hands the session over; a specialist the user is
-            // already talking to may delegate a piece of work but not pass the
-            // conversation on to someone the user did not ask for.
-            let may_handoff = active.delegation == crate::agent_def::Delegation::Router;
-            schemas.extend(crate::routing::routing_schemas(may_handoff));
+            // The orchestrator hands the conversation to anyone. A specialist
+            // holding the user's conversation may only give it back to the
+            // orchestrator, and one working in a delegated branch has no
+            // conversation to give: it reports back instead.
+            let hand_off = if active.delegation == crate::agent_def::Delegation::Orchestrator {
+                crate::routing::HandOff::Anyone
+            } else if session.parent.is_none() {
+                crate::routing::HandOff::BackToOrchestrator
+            } else {
+                crate::routing::HandOff::No
+            };
+            schemas.extend(crate::routing::routing_schemas(hand_off));
         }
         // Set when a routing call is accepted during a step, and acted on once
         // the step's tool results are recorded — switching mid-loop would
@@ -929,6 +940,14 @@ impl Agent {
                             // session, the other runs a whole nested turn, and
                             // neither is reachable from a `ToolCtx`.
                             match crate::routing::parse_switch(&call.name, &args) {
+                                Some(crate::routing::Switch::Handoff { .. })
+                                    if session.parent.is_some() =>
+                                {
+                                    ToolOutput::error(
+                                        "a delegated agent cannot hand off: finish the task \
+                                         and end with your report",
+                                    )
+                                }
                                 Some(switch) => {
                                     match crate::routing::authorise(
                                         &active,

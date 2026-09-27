@@ -1,4 +1,4 @@
-//! `/agent` — the manual override. The router decides on its own, but a user
+//! `/agent` — the manual override. The orchestrator decides on its own, but a user
 //! naming a specialist is a stronger signal than a classification.
 
 use enowx_tui::testing::TestApp;

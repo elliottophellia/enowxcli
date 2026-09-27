@@ -116,10 +116,10 @@ impl Session {
     /// every caller having to know about the migration.
     pub fn agent_or_default(&self) -> String {
         if !self.agent.trim().is_empty() {
-            return self.agent.clone();
+            return crate::agent_def::canonical_name(&self.agent).to_owned();
         }
         match self.role {
-            Role::Orchestrator => "router",
+            Role::Orchestrator => crate::agent_def::ORCHESTRATOR,
             Role::Writer => "docs",
             Role::Researcher => "research",
         }
@@ -407,6 +407,18 @@ impl SessionStore {
             }
             turns.push(serde_json::from_str(line)?);
         }
+        // Names recorded before an agent was renamed read as its name now,
+        // so an old session's handovers and holder match the roster.
+        let rename = |name: String| crate::agent_def::canonical_name(&name).to_owned();
+        let switches = header
+            .switches
+            .into_iter()
+            .map(|switch| AgentSwitch {
+                from: rename(switch.from),
+                to: rename(switch.to),
+                ..switch
+            })
+            .collect();
         Ok(Session {
             id: header.id,
             title: header.title,
@@ -415,8 +427,8 @@ impl SessionStore {
             updated_at: header.updated_at,
             workspace: header.workspace,
             usage: header.usage,
-            agent: header.agent,
-            switches: header.switches,
+            agent: rename(header.agent),
+            switches,
             parent: header.parent,
             delegations: header.delegations,
             turns,
@@ -729,7 +741,7 @@ mod agent_tests {
     #[test]
     fn a_legacy_session_resolves_its_agent_from_the_role() {
         for (role, expected) in [
-            (Role::Orchestrator, "router"),
+            (Role::Orchestrator, crate::agent_def::ORCHESTRATOR),
             (Role::Writer, "docs"),
             (Role::Researcher, "research"),
         ] {
@@ -758,7 +770,7 @@ mod agent_tests {
         assert_eq!(s.agent, "fe");
         assert_eq!(s.switches.len(), 1);
         let sw = &s.switches[0];
-        assert_eq!(sw.from, "router");
+        assert_eq!(sw.from, crate::agent_def::ORCHESTRATOR);
         assert_eq!(sw.to, "fe");
         assert_eq!(
             sw.at_turn, 1,
@@ -780,6 +792,29 @@ mod agent_tests {
         assert!(s.switches.is_empty());
     }
 
+    /// A session saved while the orchestrator was called `router` loads with
+    /// the current name, holder and handovers alike.
+    #[test]
+    fn an_old_session_loads_under_the_current_names() {
+        let dir = std::env::temp_dir().join(format!("enx-sessions-{}", uuid::Uuid::new_v4()));
+        let store = SessionStore::new(dir.clone());
+        let mut s = Session::new(Role::Orchestrator);
+        s.agent = "router".into();
+        s.switches.push(AgentSwitch {
+            from: "router".into(),
+            to: "fe".into(),
+            reason: "frontend work".into(),
+            at_turn: 0,
+        });
+        store.save(&s).unwrap();
+        let loaded = store.load(&s.id).unwrap();
+        let _ = std::fs::remove_dir_all(dir);
+        assert_eq!(loaded.agent, crate::agent_def::ORCHESTRATOR);
+        assert_eq!(loaded.agent_or_default(), crate::agent_def::ORCHESTRATOR);
+        assert_eq!(loaded.switches[0].from, crate::agent_def::ORCHESTRATOR);
+        assert_eq!(loaded.switches[0].to, "fe");
+    }
+
     #[test]
     fn switches_accumulate_in_order() {
         let mut s = Session::new(Role::Orchestrator);
@@ -793,7 +828,7 @@ mod agent_tests {
     #[test]
     fn a_branch_starts_clean_but_remembers_its_parent() {
         let mut parent = Session::new(Role::Orchestrator);
-        parent.agent = "router".into();
+        parent.agent = crate::agent_def::ORCHESTRATOR.into();
         parent.turns.push(StoredTurn {
             id: "1".into(),
             created_at: Utc::now(),

@@ -1,6 +1,11 @@
 use super::*;
 use crate::text::thousands;
-use enowx_core::ROLES;
+
+/// Every built-in tool, busiest-first sorting aside: the list the Tools card
+/// counts calls against and marks the active agent's gaps in.
+const BUILTIN_TOOLS: [&str; 8] = [
+    "read", "write", "edit", "glob", "grep", "bash", "fetch", "todo",
+];
 
 /// The detail card's tabs, in the order the keys 1–4 select them.
 ///
@@ -413,7 +418,13 @@ fn detail_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usi
 
             // The roster, names only and flowed, with the active agent in the
             // accent colour so it can be found without reading the list.
-            let roster = &app.discovery.agents;
+            // Only agents a request can go to; the compactor is machinery.
+            let roster: Vec<&enowx_core::agent_def::AgentDef> = app
+                .discovery
+                .agents
+                .iter()
+                .filter(|agent| agent.is_routable())
+                .collect();
             let active = app.active_agent();
             heading(&mut lines, &format!("ROSTER · {}", roster.len()), t);
             let names: Vec<(String, bool)> = roster
@@ -440,8 +451,7 @@ fn detail_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usi
             // about this session; what it was really carrying is which tools
             // this agent cannot use, and that is the short list below.
             heading(&mut lines, "USED", t);
-            let mut used: Vec<(&str, usize)> = ROLES[0]
-                .allowed_tools()
+            let mut used: Vec<(&str, usize)> = BUILTIN_TOOLS
                 .iter()
                 .map(|name| (*name, app.tool_counts.get(*name).copied().unwrap_or(0)))
                 .filter(|(_, count)| *count > 0)
@@ -455,10 +465,16 @@ fn detail_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usi
                 }
             }
 
-            let blocked: Vec<&str> = ROLES[0]
-                .allowed_tools()
+            // What the agent holding the session cannot use: the orchestrator
+            // has no write tools on purpose, a reviewer cannot edit.
+            let active = app
+                .discovery
+                .agents
                 .iter()
-                .filter(|name| !app.role.allowed_tools().contains(*name))
+                .find(|agent| agent.name == app.active_agent());
+            let blocked: Vec<&str> = BUILTIN_TOOLS
+                .iter()
+                .filter(|name| active.is_some_and(|agent| !agent.allows(name)))
                 .copied()
                 .collect();
             if !blocked.is_empty() {

@@ -90,7 +90,7 @@ row numbers recorded for click targets stay correct.
 - **A delegation** is one row from start to finish: `◆ delegate fe … working`
   while it runs, `✓` or `✗` when it reports. The brief is one click away. The
   report lands under the row, its `DONE / CHANGED / VERIFIED / NEXT` fields as
-  a label column and a value column. The router's `delegate` call is not
+  a label column and a value column. The orchestrator's `delegate` call is not
   drawn, since the row says the same. A resumed session rebuilds the same row
   from the report message and the session's delegation records, and lists the
   sub-agents again so their branches still open.

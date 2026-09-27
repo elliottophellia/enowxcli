@@ -1,6 +1,6 @@
 # Agents
 
-Design for replacing the three hardcoded roles with a router and a roster of
+Design for replacing the three hardcoded roles with an orchestrator and a roster of
 specialists, and a record of why each decision went the way it did.
 
 **Status: implemented.** `agent_def.rs` holds the definitions, `discovery/
@@ -14,33 +14,38 @@ loop in `agent.rs` resolves an agent per turn. What remains is listed under
 
 ## The shape
 
-One **router** decides who works; **specialists** do the work. The router has
-no editing tools of its own — if it could do the job it would, and the roster
-would go unused. It reads enough to classify the request, then hands over.
+One **orchestrator** is the agent the user talks to; **specialists** do the
+work. It was called `router` until 2026-09-27, and that name still resolves:
+old sessions, `[agent.models] router = …` and a `router.md` agent file all
+mean the orchestrator.
+
+The orchestrator answers what it can settle with a few reads (at most three)
+and gives everything else to a specialist. It has no editing tools of its own:
+if it could do the job it would, and the roster would go unused.
 
 A specialist is one definition used two ways:
 
 ```
-HANDOFF                              SUB-AGENT
-router ──hands over──▶ fe            router ──calls──▶ fe   (branch session)
-                       │                              │ briefing only
-      same session,    │ carries on                   │ works
-      full history     │ to the end                   │
-                       ▼                              ▼
-              user now talks to fe      router ◀──summary── done
-
-                                       router keeps leading
+HANDOFF                                 SUB-AGENT
+orchestrator ──hands over──▶ fe         orchestrator ──calls──▶ fe   (branch)
+                             │                                  │ briefing only
+    same session,            │ keeps it while                   │ works
+    full history             │ the user refines                 │
+                             ▼                                  ▼
+    fe ──hands back──▶ orchestrator     orchestrator ◀──report── done
+    (when the user moves on)            orchestrator keeps leading
 ```
 
 | | Handoff | Sub-agent |
 |---|---|---|
 | Context in | Full history, same session | Briefing only, clean start |
-| On finish | Carries on as normal | Returns a summary |
+| On finish | Keeps the conversation; hands it back when the user moves on | Returns a report |
 | Session | One, the agent changes | Branches, then rejoins |
 
-Handoff suits a request that is one specialist's job end to end. Sub-agent
-suits a piece of work inside a larger task — and it is the cheaper of the two,
-see [Cost](#cost).
+Handoff suits one specialist's work that the user will keep refining: a page,
+a feature, a bug they keep testing. Each follow-up then costs no re-reading. A
+sub-agent suits a piece of a larger plan, or a one-off result: it is the
+cheaper of the two for that, see [Cost](#cost).
 
 ## Why this is cheaper, not more expensive
 
@@ -51,7 +56,7 @@ The worry with a large roster is token cost. Measured, it is not the problem:
 | 13 agents, one-line descriptions | ~170 tokens |
 | 40 agents, verbose descriptions | ~2,100 tokens |
 
-Against the fixed overhead of a turn — router prompt, specialist prompt, tool
+Against the fixed overhead of a turn — orchestrator prompt, specialist prompt, tool
 schemas — the whole roster is about **two file reads**. Descriptions are cheap.
 
 What actually fills a window is accumulated tool output, and that is where the
@@ -60,9 +65,9 @@ sub-agent mode wins. For a task touching frontend and backend:
 | | Tokens held at the end |
 |---|---|
 | One agent doing everything | ~47,500 |
-| Router with two sub-agents | ~3,200 in the router |
+| Orchestrator with two sub-agents | ~3,200 in the orchestrator |
 
-Each specialist peaks in its own branch and is then discarded. The router
+Each specialist peaks in its own branch and is then discarded. The orchestrator
 carries roughly **15× less**. More specialists, used as sub-agents, means less
 context held — not more.
 
@@ -71,9 +76,9 @@ Four rules keep it that way:
 1. **Descriptions are written to be chosen from, not read.** One line, domain
    keywords. `- fe: frontend, React, CSS, components, accessibility` is 11
    tokens and enough to route on.
-2. **A specialist's prompt loads only when it is used.** The router needs to
+2. **A specialist's prompt loads only when it is used.** The orchestrator needs to
    know a specialist exists and what for, not how it thinks.
-3. **Tool schemas follow the active agent.** The router needs read/glob/grep
+3. **Tool schemas follow the active agent.** The orchestrator needs read/glob/grep
    plus handoff/delegate; a specialist's ten-tool schema never reaches it.
 4. **Prefer sub-agent for substantial work.** Handoff is comfortable but its
    context accumulates; delegation discards it.
@@ -81,7 +86,7 @@ Four rules keep it that way:
 ## The roster
 
 Two groups. The split is by what the work *is about* (domain) versus what kind
-of work it *is* (cross-cutting), because those are the two questions a router
+of work it *is* (cross-cutting), because those are the two questions an orchestrator
 can actually answer from a request.
 
 ### Domain — which part of the stack
@@ -109,13 +114,28 @@ can actually answer from a request.
 | `general` | Fallback for anything outside the above |
 
 Plus one that is never routed to: `compactor`, invoked by the loop rather than
-chosen by the router. See [Compaction](#compaction).
+chosen by the orchestrator. See [Compaction](#compaction). It is not routable
+(`AgentDef::is_routable`), so it appears in no roster, is refused as a
+delegation target, and `/agent` will not switch to it.
+
+Each specialist's prompt says how its domain is done well and what "done"
+means there: `fe` checks every width from a 360px phone up, `db` keeps
+migrations reversible and tries them on a scratch database, `devops` runs the
+build rather than trusting a file that looks right, `test` makes a new test
+fail for the stated reason before making it pass.
 
 `librarian` and `research` are both read-only and are easy to confuse. The
 difference is the output: librarian returns **raw material, filtered** —
 quotes, paths, line numbers — while research returns **an answer**. Librarian
 is the natural sub-agent: read twenty files, hand back the ten relevant
-excerpts, discard the rest.
+excerpts, discard the rest. Their one-line descriptions, which are what the
+orchestrator chooses from, now say so: librarian gathers material *for another
+agent*, research *answers a question with evidence*.
+
+The legacy `/role` menu (Orchestrator, Writer, Researcher) was removed from
+the interface on 2026-09-27: agents replaced roles, and a role named
+"Orchestrator" beside an agent of the same name meant two different things.
+Sessions saved with a role still open, mapped to an agent.
 
 ### Why not one axis
 
@@ -126,7 +146,7 @@ PR" is neither frontend nor backend.
 
 A three-axis catalogue (domain × activity × concern, 17 agents) covered
 everything but made routing ambiguous: "fix the bug in the API" is equally
-`debug` and `be`, and the router has no basis to choose.
+`debug` and `be`, and the orchestrator has no basis to choose.
 
 Two groups with a stated tie-break avoids both:
 
@@ -161,8 +181,8 @@ You are a frontend specialist. …
 
 | Field | Meaning |
 |---|---|
-| `name` | How the router addresses it |
-| `description` | One line. This is what the router sees; write it to be chosen from |
+| `name` | How the orchestrator addresses it |
+| `description` | One line. This is what the orchestrator sees; write it to be chosen from |
 | `tools` | Tool surface. Filtered twice, as roles are today: never advertised, and refused if called anyway |
 | `tier` | Optional model tier, see below |
 
@@ -171,7 +191,7 @@ resolve.
 
 ## Model tiers
 
-A specialist should not always run on the same model as the router. The router
+A specialist should not always run on the same model as the orchestrator. The orchestrator
 mostly classifies; a specialist may be doing the hard part.
 
 Agents name a **tier**, not a model, so a definition survives changing
@@ -187,14 +207,14 @@ strong   = "cbc/claude-opus-5"
 Resolution order, first match wins:
 
 1. User override in config (`[agent.models] fe = "…"`)
-2. Tier chosen by the router for this particular delegation
+2. Tier chosen by the orchestrator for this particular delegation
 3. Tier declared in the agent file
 4. The active model
 
-The router picking a tier per call is the point: the same specialist can run
+The orchestrator picking a tier per call is the point: the same specialist can run
 cheap for a small fix and strong for a redesign. Guidance for that judgement
-belongs in the router's prompt and is still to be written — without it the
-router will reach for `strong` every time.
+belongs in the orchestrator's prompt and is still to be written — without it the
+orchestrator will reach for `strong` every time.
 
 Unmapped tiers fall back to the active model rather than failing; a missing
 tier table must not make delegation stop working.
@@ -206,11 +226,11 @@ tier table must not make delegation stop working.
 auto_switch = true    # switch without asking
 ```
 
-- `true` — the router hands over or delegates on its own.
+- `true` — the orchestrator hands over or delegates on its own.
 - `false` — a prompt appears first: *"hand over to fe?"*
 
 Either way the user can force a switch (`/agent fe`), and forcing overrides
-whatever the router had decided.
+whatever the orchestrator had decided.
 
 ## What was built
 
@@ -339,7 +359,7 @@ turn. Users on large-context models should set this far lower.
 
 ### Depth
 
-One level: only the router delegates. A specialist that could delegate turns a
+One level: only the orchestrator delegates. A specialist that could delegate turns a
 task into a tree — three levels at a fanout of three is forty agents and
 ~600,000 tokens, which no task justifies.
 
@@ -349,7 +369,7 @@ context clean — read twenty files, hand back ten excerpts. Forbidding it would
 push that reading into the specialist's own window, which is the cost the
 architecture is trying to avoid.
 
-So: router → specialist → librarian, and no other second hop.
+So: orchestrator → specialist → librarian, and no other second hop.
 
 ### When a sub-agent fails
 
@@ -364,7 +384,7 @@ Five ways it ends badly, and they are not equivalent:
 | **Interrupted** | **Partial: files may be half-written** |
 
 The first three are simply "pick differently". The last two are the dangerous
-ones: work is half done, and a router that treats them as "try again" will
+ones: work is half done, and an orchestrator that treats them as "try again" will
 have a second specialist build on a state it knows nothing about.
 
 So a partial failure is retried **once**, with the same specialist, and the
@@ -377,14 +397,14 @@ Previous attempt ran out of steps. Already changed:
 Continue from there; do not redo work that is done.
 ```
 
-Once. If it fails again the router stops and reports to the user, naming the
+Once. If it fails again the orchestrator stops and reports to the user, naming the
 files left in a partial state. Retrying further only stacks up more half-done
 edits, and each attempt makes the state harder to reason about.
 
 ### Cost
 
 A branch session keeps its own usage, so without rolling it up the sidebar
-reports the router's spend alone: 3,000 tokens shown against 87,000 actually
+reports the orchestrator's spend alone: 3,000 tokens shown against 87,000 actually
 spent, off by **29×**. That is not an incomplete number, it is a wrong one.
 
 Branch usage rolls up into the parent. The total is what the sidebar shows;
@@ -412,7 +432,7 @@ docs  → README.md        ┘
 test  → src/ui/**        ← overlaps fe, runs after it
 ```
 
-Nothing is refused. A router that had its delegation rejected would have to
+Nothing is refused. An orchestrator that had its delegation rejected would have to
 re-plan, and it has no better information than the scheduler does.
 
 Declaring intent beats locking: a conflict is known before any work starts,
@@ -532,15 +552,29 @@ round of tool calls. Naming the files rather than dropping them is what keeps
 that in check — the specialist knows what exists and can fetch what it needs.
 
 
-## The router's prompt
+## The orchestrator's prompt
 
-The router is the piece most likely to decide whether this works. Every
+The orchestrator is the piece most likely to decide whether this works. Every
 judgement the design defers — which specialist, which tier, handoff or
-delegate, how to split parallel work — lands here. A vague prompt produces a
-router that picks `general` and `strong` for everything, and the roster is
+delegate, how to split parallel work — lands here. A vague prompt produces an
+orchestrator that picks `general` and `strong` for everything, and the roster is
 decoration.
 
-It needs to answer four questions, in order.
+It needs to answer five questions, in order.
+
+### 0. Answer, or route
+
+Added on 2026-09-27. Before, every question went to a sub-agent, even "where
+is X defined?", which cost a whole delegation for one grep.
+
+```
+Conversation (a greeting, thanks, working out what the user means) needs no
+tools. A question you can settle with a few reads, such as where something
+is defined, what a function does, or how two parts fit together, you answer
+directly: at most three reads or searches, then the answer with paths and
+line numbers. A question that needs more than that goes to `research`.
+Anything that changes files goes to a specialist.
+```
 
 ### 1. Which specialist
 
@@ -561,22 +595,33 @@ task.
 
 ### 2. Handoff or delegate
 
-```
-Delegate when the work is a piece of something larger and you will carry
-on afterwards. The specialist starts clean, returns a summary, and its
-context is discarded — this is the cheaper path and the default.
+The first version defaulted to delegation. In practice a request like "build
+me a page" is followed by "make the header smaller", "now the footer", and
+each follow-up started a fresh sub-agent that read everything again. So the
+choice now turns on whether the user will iterate:
 
-Hand off when the whole request belongs to one specialist and the user
-will keep talking to them. You step out; they finish.
-
-If unsure, delegate. A delegation that turns out to be the whole task
-costs one summary; a handoff that turns out to be a fragment leaves the
-user talking to the wrong specialist.
 ```
+Hand off when the request is one specialist's work that the user is likely
+to keep refining: building a page or a feature, a design they will adjust,
+a bug they will keep testing. The specialist keeps what it learned across
+their follow-ups, where each new delegation would start from nothing and
+read everything again. It hands the conversation back to you when the user
+moves on to something outside its domain.
+
+Delegate when the work is one piece of a larger plan you are coordinating,
+or a one-off whose result you report back: a review, an investigation, a
+single fix. The specialist starts clean, returns a report, and its context
+is discarded.
+```
+
+Handing back is what makes this safe. A specialist that holds the user's
+conversation gets a `handoff` tool that can name only the orchestrator; one
+working in a delegated branch gets none, since it reports back instead.
+`Delegation::may_hand_off_to` and `routing::HandOff` hold the rule.
 
 ### 3. Which tier
 
-Without guidance a router picks `strong` every time, because nothing punishes
+Without guidance an orchestrator picks `strong` every time, because nothing punishes
 it for doing so. The prompt has to make the cost legible:
 
 ```
@@ -608,27 +653,26 @@ on the endpoints can run together; "implement" and "test" on the same files
 cannot.
 ```
 
-### What the router must not do
+### What the orchestrator must not do
 
 ```
-Do not do the work. You have read, glob, and grep so you can classify the
-request — not so you can answer it. If you find yourself reading a third
-file to decide, you have enough to delegate.
+Do not implement. Your read, glob and grep are for answering quick
+questions and for choosing a specialist, not for doing the work: past
+three reads, a question is `research` and a change is a specialist's.
 
 Do not chain delegations to build a result yourself. Delegate the task, not
 each step of it — the specialist plans its own steps.
 
-Do not summarise a specialist's work back to the user as if it were yours.
-Report what came back.
+Do not present a specialist's work as your own. Report what came back.
 ```
 
-Each of these is a failure seen in routers elsewhere: reading until the task
-is done, decomposing into tool-call-sized fragments, and laundering a
+Each of these is a failure seen in routing agents elsewhere: reading until the
+task is done, decomposing into tool-call-sized fragments, and laundering a
 specialist's output. They are cheap to forbid and expensive to discover.
 
 ### Reading, briefing, and after
 
-Added once real sessions showed the router reading its way through a project
+Added once real sessions showed the orchestrator reading its way through a project
 before delegating a portfolio page: eighteen calls in one session, four in
 another, for a request that named its kind of work.
 
@@ -648,7 +692,7 @@ unclear.
 ```
 
 A later run stalled the other way: asked for "a simple portfolio", the
-router delegated nothing and sent the user three questions (whose content,
+orchestrator delegated nothing and sent the user three questions (whose content,
 which stack, where), after reading a story into the workspace's folder name.
 So:
 
@@ -663,7 +707,7 @@ information about the task.
 ## Effort
 
 Every model call re-sends the whole context, so a step spent on busywork
-costs as much as one spent on the task. One router session in this repo sent
+costs as much as one spent on the task. One orchestrator session in this repo sent
 2.26M input tokens. The specialists showed the same habits in every session
 read: `bash ls`, `find`, `cat` and `sed -n` where glob and read fit; a
 checklist for a two-file page with each item ticked in its own call; six
@@ -695,7 +739,7 @@ where the model reads them.
 
 ## Open questions
 
-- **Router prompt wording.** The shape is settled above, but the exact text
+- **Orchestrator prompt wording.** The shape is settled above, but the exact text
   will need iterating against real sessions — routing quality is not something
   a first draft gets right.
 - **Contract granularity.** `writes: ["src/ui/**"]` is easy to declare and

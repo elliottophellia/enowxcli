@@ -250,3 +250,43 @@ async fn a_turn_that_never_settles_stops_and_says_so() {
          {events:#?}"
     );
 }
+
+/// A specialist that was handed the conversation can give it back when the
+/// user moves on, and the orchestrator answers in the same turn. Without a
+/// way back, preferring handoff for iterative work would leave the user
+/// stuck talking to the specialist about everything else.
+#[tokio::test]
+async fn a_specialist_hands_the_conversation_back() {
+    let (events, _) = collect(
+        vec![
+            hands_over_to("fe"),
+            hands_over_to(enowx_core::agent_def::ORCHESTRATOR),
+            says("ORCHESTRATOR-TAKES-IT-FROM-HERE"),
+        ],
+        "hand-back",
+    )
+    .await;
+    let path: Vec<&str> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::AgentSwitched { to, .. } => Some(to.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        path,
+        vec!["fe", enowx_core::agent_def::ORCHESTRATOR],
+        "handed to fe, then back: {events:#?}"
+    );
+    let text: String = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::Text { delta } => Some(delta.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        text.contains("ORCHESTRATOR-TAKES-IT-FROM-HERE"),
+        "the orchestrator should answer after the hand-back: {text:?}"
+    );
+}

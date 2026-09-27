@@ -22,7 +22,7 @@ fn delegate_rows(app: &mut TestApp) -> Vec<String> {
         .collect()
 }
 
-/// The whole path a live delegation takes: the router's call, the start,
+/// The whole path a live delegation takes: the orchestrator's call, the start,
 /// the report.
 fn delegated(app: &mut TestApp) {
     app.push_assistant("Murni kerja frontend.");

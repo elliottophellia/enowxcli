@@ -156,7 +156,6 @@ fn enter_runs_the_highlighted_command() {
 fn choosing_commands_open_their_own_window() {
     for (command, title) in [
         ("agent", " AGENT "),
-        ("role", " AGENT ROLE "),
         ("theme", " THEME "),
         ("provider", " PROVIDER "),
         ("skills", " SKILLS "),

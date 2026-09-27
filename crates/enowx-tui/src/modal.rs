@@ -6,7 +6,6 @@ use enowx_core::Config;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Modal {
     None,
-    Roles,
     /// The agent roster as a picker.
     Agents,
     /// Actions on a sent message: edit, resend, copy.
@@ -45,7 +44,6 @@ impl Modal {
     pub fn title(self) -> &'static str {
         match self {
             Modal::Commands => " COMMANDS ",
-            Modal::Roles => " AGENT ROLE ",
             Modal::Agents => " AGENT ",
             Modal::Message => " MESSAGE ",
             Modal::TypeSafe => " TYPESAFE ",

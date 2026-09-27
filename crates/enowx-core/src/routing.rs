@@ -1,17 +1,19 @@
-//! Routing: the decisions a router makes, and the rules that bound them.
+//! Routing: the decisions the orchestrator makes, and the rules that bound
+//! them.
 //!
 //! The loop calls into here to answer "may this agent do that, and to whom",
 //! so the rules live in one testable place rather than scattered through the
 //! run loop. Executing a delegation is the loop's job; deciding whether it is
 //! allowed is this module's.
 //!
-//! See `docs/agents.md`, sections "Delegation rules" and "The router's prompt".
+//! See `docs/agents.md`, sections "Delegation rules" and "The orchestrator's
+//! prompt".
 
 use serde::{Deserialize, Serialize};
 
-use crate::agent_def::{AgentDef, Tier};
+use crate::agent_def::{canonical_name, AgentDef, Tier, ORCHESTRATOR};
 
-/// What the router asked for.
+/// What the orchestrator (or a specialist handing back) asked for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Switch {
     /// The specialist takes over the session and carries on to the end.
@@ -26,9 +28,9 @@ pub struct Delegation {
     pub to: String,
     /// The briefing. A sub-agent starts from this and nothing else, so it has
     /// to carry the whole task — a vague brief produces a specialist that
-    /// re-derives what the router already knew.
+    /// re-derives what the orchestrator already knew.
     pub task: String,
-    /// Tier the router chose for this call, overriding the agent's own.
+    /// Tier the orchestrator chose for this call, overriding the agent's own.
     pub tier: Option<Tier>,
     /// Paths or globs this delegation intends to change.
     pub writes: Vec<String>,
@@ -40,9 +42,18 @@ pub struct Delegation {
 /// rather than retrying the same call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
-    UnknownAgent { name: String, known: Vec<String> },
-    NotPermitted { from: String, to: String },
-    SelfCall { name: String },
+    UnknownAgent {
+        name: String,
+        known: Vec<String>,
+    },
+    NotPermitted {
+        from: String,
+        to: String,
+        handoff: bool,
+    },
+    SelfCall {
+        name: String,
+    },
     EmptyTask,
 }
 
@@ -54,10 +65,18 @@ impl Refusal {
             Self::UnknownAgent { name, known } => {
                 format!("no agent named `{name}`. Available: {}", known.join(", "))
             }
-            Self::NotPermitted { from, to } => format!(
-                "`{from}` may not delegate to `{to}`. Only the router delegates freely; \
-                 a specialist may call `librarian` and nothing else. Do the work yourself \
-                 or report back so the router can re-route it."
+            Self::NotPermitted {
+                from,
+                to,
+                handoff: true,
+            } => format!(
+                "`{from}` may not hand the conversation to `{to}`. A specialist hands it \
+                 back to `{ORCHESTRATOR}`, which routes it on."
+            ),
+            Self::NotPermitted { from, to, .. } => format!(
+                "`{from}` may not delegate to `{to}`. Only the orchestrator delegates \
+                 freely; a specialist may call `librarian` and nothing else. Do the work \
+                 yourself or report back so the orchestrator can re-route it."
             ),
             Self::SelfCall { name } => {
                 format!("`{name}` cannot delegate to itself; that would not terminate")
@@ -73,16 +92,16 @@ impl Refusal {
 ///
 /// `roster` is the full set of known agents; `from` is the agent asking.
 pub fn authorise(from: &AgentDef, switch: &Switch, roster: &[AgentDef]) -> Result<(), Refusal> {
-    let to = match switch {
-        Switch::Handoff { to, .. } => to,
+    let (to, handoff) = match switch {
+        Switch::Handoff { to, .. } => (to, true),
         Switch::Delegate(d) => {
             if d.task.trim().is_empty() {
                 return Err(Refusal::EmptyTask);
             }
-            &d.to
+            (&d.to, false)
         }
     };
-    let to = to.trim();
+    let to = canonical_name(to);
 
     if to == from.name {
         return Err(Refusal::SelfCall {
@@ -96,15 +115,21 @@ pub fn authorise(from: &AgentDef, switch: &Switch, roster: &[AgentDef]) -> Resul
             // routing targets, so suggesting them would be misleading.
             known: roster
                 .iter()
-                .filter(|a| a.name != "compactor" && a.name != "router")
+                .filter(|a| a.is_routable() && a.name != ORCHESTRATOR)
                 .map(|a| a.name.clone())
                 .collect(),
         });
     }
-    if !from.delegation.may_call(to) {
+    let permitted = if handoff {
+        from.delegation.may_hand_off_to(to)
+    } else {
+        from.delegation.may_call(to)
+    };
+    if !permitted {
         return Err(Refusal::NotPermitted {
             from: from.name.clone(),
             to: to.to_owned(),
+            handoff,
         });
     }
     Ok(())
@@ -255,8 +280,8 @@ mod tests {
     }
 
     #[test]
-    fn the_router_may_delegate_to_a_specialist() {
-        assert!(authorise(&agent("router"), &delegate_to("fe"), &roster()).is_ok());
+    fn the_orchestrator_may_delegate_to_a_specialist() {
+        assert!(authorise(&agent(ORCHESTRATOR), &delegate_to("fe"), &roster()).is_ok());
     }
 
     /// Depth is one level: a tree of delegating specialists reaches forty
@@ -287,7 +312,7 @@ mod tests {
 
     #[test]
     fn an_unknown_agent_is_refused_with_the_alternatives() {
-        let err = authorise(&agent("router"), &delegate_to("frontend"), &roster()).unwrap_err();
+        let err = authorise(&agent(ORCHESTRATOR), &delegate_to("frontend"), &roster()).unwrap_err();
         let msg = err.message();
         assert!(msg.contains("frontend"), "{msg}");
         assert!(msg.contains("fe"), "the real name should be offered: {msg}");
@@ -299,7 +324,11 @@ mod tests {
 
     #[test]
     fn an_agent_cannot_delegate_to_itself() {
-        let err = authorise(&agent("router"), &delegate_to("router"), &roster()).unwrap_err();
+        let err =
+            authorise(&agent(ORCHESTRATOR), &delegate_to(ORCHESTRATOR), &roster()).unwrap_err();
+        assert!(matches!(err, Refusal::SelfCall { .. }));
+        // Its old name is still itself.
+        let err = authorise(&agent(ORCHESTRATOR), &delegate_to("router"), &roster()).unwrap_err();
         assert!(matches!(err, Refusal::SelfCall { .. }));
     }
 
@@ -313,7 +342,7 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(
-            authorise(&agent("router"), &switch, &roster()).unwrap_err(),
+            authorise(&agent(ORCHESTRATOR), &switch, &roster()).unwrap_err(),
             Refusal::EmptyTask
         );
     }
@@ -324,7 +353,29 @@ mod tests {
             to: "fe".into(),
             reason: "the whole request is frontend".into(),
         };
-        assert!(authorise(&agent("router"), &switch, &roster()).is_ok());
+        assert!(authorise(&agent(ORCHESTRATOR), &switch, &roster()).is_ok());
+    }
+
+    /// A specialist holding the conversation can give it back, so a user who
+    /// moves on to another domain is not stuck with it; and only back.
+    #[test]
+    fn a_specialist_may_hand_back_to_the_orchestrator_only() {
+        let back = Switch::Handoff {
+            to: ORCHESTRATOR.into(),
+            reason: "the user asked about the database".into(),
+        };
+        assert!(authorise(&agent("fe"), &back, &roster()).is_ok());
+        let sideways = Switch::Handoff {
+            to: "be".into(),
+            reason: "backend work".into(),
+        };
+        let err = authorise(&agent("fe"), &sideways, &roster()).unwrap_err();
+        assert!(
+            err.message().contains(ORCHESTRATOR),
+            "the refusal names the way out: {}",
+            err.message()
+        );
+        assert!(authorise(&agent("librarian"), &back, &roster()).is_err());
     }
 
     // --- contracts and scheduling ---
@@ -464,7 +515,18 @@ mod tests {
 /// agent holds the session, or runs a whole nested turn. Both are outside what
 /// a `ToolCtx` can reach, so the loop intercepts them by name before dispatch
 /// rather than registering them with the others.
-pub fn routing_schemas(may_handoff: bool) -> Vec<serde_json::Value> {
+/// Who an agent may hand the conversation to, for the tools it is given.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HandOff {
+    /// No handoff tool: a delegated sub-agent reports back instead.
+    No,
+    /// The orchestrator: any specialist.
+    Anyone,
+    /// A specialist holding the user's conversation: back to the orchestrator.
+    BackToOrchestrator,
+}
+
+pub fn routing_schemas(hand_off: HandOff) -> Vec<serde_json::Value> {
     use serde_json::json;
     let delegate = json!({
         "type": "function",
@@ -508,8 +570,35 @@ pub fn routing_schemas(may_handoff: bool) -> Vec<serde_json::Value> {
             }
         }
     });
-    if !may_handoff {
-        return vec![delegate];
+    match hand_off {
+        HandOff::No => return vec![delegate],
+        HandOff::BackToOrchestrator => {
+            return vec![
+                delegate,
+                json!({
+                    "type": "function",
+                    "function": {
+                        "name": "handoff",
+                        "description":
+                            "Hand the conversation back to the orchestrator when the \
+                             user asks for something outside your domain. It carries on \
+                             from here and routes the request to the right specialist.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "agent": {"type": "string", "enum": [ORCHESTRATOR]},
+                                "reason": {
+                                    "type": "string",
+                                    "description": "what the user asked for that is not yours"
+                                }
+                            },
+                            "required": ["agent", "reason"]
+                        }
+                    }
+                }),
+            ];
+        }
+        HandOff::Anyone => {}
     }
     vec![
         delegate,
@@ -518,10 +607,11 @@ pub fn routing_schemas(may_handoff: bool) -> Vec<serde_json::Value> {
             "function": {
                 "name": "handoff",
                 "description":
-                    "Give the whole request to a specialist. It inherits the \
-                     conversation and carries on to the end; you step out. Use this \
-                     only when the entire request is one specialist's job — if it is \
-                     a piece of something larger, delegate instead.",
+                    "Give the conversation to a specialist. It inherits it and keeps \
+                     it while the user refines the work, and hands it back to you when \
+                     the user moves on. Use this when the request is one specialist's \
+                     work the user will iterate on; for a piece of a larger plan, or a \
+                     one-off result, delegate instead.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -594,24 +684,36 @@ mod wire_tests {
     use super::*;
     use serde_json::json;
 
-    #[test]
-    fn a_router_is_offered_both_tools() {
-        let names: Vec<String> = routing_schemas(true)
+    fn names(hand_off: HandOff) -> Vec<String> {
+        routing_schemas(hand_off)
             .iter()
             .map(|s| s["function"]["name"].as_str().unwrap().to_owned())
-            .collect();
-        assert_eq!(names, vec!["delegate", "handoff"]);
+            .collect()
     }
 
-    /// A specialist may call the librarian, but it cannot hand the session
-    /// over — the user is talking to it, not to whoever it would pick.
     #[test]
-    fn a_specialist_is_offered_delegate_only() {
-        let names: Vec<String> = routing_schemas(false)
-            .iter()
-            .map(|s| s["function"]["name"].as_str().unwrap().to_owned())
-            .collect();
-        assert_eq!(names, vec!["delegate"]);
+    fn the_orchestrator_is_offered_both_tools() {
+        assert_eq!(names(HandOff::Anyone), vec!["delegate", "handoff"]);
+    }
+
+    /// A delegated sub-agent reports back; it has no conversation to hand.
+    #[test]
+    fn a_delegated_specialist_is_offered_delegate_only() {
+        assert_eq!(names(HandOff::No), vec!["delegate"]);
+    }
+
+    /// A specialist holding the conversation can only give it back.
+    #[test]
+    fn a_specialist_holding_the_conversation_can_hand_it_back() {
+        assert_eq!(
+            names(HandOff::BackToOrchestrator),
+            vec!["delegate", "handoff"]
+        );
+        let schema = &routing_schemas(HandOff::BackToOrchestrator)[1];
+        assert_eq!(
+            schema["function"]["parameters"]["properties"]["agent"]["enum"],
+            json!([ORCHESTRATOR])
+        );
     }
 
     #[test]

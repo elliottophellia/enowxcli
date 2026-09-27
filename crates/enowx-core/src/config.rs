@@ -382,9 +382,18 @@ impl Config {
     /// Falling back to the active model rather than erroring is deliberate —
     /// a user who never wrote a tier table still gets working delegation.
     pub fn model_for(&self, agent: &str, tier: crate::agent_def::Tier) -> String {
+        let agent = crate::agent_def::canonical_name(agent);
         self.agent
             .models
-            .get(agent.trim())
+            .get(agent)
+            // An override still keyed by an agent's old name applies to it.
+            .or_else(|| {
+                self.agent
+                    .models
+                    .iter()
+                    .find(|(name, _)| crate::agent_def::canonical_name(name) == agent)
+                    .map(|(_, id)| id)
+            })
             .and_then(|id| non_empty(id))
             .or_else(|| self.agent.tiers.get(tier))
             .unwrap_or_else(|| self.model.default.trim())

@@ -368,12 +368,7 @@ impl App {
         let (name, args) = command.split_once(' ').unwrap_or((command, ""));
         // A running turn belongs to the agent that started it; swapping
         // underneath it would attribute its results to the wrong one.
-        if self.busy
-            && matches!(
-                name,
-                "new" | "resume" | "provider" | "role" | "model" | "agent"
-            )
-        {
+        if self.busy && matches!(name, "new" | "resume" | "provider" | "model" | "agent") {
             self.status = "Stop the current turn before changing session or configuration".into();
             return Ok(());
         }
@@ -387,11 +382,6 @@ impl App {
             }
             "new" => self.new_session(),
             "resume" => self.open_sessions()?,
-            "role" if !args.trim().is_empty() => {
-                self.set_role(Role::parse(args).ok_or_else(|| anyhow::anyhow!("Unknown role: {args}"))?);
-                self.status = format!("role: {}", self.role.label());
-            }
-            "role" => self.open_roles(),
             "agent" if !args.trim().is_empty() => self.force_agent(args.trim())?,
             "agent" => self.open_agents(),
             "model" if !args.trim().is_empty() => {
@@ -437,8 +427,8 @@ impl App {
             "clear" => { self.blocks.clear(); self.status = "transcript cleared".into(); }
             "stop" => self.interrupt(),
             "status" => self.push(TranscriptKind::System, format!(
-                "Model: {} · {}\nRole: {}\nWorkspace: {}\nSession: {}\nTokens: {} in / {} out\nTheme: {}\nReasoning: {}",
-                self.config.model.default, self.config.provider.name, self.role.label(), self.config.workspace().display(),
+                "Model: {} · {}\nAgent: {}\nWorkspace: {}\nSession: {}\nTokens: {} in / {} out\nTheme: {}\nReasoning: {}",
+                self.config.model.default, self.config.provider.name, self.active_agent(), self.config.workspace().display(),
                 self.session_id.as_deref().unwrap_or("(new)"), self.tokens_in, self.tokens_out, self.theme.name,
                 if self.show_reasoning { "on" } else { "off" },
             )),
@@ -468,7 +458,7 @@ impl App {
             .discovery
             .agents
             .iter()
-            .filter(|a| a.name != "compactor")
+            .filter(|a| a.is_routable())
             .map(|a| (a.name.clone(), a.description.clone()))
             .collect();
         self.modal_cursor = self
@@ -479,29 +469,10 @@ impl App {
         self.modal = Modal::Agents;
     }
 
-    pub(crate) fn open_roles(&mut self) {
-        self.modal = Modal::Roles;
-        self.modal_cursor = ROLES
-            .iter()
-            .position(|role| *role == self.role)
-            .unwrap_or(0);
-        self.modal_items = ROLES
-            .iter()
-            .map(|role| (role.label().into(), role.summary().into()))
-            .collect();
-    }
-
     pub(crate) fn accept_modal(&mut self) -> Result<()> {
         match self.modal {
             Modal::Providers => self.select_provider(),
             Modal::ProviderKey => return self.connect_preset(),
-            Modal::Roles => {
-                if let Some(role) = ROLES.get(self.modal_cursor).copied() {
-                    self.set_role(role);
-                    self.status = format!("role: {}", role.label());
-                }
-                self.modal = Modal::None;
-            }
             Modal::Sessions => {
                 if let Some((id, _)) = self.modal_items.get(self.modal_cursor).cloned() {
                     self.resume(&id)?;

@@ -39,7 +39,7 @@ fn the_agent_tab_lists_the_roster() {
     );
     let rows = agent_tab_rows(&mut app);
 
-    for name in ["router", "fe", "be", "review"] {
+    for name in ["orchestrator", "fe", "be", "review"] {
         assert!(
             roster.contains(&name.to_string()),
             "{name} should be in the roster the sidebar draws from"
@@ -195,7 +195,7 @@ fn a_handover_draws_a_marker_in_the_transcript() {
         rows[marker]
     );
     assert!(
-        rows[marker].contains("router"),
+        rows[marker].contains("orchestrator"),
         "the marker should name who handed over: {:?}",
         rows[marker]
     );

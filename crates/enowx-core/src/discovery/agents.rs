@@ -157,7 +157,7 @@ mod tests {
     fn built_ins_are_present_without_any_files() {
         let dir = Dir::new();
         let d = collect_in(&dir);
-        assert!(find(&d, "router").is_some());
+        assert!(find(&d, crate::agent_def::ORCHESTRATOR).is_some());
         assert!(find(&d, "fe").is_some());
         assert!(find(&d, "librarian").is_some());
     }

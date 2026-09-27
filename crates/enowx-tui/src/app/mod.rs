@@ -9,7 +9,7 @@ mod attach;
 use enowx_core::{
     discovery::Discovery,
     provider::{ModelInfo, Provider},
-    Agent, Config, Event, MessageRole, Role, RunRequest, SessionStore, PROVIDER_PRESETS, ROLES,
+    Agent, Config, Event, MessageRole, Role, RunRequest, SessionStore, PROVIDER_PRESETS,
 };
 use ratatui::layout::Rect;
 use std::{collections::HashMap, sync::Arc, time::Instant};
@@ -455,18 +455,25 @@ impl App {
 
     /// Switch agents on the user's say-so.
     ///
-    /// A forced switch overrides whatever the router decided: the user asking
-    /// for a specialist by name is a stronger signal than the model's
+    /// A forced switch overrides whatever the orchestrator decided: the user
+    /// asking for a specialist by name is a stronger signal than the model's
     /// classification, and `auto_switch` does not gate it — it governs the
-    /// router's own switches, not the user's.
+    /// orchestrator's own switches, not the user's.
     pub(crate) fn force_agent(&mut self, name: &str) -> anyhow::Result<()> {
         let name = name.trim().to_ascii_lowercase();
-        if !self.discovery.agents.iter().any(|a| a.name == name) {
+        // `/agent router` still means the orchestrator.
+        let name = enowx_core::agent_def::canonical_name(&name).to_owned();
+        if !self
+            .discovery
+            .agents
+            .iter()
+            .any(|a| a.name == name && a.is_routable())
+        {
             let known: Vec<&str> = self
                 .discovery
                 .agents
                 .iter()
-                .filter(|a| a.name != "compactor")
+                .filter(|a| a.is_routable())
                 .map(|a| a.name.as_str())
                 .collect();
             anyhow::bail!("no agent named `{name}`. Available: {}", known.join(", "));
@@ -499,16 +506,6 @@ impl App {
     /// copy of it to keep right once the loop stops setting `role` at all.
     pub(crate) fn adopt_agent(&mut self, session: &enowx_core::Session) {
         self.agent_name = session.agent_or_default();
-    }
-
-    /// Change the legacy role, keeping the displayed agent in step.
-    ///
-    /// While the loop still selects work by role, the role IS the agent; the
-    /// two would otherwise disagree in the footer the moment someone ran
-    /// `/role`.
-    pub(crate) fn set_role(&mut self, role: Role) {
-        self.role = role;
-        self.adopt_agent(&enowx_core::Session::new(role));
     }
 
     /// Model name shown in the composer footer.

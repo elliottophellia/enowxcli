@@ -175,3 +175,14 @@ async fn every_agent_is_told_to_match_effort_to_the_task() {
         assert!(system.contains(rule), "missing {rule:?}:\n{system}");
     }
 }
+
+/// The workspace's top level is in the prompt, so no run has to spend a
+/// model call listing it.
+#[tokio::test]
+async fn the_prompt_says_what_the_workspace_holds() {
+    let system = system_prompt_sent("overview").await;
+    assert!(
+        system.contains("top level is empty"),
+        "an empty workspace should say so:\n{system}"
+    );
+}

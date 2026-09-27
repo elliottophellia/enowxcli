@@ -35,6 +35,56 @@ const REPORT_CONTRACT: &str = "\nYou are working on behalf of another agent, whi
      VERIFIED: what you ran to check it, and the result, or `not verified`\n\
      NEXT: what the caller must know to carry on, or `nothing`\n";
 
+/// The workspace's top level, for the system prompt.
+///
+/// Nearly every run opened with a call to see what the workspace holds: the
+/// router's `glob **/*`, a specialist's `ls -la`, each a model call that
+/// re-sends the whole context. Forty names cost a few dozen tokens once.
+fn workspace_overview(workspace: &std::path::Path) -> String {
+    const SHOWN: usize = 40;
+    const SKIPPED: [&str; 6] = [
+        ".git",
+        ".enx-sessions",
+        "node_modules",
+        "target",
+        ".DS_Store",
+        ".next",
+    ];
+    let mut names: Vec<String> = std::fs::read_dir(workspace)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|entry| {
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if SKIPPED.contains(&name.as_str()) {
+                        return None;
+                    }
+                    Some(if entry.path().is_dir() {
+                        format!("{name}/")
+                    } else {
+                        name
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if names.is_empty() {
+        return "Its top level is empty: there is nothing to look at yet.".to_owned();
+    }
+    names.sort();
+    let total = names.len();
+    names.truncate(SHOWN);
+    let more = if total > SHOWN {
+        format!(", and {} more", total - SHOWN)
+    } else {
+        String::new()
+    };
+    format!(
+        "Its top level, so you need not list it: {}{more}",
+        names.join("  ")
+    )
+}
+
 /// How much work a task gets, and with which tools. Written from what the
 /// agents actually did: `bash ls`/`cat`/`find` where glob and read fit, a
 /// checklist for a two-file page with every item ticked in its own call, six
@@ -232,8 +282,10 @@ impl Agent {
     /// reading a list of colleagues it may not call would just be noise in its
     /// window.
     fn agent_prompt(&self, agent: &crate::agent_def::AgentDef, workspace: &str) -> String {
+        let overview = workspace_overview(std::path::Path::new(workspace));
         let mut prompt = format!(
             "You are a tool-using engineering agent. Workspace root: {workspace}\n\
+             {overview}\n\
              \n\
              Rules that hold for every agent:\n\
              - Use tools to establish facts. Never claim you read a file, ran a command, or fetched a page unless the tool result is in this conversation.\n\
@@ -1251,5 +1303,35 @@ mod report_tests {
             "a failed delegation should not cost 5k characters: {}",
             summary.len()
         );
+    }
+}
+
+#[cfg(test)]
+mod overview_tests {
+    use super::workspace_overview;
+
+    #[test]
+    fn lists_the_top_level_and_leaves_out_the_noise() {
+        let dir = std::env::temp_dir().join(format!("enx-overview-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::create_dir_all(dir.join("node_modules/x")).unwrap();
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::write(dir.join("index.html"), "").unwrap();
+        let overview = workspace_overview(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(overview.ends_with("index.html  src/"), "{overview}");
+        assert!(!overview.contains("node_modules") && !overview.contains(".git"));
+    }
+
+    #[test]
+    fn a_crowded_workspace_is_cut_short_and_says_so() {
+        let dir = std::env::temp_dir().join(format!("enx-overview-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for n in 0..45 {
+            std::fs::write(dir.join(format!("file{n:02}.txt")), "").unwrap();
+        }
+        let overview = workspace_overview(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(overview.ends_with("and 5 more"), "{overview}");
     }
 }

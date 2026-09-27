@@ -87,7 +87,7 @@ row numbers recorded for click targets stay correct.
 - **Todo and tree bodies** start on the text column.
 - **A handover** is `↳ from → to · reason`. It is no longer a rule across the
   transcript, and the `handoff` call that caused it is not drawn as well.
-- **A delegation** is one row from start to finish: `› delegate fe … working`
+- **A delegation** is one row from start to finish: `◆ delegate fe … working`
   while it runs, `✓` or `✗` when it reports. The brief is one click away. The
   report lands under the row, its `DONE / CHANGED / VERIFIED / NEXT` fields as
   a label column and a value column. The router's `delegate` call is not

@@ -138,6 +138,7 @@ and three built-in skills are there to stop that (2026-09-28).
 | Skill | For |
 |---|---|
 | `ui` | Direction, layout, spacing, type, colour, icons, components, states, responsive, accessibility, content |
+| `ui-components` | Each part of a page: header, navigation, sidebar, page header, footer, hero, sections, cards, social proof, pricing, FAQ, CTA band, buttons, links, forms, choices, tables, lists, dialogs, drawers, menus, tooltips, notifications, badges, loading, tabs, breadcrumbs, pagination, search, images, avatars, charts. Each says what it is for, how to build it, and the generated version to avoid |
 | `code` | Reading the codebase first, structure, names, types, errors, dependencies, frontend specifics, comments, hygiene |
 | `writing` | Specific over generic, words to drop, sentences, interface copy, errors and empty states, docs, voice |
 
@@ -153,8 +154,8 @@ with a skill to read.
 
 | Agent | Carries |
 |---|---|
-| `fe`, `review` | `ui`, `code`, `writing` |
-| `mobile` | `ui`, `code` |
+| `fe`, `review` | `ui`, `ui-components`, `code`, `writing` |
+| `mobile` | `ui`, `ui-components`, `code` |
 | `general` | `code`, `writing` |
 | `docs` | `writing` |
 | `be`, `db`, `devops`, `systems`, `test`, `perf` | `code` |
@@ -174,8 +175,10 @@ there is none rather than falling back to the generated look, keeps one icon
 set imported per icon, builds components for named concepts and repeated
 markup on tokens, gives every data view empty, loading and error states, uses
 real content or labelled placeholders, and reports the direction, stack and
-icon set it chose. It reads `ui` before designing a page, `writing` before a
-page's copy, and `code` before a new component or module.
+icon set it chose. It reads `ui` before designing a page, `ui-components`
+before building a part of one, `writing` before a page's copy, and `code`
+before a new component or module. The component catalogue is a skill of its
+own so a colour change does not read thirty components' worth of rules.
 
 The shared rule used to allow one skill per task, which stopped agents loading
 six skills before any work. It now reads: the skill the agent's instructions

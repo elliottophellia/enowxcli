@@ -98,9 +98,10 @@ resume against a different one.
 
 Skills, MCP servers, and per-project agent instructions are discovered from
 `.agents/`, `.enx/`, `.claude/`, `.cursor/`, `.gemini/`, and the standard
-`~/.config` locations. Three skills ship inside enx: `ui` (interface design),
-`code` (code that reads like its codebase) and `writing` (copy and docs
-without the marks of generated text). A project or user skill of the same
+`~/.config` locations. Four skills ship inside enx: `ui` (interface design),
+`ui-components` (how to build each part of a page), `code` (code that reads
+like its codebase) and `writing` (copy and docs without the marks of
+generated text), each carried by the agents whose work needs it. A project or user skill of the same
 name replaces one. `/skills` and `/mcp` open popups to toggle or add entries;
 `/compact` folds older turns into a summary; auto-compact fires when the
 context window nears its cap.

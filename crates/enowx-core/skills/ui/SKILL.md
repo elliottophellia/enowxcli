@@ -113,6 +113,9 @@ nothing about the product.
 
 ## 7. Components
 
+- Each part of a page (header, navigation, sidebar, hero, sections, footer,
+  buttons, forms, tables, dialogs, menus, notifications) has its own entry,
+  with what to build and what to avoid, in the `ui-components` skill.
 - Reuse first: search the project for the component (Button, Input, Dialog,
   Card, Tabs) and use or extend it.
 - A component for each named concept, and wherever the same markup repeats

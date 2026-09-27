@@ -216,11 +216,12 @@ pub fn builtin_agents() -> Vec<AgentDef> {
     const READ_ONLY: &[&str] = &["read", "glob", "grep", "todo"];
     const FULL: &[&str] = &["read", "write", "edit", "glob", "grep", "bash", "todo"];
 
-    // The built-in skills each carries: interface work gets `ui`, anything
-    // that writes code gets `code`, anything whose words people read gets
-    // `writing`. The orchestrator routes, and the read-only gatherers and the
-    // auditor have nothing to shape, so they carry none.
-    const UI_CODE_WRITING: &[&str] = &["ui", "code", "writing"];
+    // The built-in skills each carries: interface work gets `ui` and
+    // `ui-components`, anything that writes code gets `code`, anything whose
+    // words people read gets `writing`. The orchestrator routes, and the
+    // read-only gatherers and the auditor have nothing to shape, so they
+    // carry none.
+    const INTERFACE: &[&str] = &["ui", "ui-components", "code", "writing"];
     const CODE: &[&str] = &["code"];
     const NONE: &[&str] = &[];
     let make = |name: &str,
@@ -257,7 +258,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             FULL,
             Tier::Balanced,
             Delegation::Librarian,
-            UI_CODE_WRITING,
+            INTERFACE,
             FE_PROMPT,
         ),
         make(
@@ -320,7 +321,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             FULL,
             Tier::Balanced,
             Delegation::Librarian,
-            &["ui", "code"],
+            &["ui", "ui-components", "code"],
             "You are a mobile specialist: platform APIs, app lifecycle, and the limits of \
              a device: memory, battery and an intermittent network.\n\
              - Follow the project's platform and architecture, and match its navigation and \
@@ -380,7 +381,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             &["read", "glob", "grep", "bash", "todo"],
             Tier::Strong,
             Delegation::Librarian,
-            UI_CODE_WRITING,
+            INTERFACE,
             "You review code and diffs for defects. You do not edit: a review that \
              rewrites the code is not a review.\n\
              - For each finding: what breaks, under what input, and where (path and line). \
@@ -495,9 +496,11 @@ With no stack in the project or the brief, use the simplest that fits. A page \
 of content is semantic HTML and CSS, with JavaScript only for behaviour it \
 needs; an application with state and repeated interface is a component \
 framework, React with Vite and TypeScript unless the brief names another.
-Before designing or restyling a page or screen, read the `ui` skill. Read \
-`writing` before writing a page's copy, and `code` before a new component or \
-module of any size.
+Before designing or restyling a page or screen, read the `ui` skill, and \
+`ui-components` before building or reworking a part of it: header, \
+navigation, sidebar, hero, sections, footer, buttons, forms, tables, dialogs, \
+menus, notifications. Read `writing` before writing a page's copy, and `code` \
+before a new component or module of any size.
 
 DIRECTION
 Use the project's direction. With none, set one from what the product is and \

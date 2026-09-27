@@ -60,7 +60,7 @@ fn every_workspace_has_the_builtin_skills() {
     let _home = HOME.lock().unwrap_or_else(|e| e.into_inner());
     let scratch = Scratch::new("empty");
     let discovery = scratch.discover();
-    for name in ["ui", "code", "writing"] {
+    for name in ["ui", "ui-components", "code", "writing"] {
         let skill = discovery
             .skills
             .iter()
@@ -74,7 +74,7 @@ fn every_workspace_has_the_builtin_skills() {
         );
     }
     let listed = discovery.system_prompt_supplement().expect("a skill list");
-    for name in ["`ui`", "`code`", "`writing`"] {
+    for name in ["`ui`", "`ui-components`", "`code`", "`writing`"] {
         assert!(listed.contains(name), "{name} is offered: {listed}");
     }
 }
@@ -186,9 +186,12 @@ fn each_agent_carries_the_skills_for_its_work() {
             .skills
             .clone()
     };
-    assert_eq!(carried("fe"), ["ui", "code", "writing"]);
-    assert_eq!(carried("review"), ["ui", "code", "writing"]);
-    assert_eq!(carried("mobile"), ["ui", "code"]);
+    assert_eq!(carried("fe"), ["ui", "ui-components", "code", "writing"]);
+    assert_eq!(
+        carried("review"),
+        ["ui", "ui-components", "code", "writing"]
+    );
+    assert_eq!(carried("mobile"), ["ui", "ui-components", "code"]);
     assert_eq!(carried("docs"), ["writing"]);
     for name in ["be", "db", "devops", "systems", "test", "perf"] {
         assert_eq!(carried(name), ["code"], "{name}");
@@ -221,7 +224,7 @@ fn an_agent_file_names_its_skills() {
 /// generated page would say about itself.
 #[test]
 fn the_builtin_skills_follow_their_own_rules() {
-    for name in ["ui", "code", "writing"] {
+    for name in ["ui", "ui-components", "code", "writing"] {
         let source = builtin_source(name).expect("built in");
         assert!(!source.contains('—'), "`{name}` has an em dash");
         assert!(
@@ -241,6 +244,7 @@ fn the_frontend_prompt_names_its_skills_and_essentials() {
         .expect("fe ships");
     for needed in [
         "`ui` skill",
+        "`ui-components`",
         "`writing`",
         "`code`",
         "One icon set",

@@ -21,7 +21,9 @@ impl Tool for TodoTool {
         "todo"
     }
     fn description(&self) -> &str {
-        "Replace or update the current turn's visible task checklist."
+        "A checklist the user can see, for work of four or more steps. Set it once \
+         (op=set with items); when steps finish, mark them together (op=done with items). \
+         Every change costs a model call, so skip it for small tasks."
     }
     fn parameters(&self) -> Value {
         json!({"type":"object","properties":{
@@ -49,12 +51,37 @@ impl Tool for TodoTool {
                     .collect();
             }
             "done" => {
-                let target = string_arg(&args, "item")?;
-                let item = items
-                    .iter_mut()
-                    .find(|item| item.text == target)
-                    .ok_or_else(|| anyhow::anyhow!("unknown todo item: {target}"))?;
-                item.done = true;
+                // Several at once: one call per finished step was a model
+                // round trip per tick.
+                let mut targets: Vec<&str> = args
+                    .get("items")
+                    .and_then(Value::as_array)
+                    .map(|raw| raw.iter().filter_map(Value::as_str).collect())
+                    .unwrap_or_default();
+                if let Some(one) = args.get("item").and_then(Value::as_str) {
+                    targets.push(one);
+                }
+                if targets.is_empty() {
+                    anyhow::bail!("done requires item or items");
+                }
+                let mut unknown = Vec::new();
+                for target in targets {
+                    match find_item(&mut items, target) {
+                        Some(item) => item.done = true,
+                        None => unknown.push(target),
+                    }
+                }
+                if !unknown.is_empty() {
+                    anyhow::bail!(
+                        "unknown todo item: {}. The list is:\n{}",
+                        unknown.join(", "),
+                        items
+                            .iter()
+                            .map(|item| item.text.as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    );
+                }
             }
             "clear" => items.clear(),
             "view" => {}
@@ -71,5 +98,83 @@ impl Tool for TodoTool {
         }
         out.push_str(&format!("\n{open} remaining"));
         Ok(ToolOutput::ok(out))
+    }
+}
+
+/// The item a `done` names: its exact text, or failing that the one item
+/// whose text starts with it, ignoring case. Models shorten long items when
+/// they tick them off, and refusing those turned each tick into a retry.
+fn find_item<'a>(items: &'a mut [TodoItem], target: &str) -> Option<&'a mut TodoItem> {
+    let target = target.trim();
+    if let Some(index) = items.iter().position(|item| item.text == target) {
+        return items.get_mut(index);
+    }
+    let lower = target.to_lowercase();
+    let mut matches = items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.text.to_lowercase().starts_with(&lower));
+    match (matches.next(), matches.next()) {
+        (Some((index, _)), None) if !lower.is_empty() => items.get_mut(index),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ctx() -> ToolCtx {
+        ToolCtx {
+            workspace: std::env::temp_dir(),
+            shell_timeout: std::time::Duration::from_secs(1),
+            cancel: tokio_util::sync::CancellationToken::new(),
+            progress: None,
+            call_id: String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn several_items_are_marked_done_in_one_call() {
+        let tool = TodoTool::default();
+        tool.execute(
+            &ctx(),
+            json!({"op":"set","items":["write a","write b","check"]}),
+        )
+        .await
+        .unwrap();
+        let out = tool
+            .execute(&ctx(), json!({"op":"done","items":["write a","write b"]}))
+            .await
+            .unwrap();
+        assert!(out.content.contains("[x] write a"), "{}", out.content);
+        assert!(out.content.contains("[x] write b"), "{}", out.content);
+        assert!(out.content.contains("[ ] check"), "{}", out.content);
+        assert!(out.content.contains("1 remaining"), "{}", out.content);
+    }
+
+    #[tokio::test]
+    async fn a_shortened_item_still_matches_when_it_is_unambiguous() {
+        let tool = TodoTool::default();
+        tool.execute(
+            &ctx(),
+            json!({"op":"set","items":["Write index.html with the hero","Write style.css"]}),
+        )
+        .await
+        .unwrap();
+        let out = tool
+            .execute(&ctx(), json!({"op":"done","item":"write index.html"}))
+            .await
+            .unwrap();
+        assert!(
+            out.content.contains("[x] Write index.html"),
+            "{}",
+            out.content
+        );
+        // Ambiguous: both start with "write".
+        assert!(tool
+            .execute(&ctx(), json!({"op":"done","item":"write"}))
+            .await
+            .is_err());
     }
 }

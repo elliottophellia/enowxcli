@@ -28,11 +28,28 @@ use crate::{discovery::Discovery, mcp::McpClient};
 /// say, where a long brief buried it and the sub-agent stopped without one.
 const REPORT_CONTRACT: &str = "\nYou are working on behalf of another agent, which cannot see anything \
      you do — only your final message. It cannot answer questions: decide, and say what you decided.\n\
-     End every turn with this report, and nothing after it:\n\
+     Do the task you were given and stop; the caller decides what comes next.\n\
+     End every turn with this report, one line per field, and nothing after it:\n\
      DONE: what you achieved, or what you could not\n\
      CHANGED: every file you created or edited, or `none`\n\
      VERIFIED: what you ran to check it, and the result, or `not verified`\n\
      NEXT: what the caller must know to carry on, or `nothing`\n";
+
+/// How much work a task gets, and with which tools. Written from what the
+/// agents actually did: `bash ls`/`cat`/`find` where glob and read fit, a
+/// checklist for a two-file page with every item ticked in its own call, six
+/// skills loaded before any work, throwaway Python to check a stylesheet.
+/// Each of those is a model call that re-sends the whole context.
+const EFFORT_RULES: &str = "\
+Effort and tools:\n\
+- Match effort to the task. A small task (a page, a fix in one or two files) is: look, write, check once, report. Most tasks need a handful of tool calls.\n\
+- Use the dedicated tools: `glob` to list or find files, `grep` to search contents, `read` to read (offset and limit for a range). `bash` is for building, running, installing and testing, never for ls, find, cat, head, sed or grep.\n\
+- When you need several files or searches, request them together in one step, not one per turn.\n\
+- Create a file whole with one `write`. Change an existing file with `edit`; do not rewrite a file to change a detail of it.\n\
+- Verify with what the project already has (its build, tests, linter) or by reading the result. Do not write throwaway scripts to check your own output.\n\
+- `todo` is for work of four or more steps. Set the list once and mark finished steps together; skip it for small tasks.\n\
+- Read a skill only when the task needs its instructions, and only that skill.\n\
+- Stop when the request is met. Do not add files, features or polish nobody asked for.\n";
 
 /// Build the tool registry with skill discovery. MCP servers are spawned lazily
 /// via `Agent::warm_mcp` so a synchronous `Agent::new` cannot deadlock the
@@ -225,6 +242,7 @@ impl Agent {
              - When a tool fails, read the error and change approach instead of repeating the same call.\n\
              - Answer in the user's language. Be concrete: exact paths, symbols, and commands.\n\
              \n\
+             {EFFORT_RULES}\n\
              You are `{}`.\n{}\n",
             agent.name, agent.prompt
         );
@@ -650,14 +668,9 @@ impl Agent {
         // the step's tool results are recorded — switching mid-loop would
         // leave the current turn's results attributed to the wrong agent.
         let mut pending_switch: Option<crate::routing::Switch> = None;
+        // `agent_prompt` already carries the instruction files and the skill
+        // list. Appending them again here sent both twice on every model call.
         let mut prompt = self.agent_prompt(&active, &workspace.to_string_lossy());
-        if let Some(extra) = self
-            .discovery
-            .system_prompt_with_disabled(&self.config.ui.disabled_skills)
-        {
-            prompt.push('\n');
-            prompt.push_str(&extra);
-        }
         // A delegated branch owes its caller a structured report. It rides here,
         // in the system prompt, so it holds the front of the context rather than
         // trailing the task where a long brief buried it. `parent` is what marks

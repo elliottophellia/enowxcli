@@ -12,7 +12,9 @@ impl Tool for BashTool {
         "bash"
     }
     fn description(&self) -> &str {
-        "Run one shell command in the workspace. stdout and stderr are returned together."
+        "Run one shell command in the workspace to build, test, install, or run something. \
+         stdout and stderr are returned together. Not for reading or listing files: \
+         use read, glob and grep for that."
     }
     fn parameters(&self) -> Value {
         json!({"type":"object","properties":{"command":{"type":"string"}},"required":["command"],"additionalProperties":false})

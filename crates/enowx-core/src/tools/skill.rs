@@ -42,7 +42,8 @@ impl Tool for SkillReadTool {
         "skill_read"
     }
     fn description(&self) -> &str {
-        "Read a discovered skill's SKILL.md by name. Use before doing work that a listed skill covers."
+        "Read a discovered skill's SKILL.md by name, when the task needs the instructions \
+         it holds. Most tasks need none; read only the one that applies."
     }
     fn parameters(&self) -> Value {
         json!({

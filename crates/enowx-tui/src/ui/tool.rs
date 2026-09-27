@@ -348,32 +348,53 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
             search_render("grep", &pat, hits, "hit", "hits")
         }
         "todo" => {
-            // Parse the items array into TodoItems. enowx-cli todo tool ships each
-            // entry as `{ state: "pending"|"in_progress"|"done"|"blocked"|
-            // "dropped", label: "..." }`; some builds only send `label`.
-            let items: Vec<TodoItem> = parsed
-                .get("items")
-                .and_then(Value::as_array)
-                .map(|arr| {
-                    arr.iter()
-                        .map(|v| {
-                            let label = v
-                                .get("label")
-                                .or_else(|| v.get("task"))
-                                .and_then(Value::as_str)
-                                .or_else(|| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            let state = v
-                                .get("state")
-                                .and_then(Value::as_str)
-                                .map(parse_todo_state)
-                                .unwrap_or(TodoState::Pending);
-                            TodoItem { state, label }
-                        })
-                        .collect()
+            // The result is the list as it stands after the call, `[x]` or
+            // `[ ]` per item. Drawn from it rather than from the arguments: a
+            // `done` call names only the items it ticks, which read from the
+            // arguments showed as a list of pending items.
+            let from_result: Vec<TodoItem> = result
+                .lines()
+                .filter_map(|line| {
+                    let (state, label) = if let Some(label) = line.strip_prefix("[x] ") {
+                        (TodoState::Done, label)
+                    } else {
+                        (TodoState::Pending, line.strip_prefix("[ ] ")?)
+                    };
+                    Some(TodoItem {
+                        state,
+                        label: label.to_string(),
+                    })
                 })
-                .unwrap_or_default();
+                .collect();
+            // Until the result arrives, the arguments: the todo tool ships
+            // each entry as `{ state, label }`, or as a bare string.
+            let items: Vec<TodoItem> = if !from_result.is_empty() {
+                from_result
+            } else {
+                parsed
+                    .get("items")
+                    .and_then(Value::as_array)
+                    .map(|arr| {
+                        arr.iter()
+                            .map(|v| {
+                                let label = v
+                                    .get("label")
+                                    .or_else(|| v.get("task"))
+                                    .and_then(Value::as_str)
+                                    .or_else(|| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let state = v
+                                    .get("state")
+                                    .and_then(Value::as_str)
+                                    .map(parse_todo_state)
+                                    .unwrap_or(TodoState::Pending);
+                                TodoItem { state, label }
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            };
             if items.is_empty() {
                 ToolRender::Summary(RowParts::new("todo", "", "0 items"))
             } else {

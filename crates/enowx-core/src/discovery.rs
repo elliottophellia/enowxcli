@@ -211,7 +211,8 @@ impl Discovery {
         if !active_skills.is_empty() {
             out.push_str("\n## Available skills\n");
             out.push_str(
-                "Read a skill on demand with the `skill_read` tool before doing work it covers.\n",
+                "Read a skill with the `skill_read` tool only when the task needs the instructions \
+                 it holds, and only that one. Most tasks need none.\n",
             );
             for skill in &active_skills {
                 let one_liner = skill.description.split('\n').next().unwrap_or("");

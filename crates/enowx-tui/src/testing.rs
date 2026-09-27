@@ -419,6 +419,7 @@ impl TestApp {
             "text" => t.text,
             "accent" => t.accent,
             "accent2" => t.accent2,
+            "subtle" => t.subtle,
             other => panic!("no theme colour named {other}"),
         }
     }

@@ -91,9 +91,10 @@ fn the_composer_sits_in_the_middle_under_the_wordmark() {
         box_y < H as usize / 2 + 4,
         "in the middle, not at the bottom"
     );
-    // The wordmark's left edge overhangs by the same as its right: the
-    // composer is sixteen columns wider than its 41.
-    assert_eq!(logo_x, box_x + 8);
+    // The wordmark centred over the composer, to half a column.
+    let logo_centre = logo_x * 2 + 41;
+    let box_centre = box_x + box_right;
+    assert!(logo_centre.abs_diff(box_centre) <= 1, "{rows:#?}");
 }
 
 #[test]
@@ -134,7 +135,7 @@ fn what_to_set_up_is_said_under_the_composer() {
     let mut app = settled(TestApp::new());
     let rows = app.render_to_text(W, H);
     let (_, box_y) = find(&rows, "╰").expect("the composer's bottom edge");
-    let under = &rows[box_y + 2];
+    let under = rows[box_y + 1..box_y + 3].join("\n");
     assert!(under.contains("Choose a model · /model"), "{under}");
 }
 
@@ -143,7 +144,7 @@ fn a_ready_app_names_the_workspace_and_version() {
     let mut app = settled(ready());
     let rows = app.render_to_text(W, H);
     let (_, box_y) = find(&rows, "╰").expect("the composer's bottom edge");
-    let under = &rows[box_y + 2];
+    let under = rows[box_y + 1..box_y + 3].join("\n");
     assert!(under.contains("/ws"), "the workspace, by its end: {under}");
     assert!(
         under
@@ -218,4 +219,93 @@ fn the_dot_breathes() {
         still,
         "the letters stay"
     );
+}
+
+/// Rows of nothing above the block, below it (to the keys), and columns of
+/// nothing to its left and right.
+fn gaps(rows: &[String], height: u16) -> (usize, usize, usize, usize) {
+    let first = rows.iter().position(|row| !row.trim().is_empty()).unwrap();
+    let keys = height as usize - 1;
+    let last = (0..keys)
+        .rev()
+        .find(|&y| !rows[y].trim().is_empty())
+        .unwrap();
+    let (left, box_y) = find(rows, "╭").expect("the composer");
+    let right = rows[box_y].chars().count() - 1;
+    (first, keys - 1 - last, left, right)
+}
+
+/// The block sits in the middle with the same gap on every side as it looks
+/// on screen: as many rows above as below, as many columns left as right,
+/// and twice as many columns as rows, a cell being twice as tall as wide.
+#[test]
+fn the_gap_is_the_same_on_every_side() {
+    for (w, h) in [(142, 27), (100, 30), (120, 36)] {
+        let mut app = settled(ready());
+        let rows = app.render_to_text(w, h);
+        let (top, bottom, left, right_edge) = gaps(&rows, h);
+        let right = w as usize - 1 - right_edge;
+        assert!(
+            top.abs_diff(bottom) <= 1,
+            "{w}x{h}: {top} above, {bottom} below"
+        );
+        assert_eq!(left, right, "{w}x{h}: {left} left, {right} right");
+        assert!(
+            left.abs_diff(2 * top) <= 2,
+            "{w}x{h}: {left} columns at the sides against {top} rows above"
+        );
+    }
+}
+
+/// On a wide window the composer is wide too, and what sits under it fits
+/// on one line: the state on the left, the version on the right.
+#[test]
+fn a_wide_window_gets_a_wide_composer_and_one_line_under_it() {
+    let mut app = settled(ready());
+    let rows = app.render_to_text(142, 27);
+    let (left, box_y) = find(&rows, "╭").unwrap();
+    let width = rows[box_y].chars().count() - left;
+    assert!(width >= 100, "{width} columns: {rows:#?}");
+    let (_, bottom) = find(&rows, "╰").unwrap();
+    let under = &rows[bottom + 1];
+    assert!(
+        under.contains("READY") && under.contains("v0.1.0"),
+        "{under}"
+    );
+    assert!(rows[bottom + 2].trim().is_empty(), "one line: {rows:#?}");
+}
+
+/// Floating on the window, the composer has no fill: a fill drew a square
+/// block behind its rounded edge. In the chat layout it keeps the grid's.
+#[test]
+fn the_home_composer_has_no_fill() {
+    let mut app = settled(ready());
+    let rows = app.render_to_text(W, H);
+    let (x, y) = find(&rows, "╭").unwrap();
+    let inside = (x as u16 + 2, y as u16 + 1);
+    let canvas = app.theme_colour("canvas");
+    assert_eq!(app.cell_colours(W, H, inside.0, inside.1).2, canvas);
+    assert_eq!(
+        app.cell_colours(W, H, x as u16, y as u16).2,
+        canvas,
+        "the corner"
+    );
+
+    let mut chat = TestApp::in_conversation();
+    let rows = chat.render_to_text(W, H);
+    let (_, y) = find(&rows, "❯").unwrap();
+    let subtle = chat.theme_colour("subtle");
+    assert_eq!(chat.cell_colours(W, H, 1, y as u16).2, subtle, "{rows:#?}");
+}
+
+/// Empty, the composer says what it is for; typing replaces that.
+#[test]
+fn the_empty_composer_says_what_it_is_for() {
+    let mut app = settled(ready());
+    let hint = "Ask, or type / for commands";
+    assert!(find(&app.render_to_text(W, H), hint).is_some());
+    app.type_input("fix the login bug");
+    let rows = app.render_to_text(W, H);
+    assert!(find(&rows, hint).is_none(), "{rows:#?}");
+    assert!(find(&rows, "fix the login bug").is_some());
 }

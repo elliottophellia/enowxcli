@@ -39,6 +39,10 @@ pub(super) fn draw_main_column(frame: &mut Frame, app: &mut App, area: Rect) {
             &matches,
         );
     }
+    let look = ComposerLook {
+        fill: app.theme.subtle,
+        placeholder: None,
+    };
     draw_composer_box(
         frame,
         app,
@@ -46,7 +50,17 @@ pub(super) fn draw_main_column(frame: &mut Frame, app: &mut App, area: Rect) {
         &input,
         row,
         col,
+        look,
     );
+}
+
+/// How the composer is dressed. In the chat layout it is a box of the grid,
+/// filled like the others. On the home screen it floats on the window: a
+/// fill there drew a square block behind its rounded edge.
+pub(super) struct ComposerLook {
+    pub fill: ratatui::style::Color,
+    /// Shown, faint, while nothing is typed.
+    pub placeholder: Option<&'static str>,
 }
 
 /// Columns from the composer's left edge to its text: the border, the padding,
@@ -170,6 +184,7 @@ pub(super) fn draw_composer_box(
     input: &[String],
     row: usize,
     col: usize,
+    look: ComposerLook,
 ) {
     let t = app.theme;
     // A box rather than a rule. The composer is a field the user types into,
@@ -187,7 +202,7 @@ pub(super) fn draw_composer_box(
         } else {
             t.border
         },
-        t.subtle,
+        look.fill,
     );
     // Set into the top edge, and only when the composer is about to do
     // something other than send a message. "MESSAGE" on every frame restated
@@ -211,7 +226,7 @@ pub(super) fn draw_composer_box(
                 label,
                 Style::default().fg(colour).add_modifier(Modifier::BOLD),
             )],
-            t.subtle,
+            look.fill,
         );
     }
     if boxed.height < 3 {
@@ -230,7 +245,7 @@ pub(super) fn draw_composer_box(
         Paragraph::new("❯").style(
             Style::default()
                 .fg(if command { t.accent2 } else { t.accent })
-                .bg(t.subtle)
+                .bg(look.fill)
                 .add_modifier(Modifier::BOLD),
         ),
         Rect::new(boxed.x + 1 + PAD_X, field.y, 1, 1),
@@ -241,7 +256,13 @@ pub(super) fn draw_composer_box(
     app.composer_offset = offset;
     app.composer_width = field_w;
     let painted: Vec<Line> = if app.input.is_empty() {
-        vec![Line::default()]
+        vec![match look.placeholder {
+            Some(text) => Line::styled(
+                crate::text::trim(text, field_w),
+                Style::default().fg(t.faint).bg(look.fill),
+            ),
+            None => Line::default(),
+        }]
     } else {
         input
             .iter()
@@ -251,7 +272,7 @@ pub(super) fn draw_composer_box(
                 let clipped = crate::text::trim(source, field_w);
                 let mut line = colour_chips(&clipped, &t);
                 for span in &mut line.spans {
-                    span.style = span.style.bg(t.subtle);
+                    span.style = span.style.bg(look.fill);
                 }
                 line
             })

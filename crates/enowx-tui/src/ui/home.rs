@@ -1,11 +1,14 @@
 //! The home screen: what a new conversation opens on.
 //!
 //! No sidebar and no transcript box. Until the first message there is
-//! nothing for them to show, so the window holds the wordmark and the
-//! composer in the middle, with two lines under it: the state, agent and
-//! model the status bar shows everywhere else, then where the agent will
-//! work, or what to set up before it can. The status bar keeps only its keys,
-//! on the columns they have in the chat layout.
+//! nothing for them to show, so the window holds one block in its middle:
+//! the wordmark, the composer, and under it the state, agent and model the
+//! status bar shows everywhere else, with where the agent will work (or what
+//! to set up before it can) and the version. The status bar keeps only its
+//! keys, on the columns they have in the chat layout.
+//!
+//! The block is centred with the same gap on every side as it looks on
+//! screen, which is what sets the composer's width.
 
 use super::*;
 use ratatui::style::Color;
@@ -34,10 +37,13 @@ const WORDMARK: [&str; 10] = [
 const LOGO_W: u16 = 41;
 const LOGO_H: u16 = 5;
 
-/// The composer's widest: eight columns past the wordmark on each side, so
-/// the two read as one block. Odd like the wordmark, so both centre on the
-/// same column. A first message wraps at a readable measure there too.
-const HOME_WIDTH: u16 = LOGO_W + 16;
+/// The composer's narrowest: eight columns past the wordmark on each side.
+const HOME_MIN_W: u16 = LOGO_W + 16;
+/// And its widest, so a message on a very wide window still wraps at a
+/// measure that can be read back.
+const HOME_MAX_W: u16 = 120;
+/// What the empty composer says it is for.
+const PLACEHOLDER: &str = "Ask, or type / for commands";
 
 /// The opening, in seconds from the moment the screen went up. The X's long
 /// stroke draws first, top to bottom; the short one follows from both ends
@@ -69,25 +75,29 @@ pub(super) fn draw_home(frame: &mut Frame, app: &mut App, area: Rect) {
     draw_keys(frame, app, status);
 
     const FRAME: u16 = 2;
-    let box_w = body
-        .width
-        .saturating_sub(4)
-        .clamp(body.width.min(12), HOME_WIDTH);
-    let field_w = box_w.saturating_sub(COMPOSER_LEFT + 1 + PAD_X).max(1) as usize;
-    let (input, row, col) = input_rows(&app.input, app.cursor, field_w);
-    let ih = (input.len().clamp(1, 8) as u16 + FRAME).min((body.height / 2).max(FRAME + 1));
-
     // The wordmark goes first when space runs out; the composer never does.
     let show_logo = body.width >= LOGO_W + 2 && body.height >= LOGO_H + FRAME + 8;
     let logo_rows = if show_logo { LOGO_H + 1 } else { 0 };
-    // Placed for a one-line composer, a little above the middle where the
-    // eye expects it. A composer growing with the message grows down, so the
-    // wordmark stays put, and moves up only when it would pass the bottom.
-    // The composer, then its two lines.
-    const UNDER: u16 = 2;
-    let block = logo_rows + FRAME + 1 + UNDER;
-    let top = (body.y + body.height.saturating_sub(block) * 2 / 5)
-        .min(body.bottom().saturating_sub(logo_rows + ih + UNDER))
+    // Sized for a one-line composer, and for the line under it; a second
+    // line when the composer is too narrow to carry everything on one.
+    let block = |info: u16| logo_rows + FRAME + 1 + info;
+    let inner = |width: u16| width.saturating_sub(2 * (1 + PAD_X));
+    let mut box_w = home_width(body, block(1));
+    let mut info = info_rows(app, inner(box_w));
+    if info.len() > 1 {
+        box_w = home_width(body, block(info.len() as u16));
+        info = info_rows(app, inner(box_w));
+    }
+    let info_h = info.len() as u16;
+
+    let field_w = box_w.saturating_sub(COMPOSER_LEFT + 1 + PAD_X).max(1) as usize;
+    let (input, row, col) = input_rows(&app.input, app.cursor, field_w);
+    let ih = (input.len().clamp(1, 8) as u16 + FRAME).min((body.height / 2).max(FRAME + 1));
+    // Centred for a one-line composer. One that grows with the message grows
+    // down, so the wordmark stays put, and moves up only when it would pass
+    // the bottom.
+    let top = (body.y + body.height.saturating_sub(block(info_h)) / 2)
+        .min(body.bottom().saturating_sub(logo_rows + ih + info_h))
         .max(body.y);
 
     if show_logo {
@@ -100,12 +110,16 @@ pub(super) fn draw_home(frame: &mut Frame, app: &mut App, area: Rect) {
         box_w,
         ih.min(body.bottom().saturating_sub(top + logo_rows)),
     );
-    draw_composer_box(frame, app, boxed, &input, row, col);
+    let look = ComposerLook {
+        fill: app.theme.canvas,
+        placeholder: Some(PLACEHOLDER),
+    };
+    draw_composer_box(frame, app, boxed, &input, row, col, look);
 
     let below = body.bottom().saturating_sub(boxed.bottom());
     let matches = app.command_matches();
     if !matches.is_empty() {
-        // Under the composer, in place of the line it covers, and over the
+        // Under the composer, in place of the lines it covers, and over the
         // wordmark only when the window is too short for that.
         let wanted = matches.len().min(10) as u16 + FRAME;
         let above = boxed.y.saturating_sub(body.y);
@@ -121,33 +135,54 @@ pub(super) fn draw_home(frame: &mut Frame, app: &mut App, area: Rect) {
         // On the composer's own text columns, so the lines read as belonging
         // to the field above them: the state badge starts under the `❯`.
         let inset = 1 + PAD_X;
-        let line = |offset: u16| {
-            Rect::new(
+        for (offset, (left, right)) in (0..below).zip(info) {
+            let line = Rect::new(
                 boxed.x + inset,
                 boxed.bottom() + offset,
-                boxed.width.saturating_sub(2 * inset),
+                inner(boxed.width),
                 1,
-            )
-        };
-        if below > 0 {
-            draw_split_line(
-                frame,
-                Line::from(status_spans(app)),
-                Line::default(),
-                line(0),
             );
-        }
-        if below > 1 {
-            draw_context_line(frame, app, line(1));
+            draw_split_line(frame, left, right, line);
         }
     }
 }
 
-/// Where the first message will be worked on, or the one thing to set up
-/// before one can be sent. The version sits at the far end.
-fn draw_context_line(frame: &mut Frame, app: &App, area: Rect) {
+/// The composer's width for a block `block_h` rows tall, centred with the
+/// same gap on every side as it looks on screen. A cell is about twice as
+/// tall as it is wide, so the gap at the sides is twice as many columns as
+/// the gap above and below is rows. Kept even with the window's width, so
+/// the two sides get the same number of columns.
+fn home_width(body: Rect, block_h: u16) -> u16 {
+    let gap_rows = body.height.saturating_sub(block_h) / 2;
+    let widest = body
+        .width
+        .saturating_sub(4)
+        .max(body.width.min(12))
+        .min(HOME_MAX_W);
+    let narrowest = HOME_MIN_W.min(widest);
+    let width = body
+        .width
+        .saturating_sub(4 * gap_rows)
+        .clamp(narrowest, widest);
+    if (body.width - width) % 2 == 1 && width > narrowest {
+        width - 1
+    } else {
+        width
+    }
+}
+
+/// The lines under the composer, each a left and a right half: the state,
+/// agent and model on the left; where the work will happen, or what to set
+/// up, and the version on the right. One line when the composer is wide
+/// enough to carry both, and the state on a line of its own when not.
+fn info_rows(app: &App, width: u16) -> Vec<(Line<'static>, Line<'static>)> {
     let t = app.theme;
-    let version = format!("v{}", env!("CARGO_PKG_VERSION"));
+    let width = width as usize;
+    let status = Line::from(status_spans(app));
+    let version = Span::styled(
+        format!("v{}", env!("CARGO_PKG_VERSION")),
+        Style::default().fg(t.faint),
+    );
     let setup = if app.config.is_ready() {
         None
     } else if app.config.provider_active() && app.config.model.default.is_empty() {
@@ -155,28 +190,42 @@ fn draw_context_line(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         Some(("Connect a provider", "/provider"))
     };
-    let left = match setup {
-        Some((what, command)) => Line::from(vec![
-            Span::styled(
-                what,
-                Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(format!(" · {command}"), Style::default().fg(t.muted)),
-        ]),
-        None => {
-            let room = (area.width as usize).saturating_sub(version.len() + 2);
-            Line::styled(
-                tail(&home_relative(&app.workspace), room),
+    let place = home_relative(&app.workspace);
+    let context = |room: usize| -> Vec<Span<'static>> {
+        match setup {
+            Some((what, command)) => vec![
+                Span::styled(
+                    what,
+                    Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(format!(" · {command}"), Style::default().fg(t.muted)),
+            ],
+            None => vec![Span::styled(
+                tail(&place, room),
                 Style::default().fg(t.muted),
-            )
+            )],
         }
     };
-    draw_split_line(
-        frame,
-        left,
-        Line::styled(version, Style::default().fg(t.faint)),
-        area,
-    );
+    // Between the halves, and between the place and the version.
+    const GAP: usize = 3;
+    const SPACE: usize = 2;
+    let room = width.saturating_sub(status.width() + GAP + version.width() + SPACE);
+    let context_w: usize = context(usize::MAX).iter().map(Span::width).sum();
+    // The path gives way first: one line while enough of it shows to say
+    // which project this is.
+    let one_line = context_w <= room || (setup.is_none() && room >= 16);
+    if one_line {
+        let mut right = context(room);
+        right.push(Span::raw(" ".repeat(SPACE)));
+        right.push(version);
+        vec![(status, Line::from(right))]
+    } else {
+        let room = width.saturating_sub(version.width() + SPACE);
+        vec![
+            (status, Line::default()),
+            (Line::from(context(room)), Line::from(vec![version])),
+        ]
+    }
 }
 
 /// The path with the home directory as `~`.

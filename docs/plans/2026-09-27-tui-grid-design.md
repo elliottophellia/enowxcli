@@ -66,13 +66,23 @@ into it. `App::is_home` is the rule.
 | Region | Rule |
 | --- | --- |
 | Wordmark | `enowX`, 41 × 5, in half blocks. Dropped below 43 columns or 16 rows |
-| Composer | 57 columns (the wordmark plus eight each side), narrower windows minus four; grows downward |
-| Under the composer | The status bar's state, agent and model, the badge under the `❯`; then the workspace, read from its end, and the version, or what to set up (`/provider`, `/model`) |
+| Composer | As wide as leaves the same gap at the sides as above and below, between 57 and 120 columns; an outline with no fill and a faint placeholder; grows downward |
+| Under the composer | The status bar's state, agent and model on the left, the badge under the `❯`; the workspace, read from its end, or what to set up (`/provider`, `/model`), then the version on the right. Two lines when one cannot carry both |
 | Command list | Under the composer; over the wordmark only when there is no room below |
 | Status bar | Only its keys, on the columns they have in the grid |
 
-The block sits two fifths of the way down, placed for a one-line composer, so
-the wordmark does not move while a message grows.
+The block is centred with the same gap on every side as it looks on screen:
+as many rows above as below, as many columns left as right, and twice as many
+columns as rows, since a cell is about twice as tall as it is wide. That rule
+is what sets the composer's width, so a wider window gets a wider composer. It
+is placed for a one-line composer, so the wordmark does not move while a
+message grows. (It first sat two fifths of the way down, where the eye
+expects a centre; that read as off-centre, and the 57-column composer as
+cramped.)
+
+The composer has no fill here. In the grid every box is filled, so the square
+cell behind each rounded corner is one box among others; alone on the window,
+that fill drew a square block behind the rounded edge.
 
 **The wordmark** is drawn per pixel from the brand's own (`web/public/logos`):
 lowercase `enow` in two-pixel strokes and the taller X, whose long stroke takes

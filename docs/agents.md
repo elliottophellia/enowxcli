@@ -647,6 +647,19 @@ check its work unless the report leaves something the user asked about
 unclear.
 ```
 
+A later run stalled the other way: asked for "a simple portfolio", the
+router delegated nothing and sent the user three questions (whose content,
+which stack, where), after reading a story into the workspace's folder name.
+So:
+
+```
+A request that leaves details open is not a reason to stop and ask. Choose
+the plainest thing that does the job, with placeholder content marked as
+such, say so in the brief, and delegate. Ask only when the work cannot
+start without the answer. The workspace path is where to work, not
+information about the task.
+```
+
 ## Effort
 
 Every model call re-sends the whole context, so a step spent on busywork
@@ -673,6 +686,8 @@ about facts and paths:
 - `todo` only for four or more steps: set it once, tick finished steps
   together. `todo done` takes several items for that reason.
 - Read a skill only when the task needs it, and only that one.
+- When a detail is open and a sensible default exists, choose it and say
+  what was chosen, rather than stopping to ask.
 - Stop when the request is met.
 
 The tool descriptions for `bash`, `todo` and `skill_read` say the same thing

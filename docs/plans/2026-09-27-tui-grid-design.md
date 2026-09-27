@@ -34,12 +34,18 @@ own insets, and no two ended on the same column.
 
 Both columns end on the row directly above the status bar.
 
-**Text edges.** Inside every box the border is column 0 and padding column 1.
-Markers (`▌` user, `✓ ✗ ›` tool state, `↳` handover, `✻` thinking, `❯` prompt,
-`›` selection) sit on column 2 and text starts on column 4, in the transcript,
-the composer, the palette and every overlay. A tool row's metric is flush right
-in one column, and the `▸`/`▾` chevron has a fixed column of its own at the far
-right, blank when there is nothing to open.
+**Text edges.** Inside every box the border is column 0, then two columns and
+one row of padding on every side (`chrome::padded`, `PAD_X = 2`, `PAD_Y = 1`;
+less when a box is too small to afford it). Markers (`▌` user, `✓ ✗ ›` tool
+state, `↳` handover, `✻` thinking, `❯` prompt, `›` selection) sit on column 3
+and text starts on column 5, in the transcript, the composer, the palette and
+every overlay. Nothing touches a wall, above, below or at either side. A tool
+row's metric is flush right in one column, and the `▸`/`▾` chevron has a fixed
+column of its own at the far right, blank when there is nothing to open.
+
+`overlay` takes the rows of content and adds the border and padding itself,
+so no popup computes its own height. The transcript leaves the last block's
+trailing blank rows out of its scroll range; they doubled the bottom padding.
 
 **Boxes.** `panel_box` draws every box: rounded, `theme.border`, panel fill.
 `box_title` sets a title into the top edge as `╭─ TITLE ─`, and `box_hint` sets
@@ -80,7 +86,42 @@ row numbers recorded for click targets stay correct.
   own, because the tool row above already names the file and opens it.
 - **Todo and tree bodies** start on the text column.
 - **A handover** is `↳ from → to · reason`. It is no longer a rule across the
-  transcript.
+  transcript, and the `handoff` call that caused it is not drawn as well.
+- **A delegation** is one row from start to finish: `› delegate fe … working`
+  while it runs, `✓` or `✗` when it reports. The brief is one click away. The
+  report lands under the row, its `DONE / CHANGED / VERIFIED / NEXT` fields as
+  a label column and a value column. The router's `delegate` call is not
+  drawn, since the row says the same. A resumed session rebuilds the same row
+  from the report message and the session's delegation records, and lists the
+  sub-agents again so their branches still open.
+
+### Markdown
+
+`ui/markdown.rs` renders with pulldown-cmark (CommonMark plus GFM tables,
+strikethrough, task lists and alerts) into a small block tree, then draws it:
+
+| Construct | On screen |
+| --- | --- |
+| Spacing | One blank row between blocks, never two, none leading or trailing |
+| Newline in a paragraph | Kept, as chat interfaces keep it. A line of 60+ columns continued in lower case is taken for hard-wrapped prose and joined |
+| Headings | H1 accent bold underlined, H2 accent bold, H3 accent2 bold, H4+ bold |
+| Lists | `•`/`◦` by depth, numbers right-aligned to the widest, `☑`/`☐` tasks; continuation rows under the text; loose lists keep their blank rows |
+| Quotes | A `│` bar on every row, text dimmed; alerts (`> [!WARNING]`) name themselves in their colour at full strength |
+| Code | Language label row, highlighted lines on the tinted band, long lines soft-wrap with `│↳`, tabs expanded |
+| Tables | Rounded borders, alignment honoured, cells wrap; a rule under each row once any row wraps. Too narrow to keep ordinary words whole: stacked `header: value` rows |
+| Links, images, HTML | Link label only; image alt text dimmed; comments hidden, `<br>` breaks, formatting tags dropped, `Vec<String>` kept as text |
+
+Containers render their children narrower and prefix every row, so nesting
+composes and no row is wider than the panel. Wrapping measures display width
+and breaks at a space, between wide characters, then after `/` or `-` in a long
+path. Control bytes are dropped before they can reach the terminal.
+`tests/markdown_render.rs` covers each row of the table and checks every
+construct at every width from 10 to 90.
+
+```sh
+cargo run -q -p enowx-tui --example mdpreview -- 72        # the gallery
+cargo run -q -p enowx-tui --example mdpreview -- 40 notes.md
+```
 
 ## Side column
 
@@ -108,6 +149,21 @@ selection band. The band sets only the background, so the name and description
 colours inside the row survive. Lists whose rows carry an on/off dot (skills,
 MCP) use the dot as the marker instead. The MCP list now shows each server's
 command or URL, which was stored but never drawn.
+
+**Command palette (Ctrl+P).** Rows read as actions, without the `/` the inline
+list uses: `New session`, `Compact context`. They sit under Session, Agents &
+models, Context, View and App. Typing drops the headings and ranks the
+matches: label prefix, then word prefix, then contains, then summary. The list
+scrolls with the selection, the search row counts the rows, and rows take
+clicks.
+
+**Mouse.** With a window open the wheel moves through it as its arrow keys do,
+wherever the pointer is; it used to scroll the transcript behind every window
+but two. Over the side column it turns the card's pages; over the inline
+command list it moves that selection. Moving a selection is throttled so one
+trackpad flick moves one row; the transcript is not. Pickers take their click
+targets from the list's scroll offset, so a click on a scrolled list picks the
+row under the pointer.
 
 ## Testing
 
@@ -155,12 +211,16 @@ cargo run -q -p enowx-tui --example popups -- settings          # any overlay
   command is `/resume`.
 - **The TypeSafe row in the SESSION card read "1 results"** and ran past the
   card.
+- **The SESSION card counted 1,175 tool calls for a run that made 8.** The
+  replay that draws a sub-agent's branch also bumped the counters, and it runs
+  every half second while a branch is watched.
+- **Agent tests wrote their sessions into the user's own store:** 372 of 430.
+- **The instruction files and the skill list reached the model twice** on
+  every call.
 
 ## Open
 
 - The panel and canvas fills differ by only 1.04–1.06:1, so boxes read by their
   outlines rather than by their fill.
-- Markdown renders a single newline inside a paragraph as a line break. This
-  predates the redesign and was left alone.
 - The older galleries (`headerstyles`, `composerstyles`, `sidebarstyles`,
   `sidebarlayouts`) show layouts that have since been retired.

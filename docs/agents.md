@@ -488,6 +488,13 @@ happened rather than what the model said happened.
 caller that treats "built the page" as "the page works" is building on
 something nobody checked.
 
+The report is one line per field, and the sub-agent stops after the task it
+was given. The interface shows it under the delegation's row as a label
+column and a value column. The parent session records each delegation's
+branch (`Session::delegations`), so a resumed session can still open the work
+behind a report; `routing::report_message` and `parse_report_message` are the
+one place the report message's format is written and read.
+
 ## Handoff carries a summary, not the raw history
 
 A handoff keeps the session, so the obvious question is whether the previous
@@ -618,6 +625,53 @@ Report what came back.
 Each of these is a failure seen in routers elsewhere: reading until the task
 is done, decomposing into tool-call-sized fragments, and laundering a
 specialist's output. They are cheap to forbid and expensive to discover.
+
+### Reading, briefing, and after
+
+Added once real sessions showed the router reading its way through a project
+before delegating a portfolio page: eighteen calls in one session, four in
+another, for a request that named its kind of work.
+
+```
+Most requests name their kind of work: "build a portfolio page" is `fe`,
+"this query is slow" is `db`. Route those straight away, without reading
+anything. Read only when the request leaves the specialist genuinely open,
+and then one or two small reads at most. The specialist reads the files it
+needs itself.
+
+Say what the user wants and any constraint they stated, in a few lines. Do
+not plan the specialist's steps or invent requirements the user did not give.
+
+Answer the user from the report. Do not re-read the specialist's files to
+check its work unless the report leaves something the user asked about
+unclear.
+```
+
+## Effort
+
+Every model call re-sends the whole context, so a step spent on busywork
+costs as much as one spent on the task. One router session in this repo sent
+2.26M input tokens. The specialists showed the same habits in every session
+read: `bash ls`, `find`, `cat` and `sed -n` where glob and read fit; a
+checklist for a two-file page with each item ticked in its own call; six
+skills loaded before any work; throwaway Python to check a stylesheet.
+
+Every agent's prompt now carries the rules against those, next to the rules
+about facts and paths:
+
+- Match effort to the task: a small task is look, write, check once, report.
+- Use glob, grep and read for files; `bash` builds, runs and tests.
+- Request independent reads and searches together, in one step.
+- Create a file whole with one `write`; change it with `edit`.
+- Verify with the project's own build, tests or linter, or by reading the
+  result. No throwaway scripts.
+- `todo` only for four or more steps: set it once, tick finished steps
+  together. `todo done` takes several items for that reason.
+- Read a skill only when the task needs it, and only that one.
+- Stop when the request is met.
+
+The tool descriptions for `bash`, `todo` and `skill_read` say the same thing
+where the model reads them.
 
 ## Open questions
 

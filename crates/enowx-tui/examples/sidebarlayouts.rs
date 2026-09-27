@@ -399,10 +399,7 @@ fn draw_two_column(frame: &mut Frame, area: Rect, t: &Theme) {
     let mut y = inner.y + 2;
     let label_w = 14usize;
     for group in [
-        vec![
-            ("context", "0 / 1,000,000"),
-            ("terpakai", "0.0%"),
-        ],
+        vec![("context", "0 / 1,000,000"), ("terpakai", "0.0%")],
         vec![("input", "0"), ("output", "0")],
         vec![("tool calls", "0"), ("messages", "0"), ("state", "ready")],
         vec![("biaya sesi", "$0.0000"), ("per 1M in", "$0.1550")],

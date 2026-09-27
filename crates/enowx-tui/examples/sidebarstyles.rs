@@ -201,7 +201,12 @@ fn chat(frame: &mut Frame, area: Rect, t: &Theme) {
     ];
     frame.render_widget(
         Paragraph::new(lines),
-        Rect::new(area.x + 1, area.y, area.width.saturating_sub(1), area.height),
+        Rect::new(
+            area.x + 1,
+            area.y,
+            area.width.saturating_sub(1),
+            area.height,
+        ),
     );
 }
 
@@ -332,7 +337,11 @@ fn draw_current(frame: &mut Frame, area: Rect, t: &Theme) {
     header_box(frame, inner, t, inner.width);
     let x = inner.x + inner.width - SIDEBAR;
     // The gap row, chat-side and sidebar-side alike.
-    fill(frame, Rect::new(inner.x, inner.y + 3, inner.width, 1), t.panel);
+    fill(
+        frame,
+        Rect::new(inner.x, inner.y + 3, inner.width, 1),
+        t.panel,
+    );
     let top = inner.y + 4;
     let h = inner.height - 5;
     frame.render_widget(
@@ -344,7 +353,13 @@ fn draw_current(frame: &mut Frame, area: Rect, t: &Theme) {
     );
     pane_label(frame, inner.x + 3, inner.y + 2, t, "CHAT");
     pane_label(frame, x + 2, inner.y + 2, t, TABS[ACTIVE].1);
-    tab_strip(frame, Rect::new(x + 1, top, SIDEBAR - 1, 2), t, t.subtle, true);
+    tab_strip(
+        frame,
+        Rect::new(x + 1, top, SIDEBAR - 1, 2),
+        t,
+        t.subtle,
+        true,
+    );
     frame.render_widget(
         Paragraph::new("─".repeat(SIDEBAR as usize - 1))
             .style(Style::default().fg(t.border).bg(t.subtle)),
@@ -403,7 +418,13 @@ fn draw_welded(frame: &mut Frame, area: Rect, t: &Theme) {
         );
     }
     pane_label(frame, inner.x + 3, inner.y + 2, t, "CHAT");
-    tab_strip(frame, Rect::new(x + 1, top, SIDEBAR - 1, 2), t, t.subtle, true);
+    tab_strip(
+        frame,
+        Rect::new(x + 1, top, SIDEBAR - 1, 2),
+        t,
+        t.subtle,
+        true,
+    );
     frame.render_widget(
         Paragraph::new("─".repeat(SIDEBAR as usize - 1))
             .style(Style::default().fg(t.border).bg(t.subtle)),
@@ -496,7 +517,13 @@ fn draw_split_box(frame: &mut Frame, area: Rect, t: &Theme) {
     // No underline: the box above already names the tab in the accent colour,
     // and a second marker for the same fact left a rule floating over the
     // first row of contents.
-    tab_strip(frame, Rect::new(x + 1, top, SIDEBAR - 1, 2), t, t.panel, false);
+    tab_strip(
+        frame,
+        Rect::new(x + 1, top, SIDEBAR - 1, 2),
+        t,
+        t.panel,
+        false,
+    );
     body(frame, Rect::new(x + 3, top + 2, SIDEBAR - 4, h - 2), t);
     chat(
         frame,
@@ -642,7 +669,11 @@ fn draw_full_box(frame: &mut Frame, area: Rect, t: &Theme) {
     // panel under it — which is the same "rule stopping in mid-air" that the
     // divider's carry-through into the footer was written to fix.
     let h = inner.bottom() - top;
-    fill(frame, Rect::new(inner.x, inner.y + 3, inner.width, 1), t.panel);
+    fill(
+        frame,
+        Rect::new(inner.x, inner.y + 3, inner.width, 1),
+        t.panel,
+    );
     fill(frame, Rect::new(x, top, SIDEBAR, h), t.panel);
     let boxed = Rect::new(x, top, SIDEBAR - 1, h);
     let block = Block::default()
@@ -675,7 +706,11 @@ fn draw_full_box(frame: &mut Frame, area: Rect, t: &Theme) {
     // strip needs no underline — it would have landed on the first row of
     // contents, marking a row that is not a tab.
     tab_strip(frame, Rect::new(bi.x, bi.y, bi.width, 2), t, t.panel, false);
-    body(frame, Rect::new(bi.x + 1, bi.y + 2, bi.width - 1, bi.height - 2), t);
+    body(
+        frame,
+        Rect::new(bi.x + 1, bi.y + 2, bi.width - 1, bi.height - 2),
+        t,
+    );
     chat(frame, Rect::new(inner.x, top, inner.width - SIDEBAR, h), t);
     footer(
         frame,
@@ -718,7 +753,13 @@ fn draw_no_gap(frame: &mut Frame, area: Rect, t: &Theme) {
     // The strip's own row, then a rule under it. The active tab is marked by
     // its filled cell rather than by an accent underline, which on this layout
     // would have landed on the first row of contents.
-    tab_strip(frame, Rect::new(x + 1, top, SIDEBAR - 1, 2), t, t.subtle, false);
+    tab_strip(
+        frame,
+        Rect::new(x + 1, top, SIDEBAR - 1, 2),
+        t,
+        t.subtle,
+        false,
+    );
     frame.render_widget(
         Paragraph::new("─".repeat(SIDEBAR as usize - 1))
             .style(Style::default().fg(t.border).bg(t.subtle)),
@@ -903,8 +944,18 @@ fn draw_header_spans(frame: &mut Frame, area: Rect, t: &Theme) {
     body(frame, Rect::new(x + 3, top, SIDEBAR - 4, h - 2), t);
     // The numbers at the foot of the strip, on the chrome colour, so the row
     // belongs to the footer band rather than trailing the contents.
-    fill(frame, Rect::new(x + 1, inner.bottom() - 2, SIDEBAR - 1, 1), t.subtle);
-    text(frame, x + 3, inner.bottom() - 2, SIDEBAR - 4, Line::from(spans));
+    fill(
+        frame,
+        Rect::new(x + 1, inner.bottom() - 2, SIDEBAR - 1, 1),
+        t.subtle,
+    );
+    text(
+        frame,
+        x + 3,
+        inner.bottom() - 2,
+        SIDEBAR - 4,
+        Line::from(spans),
+    );
     chat(
         frame,
         Rect::new(inner.x, inner.y + 4, inner.width - SIDEBAR, h - 1),
@@ -973,13 +1024,7 @@ fn draw_filled(frame: &mut Frame, area: Rect, t: &Theme) {
         ));
     }
     let w: u16 = spans.iter().map(|s| s.width() as u16).sum();
-    text(
-        frame,
-        x + SIDEBAR - w - 2,
-        top,
-        w,
-        Line::from(spans),
-    );
+    text(frame, x + SIDEBAR - w - 2, top, w, Line::from(spans));
     // The contents sit on the strip's own surface, so each row is painted
     // rather than left on the panel behind it.
     for (index, line) in agent_rows(t).into_iter().enumerate() {
@@ -1057,7 +1102,13 @@ fn draw_rail(frame: &mut Frame, area: Rect, t: &Theme) {
         } else {
             Style::default().fg(t.faint).bg(t.subtle)
         };
-        text(frame, x + 1, y, rail, Line::styled(format!(" {mark} "), style));
+        text(
+            frame,
+            x + 1,
+            y,
+            rail,
+            Line::styled(format!(" {mark} "), style),
+        );
     }
     pane_label(frame, inner.x + 3, inner.y + 2, t, "CHAT");
     text(
@@ -1175,10 +1226,7 @@ fn draw_index(frame: &mut Frame, area: Rect, theme: &Theme) {
         ),
         Line::default(),
     ] {
-        frame.render_widget(
-            Paragraph::new(line),
-            Rect::new(area.x, y, area.width, 1),
-        );
+        frame.render_widget(Paragraph::new(line), Rect::new(area.x, y, area.width, 1));
         y += 1;
     }
     for style in STYLES.iter() {
@@ -1193,7 +1241,10 @@ fn draw_index(frame: &mut Frame, area: Rect, theme: &Theme) {
                         .fg(theme.accent)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(format!("{:<9}", style.cost), Style::default().fg(theme.muted)),
+                Span::styled(
+                    format!("{:<9}", style.cost),
+                    Style::default().fg(theme.muted),
+                ),
                 Span::styled(style.note, Style::default().fg(theme.faint)),
             ])),
             Rect::new(area.x, y, area.width, 1),

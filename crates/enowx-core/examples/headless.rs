@@ -7,7 +7,7 @@
 //!
 //! This calls the configured provider and costs what the run costs. The
 //! workspace defaults to a fresh temporary directory; MCP servers are not
-//! started, and sessions are stored inside the workspace, not in ~/.enx.
+//! started, and sessions are stored beside the workspace, not in ~/.enx.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -34,10 +34,20 @@ async fn main() -> anyhow::Result<()> {
     config.agent.workspace = Some(workspace.clone());
     let mut discovery = Discovery::run(&workspace);
     discovery.mcp_servers.clear();
-    let store = SessionStore::new(workspace.join(".enx-sessions"));
+    // Beside the workspace, not in it: the agents would find the session
+    // files with a glob and read them, which no real run can do.
+    let sessions = workspace.with_file_name(format!(
+        "{}-sessions",
+        workspace
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    ));
+    let store = SessionStore::new(sessions.clone());
     let agent = Agent::with_discovery(config.clone(), store.clone(), discovery);
 
     println!("workspace {}", workspace.display());
+    println!("sessions  {}", sessions.display());
     println!("model     {}", config.model.default);
     let started = Instant::now();
     let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
@@ -153,9 +163,6 @@ fn walk(root: &std::path::Path) -> Vec<String> {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.file_name().is_some_and(|n| n == ".enx-sessions") {
-                continue;
-            }
             if path.is_dir() {
                 stack.push(path);
             } else if let Ok(relative) = path.strip_prefix(root) {

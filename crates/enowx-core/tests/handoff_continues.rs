@@ -14,7 +14,7 @@ use std::sync::{
     Arc,
 };
 
-use enowx_core::{config::Config, Agent, Event, Role};
+use enowx_core::{builtin_agents, config::Config, Agent, Discovery, Event, Role, SessionStore};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -127,10 +127,21 @@ impl Drop for Dir {
     }
 }
 
+/// The built-in roster with no MCP servers: `Agent::new` would warm the
+/// developer's real `~/.mcp.json` servers on the first turn — tens of seconds,
+/// and a hang on a machine without them.
+fn isolated_agent(config: Config) -> Agent {
+    let discovery = Discovery {
+        agents: builtin_agents(),
+        ..Discovery::default()
+    };
+    Agent::with_discovery(config, SessionStore::default(), discovery)
+}
+
 async fn collect(replies: Vec<String>, tag: &str) -> (Vec<Event>, usize) {
     let dir = Dir::new(tag);
     let (base_url, calls) = fake_provider(replies).await;
-    let agent = Agent::new(config_for(&base_url, &dir.0));
+    let agent = isolated_agent(config_for(&base_url, &dir.0));
     let (tx, mut rx) = tokio::sync::mpsc::channel(256);
     let cancel = tokio_util::sync::CancellationToken::new();
     let request = enowx_core::agent::RunRequest {

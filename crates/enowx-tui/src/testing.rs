@@ -33,10 +33,14 @@ impl TestApp {
         // only sees files the test seeded.
         std::env::set_var("HOME", &home_dir);
         std::env::set_var("ENX_HOME", &enx_home);
-        std::env::set_current_dir(&workspace).ok();
         let mut config = Config::default();
         config.provider.name = "test".into();
         config.provider.base_url = "http://127.0.0.1:1".into();
+        // Pin the workspace absolutely rather than chdir-ing into it. The old
+        // `set_current_dir` here was process-global: parallel tests yanked the
+        // working directory out from under each other, and `canonicalize` on a
+        // relative workspace raced, failing this suite about 1 in 10 runs.
+        config.agent.workspace = Some(workspace.clone());
         Self {
             inner: App::new(config),
         }

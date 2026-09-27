@@ -22,6 +22,18 @@ use crate::{
 
 use crate::{discovery::Discovery, mcp::McpClient};
 
+/// The report a delegated sub-agent owes its caller. Carried in the sub-agent's
+/// system prompt — not appended to the task — so it holds a fixed position at
+/// the front of the context instead of trailing whatever the task happened to
+/// say, where a long brief buried it and the sub-agent stopped without one.
+const REPORT_CONTRACT: &str = "\nYou are working on behalf of another agent, which cannot see anything \
+     you do — only your final message. It cannot answer questions: decide, and say what you decided.\n\
+     End every turn with this report, and nothing after it:\n\
+     DONE: what you achieved, or what you could not\n\
+     CHANGED: every file you created or edited, or `none`\n\
+     VERIFIED: what you ran to check it, and the result, or `not verified`\n\
+     NEXT: what the caller must know to carry on, or `nothing`\n";
+
 /// Build the tool registry with skill discovery. MCP servers are spawned lazily
 /// via `Agent::warm_mcp` so a synchronous `Agent::new` cannot deadlock the
 /// tokio runtime with a nested `block_on`.
@@ -117,15 +129,25 @@ pub struct Agent {
 
 impl Agent {
     pub fn new(config: Config) -> Self {
-        Self::assemble(config, SessionStore::default())
+        let discovery = Arc::new(Discovery::run(&config.workspace()));
+        Self::assemble(config, SessionStore::default(), discovery)
     }
 
     pub fn with_store(config: Config, store: SessionStore) -> Self {
-        Self::assemble(config, store)
+        let discovery = Arc::new(Discovery::run(&config.workspace()));
+        Self::assemble(config, store, discovery)
     }
 
-    fn assemble(config: Config, store: SessionStore) -> Self {
-        let discovery = Arc::new(Discovery::run(&config.workspace()));
+    /// Build an agent with a discovery result supplied rather than read from
+    /// disk. Tests use it with `Discovery::default()` so a run never spawns the
+    /// developer's real MCP servers from `~/.mcp.json` — warming those took
+    /// tens of seconds per turn and hung or failed on a machine without them,
+    /// which read as a cancellation bug rather than the environment leak it was.
+    pub fn with_discovery(config: Config, store: SessionStore, discovery: Discovery) -> Self {
+        Self::assemble(config, store, Arc::new(discovery))
+    }
+
+    fn assemble(config: Config, store: SessionStore, discovery: Arc<Discovery>) -> Self {
         let disabled = config.ui.disabled_skills.clone();
         let registry = build_registry(discovery.clone(), disabled);
         let system_one = crate::systemone::SystemOne::new(&config.typesafe);
@@ -350,24 +372,14 @@ impl Agent {
         if let Err(error) = self.store.save(&branch) {
             return format!("could not start the delegation: {error:#}");
         }
-        // Say that a report is owed, and what it has to contain. Without
-        // this the sub-agent simply stops when it runs out of work, and the
-        // caller is handed whatever it happened to say last — in practice a
-        // line of narration mid-task ("Now rewriting main.js"), or a question
-        // the caller cannot answer.
+        // The task alone. The report the sub-agent owes (DONE/CHANGED/…) rides
+        // in its system prompt via REPORT_CONTRACT, keyed off the branch's
+        // `parent`, rather than trailing the task here — appended to a long
+        // brief it was getting lost, and the sub-agent stopped with narration
+        // mid-task ("Now rewriting main.js") or a question the caller cannot
+        // answer standing in for a result.
         let request = RunRequest {
-            prompt: format!(
-                "{}\n\n---\nYou are working on behalf of another agent, which \
-                 cannot see anything you do — only your final message. It cannot \
-                 answer questions: decide, and say what you decided.\n\n\
-                 End with a report, and nothing after it:\n\
-                 DONE: what you achieved, or what you could not\n\
-                 CHANGED: every file you created or edited, or `none`\n\
-                 VERIFIED: what you ran to check it, and the result, or \
-                 `not verified`\n\
-                 NEXT: what the caller must know to carry on, or `nothing`",
-                delegation.task
-            ),
+            prompt: delegation.task.clone(),
             session_id: Some(branch.id.clone()),
             role: parent.role,
             attachments: Vec::new(),
@@ -621,6 +633,14 @@ impl Agent {
         {
             prompt.push('\n');
             prompt.push_str(&extra);
+        }
+        // A delegated branch owes its caller a structured report. It rides here,
+        // in the system prompt, so it holds the front of the context rather than
+        // trailing the task where a long brief buried it. `parent` is what marks
+        // a branch: a session the user talks to directly never has one, and an
+        // agent handed the conversation answers the user, not a caller.
+        if session.parent.is_some() {
+            prompt.push_str(REPORT_CONTRACT);
         }
         let system = Message::system(prompt);
         let (progress_tx, mut progress_rx) = tokio::sync::mpsc::channel::<(String, String)>(64);

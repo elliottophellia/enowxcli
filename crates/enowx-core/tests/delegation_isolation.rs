@@ -10,7 +10,7 @@ use std::sync::{
     Arc,
 };
 
-use enowx_core::{config::Config, Agent, Event, Role};
+use enowx_core::{builtin_agents, config::Config, Agent, Discovery, Event, Role, SessionStore};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -103,6 +103,19 @@ impl Drop for Dir {
     }
 }
 
+/// An agent whose discovery carries the built-in roster (so `fe` resolves to
+/// itself, not the router fallback) but no MCP servers. `Agent::new` would read
+/// `~/.mcp.json` and spend tens of seconds warming the developer's real servers
+/// on the first turn — deterministic here, and hanging on a machine without
+/// them, which looked like a cancellation bug rather than an environment leak.
+fn isolated_agent(config: Config) -> Agent {
+    let discovery = Discovery {
+        agents: builtin_agents(),
+        ..Discovery::default()
+    };
+    Agent::with_discovery(config, SessionStore::default(), discovery)
+}
+
 fn config_for(base_url: &str, workspace: &std::path::Path) -> Config {
     let mut config = Config::default();
     config.provider.name = "test".into();
@@ -129,7 +142,7 @@ async fn cancelling_the_turn_does_not_kill_a_running_sub_agent() {
     ])
     .await;
 
-    let agent = Agent::new(config_for(&base_url, &dir.0));
+    let agent = isolated_agent(config_for(&base_url, &dir.0));
     let (tx, mut rx) = tokio::sync::mpsc::channel(256);
     let cancel = tokio_util::sync::CancellationToken::new();
     let request = enowx_core::agent::RunRequest {
@@ -185,7 +198,7 @@ async fn cancelling_still_stops_the_turn_itself() {
     ])
     .await;
 
-    let agent = Agent::new(config_for(&base_url, &dir.0));
+    let agent = isolated_agent(config_for(&base_url, &dir.0));
     let (tx, mut rx) = tokio::sync::mpsc::channel(256);
     let cancel = tokio_util::sync::CancellationToken::new();
     let request = enowx_core::agent::RunRequest {

@@ -57,6 +57,9 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
         return;
     }
     let t = app.theme;
+    // The `›` marker takes two columns; text past the box ends in `…`
+    // rather than stopping mid-word at the edge.
+    let text_width = (content.width as usize).saturating_sub(2);
     let mut heights: Vec<u16> = Vec::with_capacity(app.modal_items.len());
     let items: Vec<ListItem> = app
         .modal_items
@@ -75,11 +78,11 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
             let text = if app.modal == Modal::Sessions {
                 // Session picker rows hide the internal id, keeping the visible
                 // list to the title and metadata the user recognises.
-                Text::from(Line::styled(description.clone(), label))
+                Text::from(Line::styled(trim(description, text_width), label))
             } else {
                 Text::from(vec![
-                    Line::styled(id.clone(), label),
-                    Line::styled(description.clone(), Style::default().fg(t.muted)),
+                    Line::styled(trim(id, text_width), label),
+                    Line::styled(trim(description, text_width), Style::default().fg(t.muted)),
                 ])
             };
             heights.push(text.lines.len() as u16);

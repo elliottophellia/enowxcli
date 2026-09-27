@@ -452,3 +452,34 @@ fn there_is_no_way_to_message_a_sub_agent() {
         "and the message is still the user's to send there"
     );
 }
+
+/// Watching a running sub-agent must not inflate the session's tool count.
+///
+/// The branch is re-read every half second while it runs, and each re-read
+/// used to add all of its tool calls to the main session's total again. A
+/// portfolio built in eight calls showed 1,175 — the count was wrong by more
+/// than two orders of magnitude, and it read as the agent being wasteful.
+#[test]
+fn watching_a_sub_agent_does_not_inflate_the_tool_count() {
+    let mut app = TestApp::new();
+    let id = app.add_delegation("fe", "write the page", &[("user", "write the page")]);
+    app.grow_branch_with_tool_call(&id, "write", r#"{"path":"index.html","content":"x"}"#);
+    app.grow_branch_with_tool_call(&id, "write", r#"{"path":"style.css","content":"y"}"#);
+    let before = app.tool_call_total();
+
+    app.open_delegation(0).expect("open it");
+    for _ in 0..20 {
+        app.expire_refresh_timer();
+        app.refresh_viewed_delegation();
+    }
+    assert_eq!(
+        app.tool_call_total(),
+        before,
+        "viewing and re-reading the branch must leave the session's count alone"
+    );
+    let side = app.side_column(120, 34).join("\n");
+    assert!(
+        !side.contains("40 calls") && !side.contains("42 calls"),
+        "and the card must not show the inflated figure: {side}"
+    );
+}

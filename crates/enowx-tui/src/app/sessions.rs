@@ -59,7 +59,12 @@ impl App {
         self.tokens_in = session.usage.input_tokens;
         self.tokens_out = session.usage.output_tokens;
         self.context_tokens = session.usage.context_tokens;
-        self.tool_counts.clear();
+        // Counted here, from the session being adopted, and not in the
+        // replay: the replay also draws a sub-agent's branch for viewing, and
+        // re-reads it every half second while it runs. Counting there added
+        // the branch's calls to this session's total on every re-read — a
+        // portfolio that took eight tool calls showed 1,175.
+        self.tool_counts = count_tool_calls(&session);
         self.session_id = Some(session.id.clone());
         self.adopt_agent(&session);
         self.title = session.title.clone();
@@ -128,7 +133,6 @@ impl App {
                         self.show(TranscriptKind::Assistant, turn.message.content);
                     }
                     for call in turn.message.tool_calls {
-                        *self.tool_counts.entry(call.name.clone()).or_insert(0) += 1;
                         let index = self.blocks.len();
                         tool_blocks.insert(call.id.clone(), index);
                         self.show(
@@ -179,6 +183,17 @@ impl App {
                 .push((self.blocks.len(), switch.clone()));
         }
     }
+}
+
+/// How many times each tool was called in one session's own turns.
+fn count_tool_calls(session: &enowx_core::Session) -> HashMap<String, usize> {
+    let mut counts = HashMap::new();
+    for turn in &session.turns {
+        for call in &turn.message.tool_calls {
+            *counts.entry(call.name.clone()).or_insert(0) += 1;
+        }
+    }
+    counts
 }
 
 impl App {

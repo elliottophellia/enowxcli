@@ -1042,6 +1042,27 @@ impl TestApp {
         self.inner.store.save(&branch).expect("save the branch");
     }
 
+    /// Append one tool call to a branch on disk, as a running sub-agent's
+    /// assistant turn would record it.
+    pub fn grow_branch_with_tool_call(&mut self, session_id: &str, name: &str, arguments: &str) {
+        use enowx_core::message::{Message, ToolCall};
+        let mut branch = self.inner.store.load(session_id).expect("load the branch");
+        let mut message = Message::assistant("");
+        message.tool_calls.push(ToolCall {
+            id: format!("call-{}", branch.turns.len()),
+            name: name.to_owned(),
+            arguments: arguments.to_owned(),
+        });
+        branch.push(message);
+        self.inner.store.save(&branch).expect("save the branch");
+    }
+
+    /// The session's tool calls, summed over every tool: the SESSION card's
+    /// "tools" figure.
+    pub fn tool_call_total(&self) -> usize {
+        self.inner.tool_counts.values().sum()
+    }
+
     /// Force the next refresh to happen rather than waiting out its interval.
     pub fn expire_refresh_timer(&mut self) {
         if let Some(viewing) = self.inner.viewing.as_mut() {

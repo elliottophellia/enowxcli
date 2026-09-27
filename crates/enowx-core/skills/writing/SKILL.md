@@ -19,6 +19,10 @@ sentence tells the reader something.
   statistic, logo or testimonial: say what the product does instead.
 - Never invent facts, names, figures, quotes or features. A placeholder says
   it is one: `[Customer quote]`.
+- Facts about the business that you were not given (its name, prices,
+  opening hours, policies, what it accepts) are placeholders on the page
+  itself, `[Business name]`, `[Price]`, not plausible guesses. A guess reads
+  as a promise the business never made.
 
 ## 2. Words to drop
 

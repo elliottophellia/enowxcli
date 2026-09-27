@@ -488,3 +488,98 @@ async fn a_failed_reply_still_gives_the_conversation_back() {
     );
     assert_eq!(run.session.agent_or_default(), ORCHESTRATOR);
 }
+
+/// Like `fake_provider`, keeping every request body so a test can read what
+/// each agent was sent.
+async fn recording_provider(replies: Vec<String>) -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    let bodies = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = bodies.clone();
+    tokio::spawn(async move {
+        let mut index = 0usize;
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            let reply = replies
+                .get(index)
+                .cloned()
+                .unwrap_or_else(|| replies.last().cloned().unwrap_or_default());
+            index += 1;
+            let seen = seen.clone();
+            tokio::spawn(async move {
+                let body = request_body(&mut socket).await;
+                seen.lock().unwrap().push(body);
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\
+                     Content-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                    reply.len()
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.flush().await;
+            });
+        }
+    });
+    (format!("http://127.0.0.1:{port}/v1"), bodies)
+}
+
+/// The whole body of one HTTP request, by its Content-Length.
+async fn request_body(socket: &mut tokio::net::TcpStream) -> String {
+    let mut data = Vec::new();
+    let mut buf = [0u8; 16384];
+    loop {
+        let n = socket.read(&mut buf).await.unwrap_or(0);
+        if n == 0 {
+            break;
+        }
+        data.extend_from_slice(&buf[..n]);
+        let Some(end) = data.windows(4).position(|w| w == b"\r\n\r\n") else {
+            continue;
+        };
+        let head = String::from_utf8_lossy(&data[..end]).to_ascii_lowercase();
+        let length = head
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(0);
+        if data.len() >= end + 4 + length {
+            return String::from_utf8_lossy(&data[end + 4..end + 4 + length]).into_owned();
+        }
+    }
+    String::from_utf8_lossy(&data).into_owned()
+}
+
+/// The agent taking over is told the work is now its own. Without it, one
+/// continued the orchestrator's routing message ("I've passed this to fe")
+/// and stopped with the page unbuilt.
+#[tokio::test]
+async fn the_incoming_agent_is_told_the_work_is_now_its_own() {
+    let dir = Dir::new("told");
+    let (base_url, bodies) = recording_provider(vec![hands_over_to("fe"), says("BUILT")]).await;
+    let agent = isolated_agent(config_for(&base_url, &dir.0));
+    let (tx, mut rx) = tokio::sync::mpsc::channel(256);
+    let request = enowx_core::agent::RunRequest {
+        prompt: "make the page nicer".into(),
+        session_id: None,
+        role: Role::Orchestrator,
+        attachments: Vec::new(),
+        agent: None,
+    };
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let handle = tokio::spawn(async move { agent.run(request, tx, cancel).await });
+    while rx.recv().await.is_some() {}
+    let _ = handle.await;
+
+    let bodies = bodies.lock().unwrap();
+    assert_eq!(bodies.len(), 2, "the orchestrator, then fe");
+    assert!(
+        !bodies[0].contains("HANDED TO YOU"),
+        "the orchestrator is routing, not taking over"
+    );
+    assert!(bodies[1].contains("HANDED TO YOU"), "fe is told");
+    assert!(
+        bodies[1].contains("`orchestrator` handed this conversation to you: this is frontend work"),
+        "who handed it over, and why"
+    );
+}

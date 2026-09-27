@@ -906,6 +906,15 @@ impl Agent {
         if session.parent.is_some() {
             prompt.push_str(REPORT_CONTRACT);
         }
+        // An agent taking over sees the previous agent's messages as its own.
+        // Continuing them, one described the handoff to the user ("I've passed
+        // this to fe") and stopped, with the work undone. So it is told whose
+        // turn this is and why.
+        if continuing && session.parent.is_none() {
+            if let Some(switch) = session.switches.last().filter(|s| s.to == active.name) {
+                prompt.push_str(&handoff_note(switch));
+            }
+        }
         let system = Message::system(prompt);
         let (progress_tx, mut progress_rx) = tokio::sync::mpsc::channel::<(String, String)>(64);
         // Forward every tool progress delta to the UI event stream so long
@@ -1293,6 +1302,18 @@ impl Agent {
             let _ = self.give_back(&mut session, events).await;
         }
     }
+}
+
+/// What an agent that has just been handed the conversation is told.
+fn handoff_note(switch: &crate::session::AgentSwitch) -> String {
+    format!(
+        "\n\nHANDED TO YOU\n`{from}` handed this conversation to you: {reason}\n\
+         The user's last request is yours to handle now: do the work with your \
+         tools, then answer the user. The messages above that routed it were \
+         `{from}`'s; do not repeat, describe or confirm the handoff.",
+        from = switch.from,
+        reason = switch.reason.trim(),
+    )
 }
 
 fn persist_interrupted(

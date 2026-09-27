@@ -670,6 +670,13 @@ when the reply ends, and also when the reply failed or was stopped. A session
 left with a specialist anyway (the process was killed, or the session was
 saved before this rule) goes back when the next message arrives.
 
+The agent taking over is told so. It sees the previous agent's messages as
+its own, and continuing them, `fe` once answered "I've passed this to `fe`"
+and stopped with the page unbuilt. So on the turn after a handoff its system
+prompt ends with a `HANDED TO YOU` note: who handed it over and why, that the
+user's last request is its to handle now, and not to repeat or describe the
+handoff.
+
 A specialist holding the conversation still gets a `handoff` tool that can
 name only the orchestrator, for a request that turns out not to be its work;
 the orchestrator then answers in the same reply. One working in a delegated

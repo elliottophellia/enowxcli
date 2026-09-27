@@ -171,12 +171,17 @@ nothing about the product.
 - Real content, or placeholders that say they are placeholders:
   `[Company logo]`, `[Customer quote]`. Never invented statistics,
   testimonials, customer logos, people or awards.
+- Facts about the business you were not given (its name, prices, hours,
+  policies) stay visible placeholders on the page, not plausible guesses,
+  and are listed in your report.
 - Copy follows the `writing` skill: specific, plain, and actions named for
   what they do.
 
 ## 12. Before you call it done
 
 - Build it, and run the project's linter and tests.
+- Search the CSS for colour, spacing and radius values written outside the
+  token definitions, and move each into a token.
 - Read the result against a 360px, a 768px and a wide window: widths,
   wrapping, overflow.
 - Walk the keyboard path and every state.

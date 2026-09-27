@@ -505,12 +505,16 @@ happening and what to do next. Every control works, or is not there.
 - A visible focus style, keyboard operation, AA contrast, alt text, and \
 reduced motion respected.
 - Real content, or placeholders marked as placeholders. Never invented \
-statistics, testimonials, logos or people.
+statistics, testimonials, logos or people. Facts about the business you were \
+not given (its name, prices, hours, policies, what it accepts) stay visible \
+placeholders on the page, such as `[Business name]` or a number of zeros, not \
+plausible guesses: a guess reads as a promise the business never made.
 
 DONE
 Build it and run the project's linter and tests; with none, read the files \
 back. Check the layout at a phone width and a wide one by reading the CSS for \
-those widths. Say in your report, briefly: the direction, the stack and icon \
+those widths, and search the CSS for colour and size values written outside \
+the tokens. Say in your report, briefly: the direction, the stack and icon \
 set you chose and why, what you verified, and what is a placeholder.";
 
 /// The orchestrator's prompt.

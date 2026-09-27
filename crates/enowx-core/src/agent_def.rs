@@ -198,7 +198,8 @@ pub fn builtin_agents() -> Vec<AgentDef> {
              Use the stack the project already has. For a new project with none stated, \
              choose the simplest that does the job: a static page is HTML and CSS, with \
              JavaScript only for behaviour it needs. Write each file once, complete, and \
-             check it by reading it back or running the project's build.",
+             check it by reading it back or running the project's build. A static page \
+             needs no server and no validator script to check.",
         ),
         make(
             "be",

@@ -474,7 +474,7 @@ So the task carries the shape of the report with it:
 ```
 DONE:     what you achieved, or what you could not
 CHANGED:  every file you created or edited, or `none`
-VERIFIED: what you ran to check it, and the result, or `not verified`
+VERIFIED: how you checked it (the project's build or tests, or reading the result back) and what you found, or `not verified`
 NEXT:     what the caller must know to carry on, or `nothing`
 ```
 
@@ -664,7 +664,12 @@ about facts and paths:
 - Request independent reads and searches together, in one step.
 - Create a file whole with one `write`; change it with `edit`.
 - Verify with the project's own build, tests or linter, or by reading the
-  result. No throwaway scripts.
+  result. No throwaway scripts. (The report once asked for "what you ran"
+  under VERIFIED, which pushed sub-agents to run something: a real run
+  started two HTTP servers and a Python HTML checker for a static page.
+  Reading the result back is a check too, and the contract now says so.)
+- Leave nothing running: no servers or background processes that outlive
+  the command.
 - `todo` only for four or more steps: set it once, tick finished steps
   together. `todo done` takes several items for that reason.
 - Read a skill only when the task needs it, and only that one.

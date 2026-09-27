@@ -6,23 +6,45 @@ impl App {
     /// Matches the summary as well as the name, so someone who remembers what
     /// a command does but not what it is called still finds it — which is the
     /// reason to open a palette rather than type the name.
-    pub(crate) fn palette_rows(&self) -> Vec<(&'static str, &'static str)> {
-        let needle = self.modal_search.trim().to_ascii_lowercase();
-        COMMANDS
-            .iter()
-            .copied()
-            .filter(|(name, summary)| {
-                needle.is_empty()
-                    || name.to_ascii_lowercase().contains(&needle)
-                    || summary.to_ascii_lowercase().contains(&needle)
+    /// The palette's rows: every command, group by group, or while
+    /// searching the matches, best first. A label that starts with what was
+    /// typed beats one with a word that does, which beats one that merely
+    /// contains it; a match in the summary comes last.
+    pub(crate) fn palette_rows(&self) -> Vec<crate::commands::PaletteRow> {
+        let rows = crate::commands::palette();
+        let needle = self.modal_search.trim().to_lowercase();
+        if needle.is_empty() {
+            return rows;
+        }
+        let mut ranked: Vec<(u8, crate::commands::PaletteRow)> = rows
+            .into_iter()
+            .filter_map(|row| {
+                let label = row.label.to_lowercase();
+                let rank = if label.starts_with(&needle) || row.name.starts_with(&needle) {
+                    0
+                } else if label
+                    .split_whitespace()
+                    .any(|word| word.starts_with(&needle))
+                {
+                    1
+                } else if label.contains(&needle) || row.name.contains(&needle) {
+                    2
+                } else if row.summary.to_lowercase().contains(&needle) {
+                    3
+                } else {
+                    return None;
+                };
+                Some((rank, row))
             })
-            .collect()
+            .collect();
+        ranked.sort_by_key(|(rank, _)| *rank);
+        ranked.into_iter().map(|(_, row)| row).collect()
     }
 
     /// Run whichever command the palette has highlighted.
     pub(crate) fn accept_palette_row(&mut self) -> Result<()> {
         let rows = self.palette_rows();
-        let Some((name, _)) = rows.get(self.modal_cursor).copied() else {
+        let Some(name) = rows.get(self.modal_cursor).map(|row| row.name) else {
             return Ok(());
         };
         self.modal = Modal::None;
@@ -324,6 +346,7 @@ impl App {
 
     pub(crate) fn open_palette(&mut self) {
         self.modal = Modal::Commands;
+        self.palette_offset = 0;
         self.modal_cursor = 0;
         self.modal_search.clear();
         self.modal_error.clear();

@@ -381,16 +381,38 @@ fn draw_quit_confirm(frame: &mut Frame, app: &mut App) {
 /// typing a name they already know; this one is for looking, so it searches
 /// summaries too and gets the room to show them.
 fn draw_commands(frame: &mut Frame, app: &mut App) {
+    app.modal_rows.clear();
     let rows = app.palette_rows();
     if !rows.is_empty() && app.modal_cursor >= rows.len() {
         app.modal_cursor = rows.len() - 1;
     }
+    // Browsing, the commands come in their groups, each under a heading and
+    // a blank line apart. Searching, they come best match first, and a
+    // heading would only split a ranking.
+    enum Entry {
+        Heading(&'static str),
+        Gap,
+        Row(usize),
+    }
+    let grouped = app.modal_search.trim().is_empty();
+    let mut entries: Vec<Entry> = Vec::new();
+    let mut group = "";
+    for (index, row) in rows.iter().enumerate() {
+        if grouped && row.group != group {
+            if !group.is_empty() {
+                entries.push(Entry::Gap);
+            }
+            entries.push(Entry::Heading(row.group));
+            group = row.group;
+        }
+        entries.push(Entry::Row(index));
+    }
     // The search row, a blank row, then the list.
-    let height = (rows.len() as u16 + 2).max(4);
+    let height = (entries.len() as u16 + 2).max(4);
     let (_, content) = overlay(
         frame,
         app,
-        74,
+        72,
         height,
         app.modal.title(),
         "↑↓ move · Enter run · Esc close",
@@ -398,31 +420,103 @@ fn draw_commands(frame: &mut Frame, app: &mut App) {
     let (search, list_area) = search_layout(content);
     search_row(app, search, frame);
 
+    let t = app.theme;
+    // How many there are, on the search row's right: a long list runs past
+    // the window, and nothing else says so.
+    let all = crate::commands::COMMANDS.len();
+    let count = if rows.len() == all {
+        format!("{all} commands")
+    } else {
+        format!("{} of {all}", rows.len())
+    };
+    frame.render_widget(
+        Paragraph::new(count)
+            .alignment(Alignment::Right)
+            .style(Style::default().fg(t.faint)),
+        search,
+    );
     if rows.is_empty() {
         frame.render_widget(
-            Paragraph::new("No command matches.").style(Style::default().fg(app.theme.muted)),
+            Paragraph::new("No command matches.").style(Style::default().fg(t.muted)),
             list_area,
         );
         return;
     }
 
-    let t = app.theme;
-    let items: Vec<ListItem> = rows
+    // Scroll only as far as it takes to keep the selection on screen, with
+    // its heading when it is the first of its group.
+    let visible = list_area.height as usize;
+    let at = entries
         .iter()
-        .map(|(name, summary)| {
-            ListItem::new(Line::from(vec![
-                Span::styled(
-                    format!("/{name:<11}"),
-                    Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled((*summary).to_string(), Style::default().fg(t.muted)),
-            ]))
-        })
-        .collect();
-    let mut state = ListState::default().with_selected(Some(app.modal_cursor));
-    frame.render_stateful_widget(
-        super::pickers::selectable(List::new(items), &t),
-        list_area,
-        &mut state,
-    );
+        .position(|entry| matches!(entry, Entry::Row(index) if *index == app.modal_cursor))
+        .unwrap_or(0);
+    let top = if at > 0 && matches!(entries[at - 1], Entry::Heading(_)) {
+        at - 1
+    } else {
+        at
+    };
+    let mut offset = app
+        .palette_offset
+        .min(entries.len().saturating_sub(visible));
+    if top < offset {
+        offset = top;
+    }
+    if visible > 0 && at >= offset + visible {
+        offset = at + 1 - visible;
+    }
+    app.palette_offset = offset;
+
+    let label_width = rows.iter().map(|row| row.label.width()).max().unwrap_or(0);
+    for (line, entry) in entries.iter().enumerate().skip(offset).take(visible) {
+        let area = Rect::new(
+            list_area.x,
+            list_area.y + (line - offset) as u16,
+            list_area.width,
+            1,
+        );
+        match entry {
+            Entry::Gap => {}
+            // On the text column, like the side cards' section labels.
+            Entry::Heading(name) => frame.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(
+                        name.to_uppercase(),
+                        Style::default().fg(t.muted).add_modifier(Modifier::BOLD),
+                    ),
+                ])),
+                area,
+            ),
+            Entry::Row(index) => {
+                let row = rows[*index];
+                let selected = *index == app.modal_cursor;
+                let summary_width = (area.width as usize).saturating_sub(2 + label_width + 2);
+                let label = if selected {
+                    Style::default().fg(t.accent).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(t.text)
+                };
+                frame.render_widget(
+                    Paragraph::new(Line::from(vec![
+                        Span::styled(
+                            if selected { "› " } else { "  " },
+                            Style::default().fg(t.accent),
+                        ),
+                        Span::styled(format!("{:<label_width$}  ", row.label), label),
+                        Span::styled(
+                            trim(row.summary, summary_width),
+                            Style::default().fg(t.muted),
+                        ),
+                    ]))
+                    .style(Style::default().bg(if selected {
+                        t.active_tab
+                    } else {
+                        t.panel
+                    })),
+                    area,
+                );
+                app.modal_rows.push((area, *index));
+            }
+        }
+    }
 }

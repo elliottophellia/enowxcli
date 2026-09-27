@@ -174,6 +174,13 @@ pub(crate) struct App {
     pub(crate) modal_cursor: usize,
     pub(crate) modal_items: Vec<(String, String)>,
     pub(crate) palette_cursor: usize,
+    /// First line of the Ctrl+P palette on screen, kept between frames so
+    /// the list scrolls rather than jumping to put the selection at an edge.
+    pub(crate) palette_offset: usize,
+    /// The inline command list above the composer, and its rows, for the
+    /// wheel and for clicks.
+    pub(crate) composer_palette: Option<Rect>,
+    pub(crate) composer_palette_rows: Vec<(Rect, usize)>,
     pub(crate) settings: SettingsDraft,
     pub(crate) field_cursor: usize,
     pub(crate) discovering_models: bool,
@@ -319,6 +326,9 @@ impl App {
             modal_cursor: 0,
             modal_items: Vec::new(),
             palette_cursor: 0,
+            palette_offset: 0,
+            composer_palette: None,
+            composer_palette_rows: Vec::new(),
             field_cursor: 0,
             discovering_models: false,
             model_events: None,

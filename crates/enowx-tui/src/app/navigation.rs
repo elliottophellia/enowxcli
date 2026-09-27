@@ -1,5 +1,5 @@
 use super::*;
-use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Position;
 
 impl App {
@@ -87,6 +87,16 @@ impl App {
                         self.mcp_field = *idx;
                     }
                     return Ok(());
+                }
+                // A row of the inline command list runs it, as Enter would.
+                if let Some(index) = self
+                    .composer_palette_rows
+                    .iter()
+                    .find(|(rect, _)| rect.contains(position))
+                    .map(|(_, index)| *index)
+                {
+                    self.palette_cursor = index;
+                    return self.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
                 }
                 // Composer field: click positions the cursor.
                 if let Some(field) = self.composer_field {
@@ -203,33 +213,29 @@ impl App {
                 }
             }
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
-                let dir_up = event.kind == MouseEventKind::ScrollUp;
-                // Popup selector still throttles so a burst of trackpad wheel
-                // events does not skip past every row. Transcript and composer
-                // scroll are natural and expect one step per event.
-                if matches!(self.modal, Modal::Skills | Modal::Mcp)
-                    && self.popup_body.is_some_and(|r| r.contains(position))
+                let up = event.kind == MouseEventKind::ScrollUp;
+                let arrow = KeyEvent::new(
+                    if up { KeyCode::Up } else { KeyCode::Down },
+                    KeyModifiers::NONE,
+                );
+                // An open window has the focus, so the wheel moves through
+                // it the way its arrow keys do, wherever the pointer is. It
+                // used to scroll the transcript hidden behind the window
+                // (every window but the skill and MCP lists).
+                if self.modal != Modal::None {
+                    if self.wheel_throttled() {
+                        return Ok(());
+                    }
+                    return self.key(arrow);
+                }
+                if self
+                    .composer_palette
+                    .is_some_and(|rect| rect.contains(position))
                 {
-                    let now = std::time::Instant::now();
-                    if let Some(prev) = self.last_wheel {
-                        if now.duration_since(prev)
-                            < std::time::Duration::from_millis(WHEEL_THROTTLE_MS)
-                        {
-                            return Ok(());
-                        }
+                    if self.wheel_throttled() {
+                        return Ok(());
                     }
-                    self.last_wheel = Some(now);
-                    let len = if self.modal == Modal::Skills {
-                        self.skill_rows().len()
-                    } else {
-                        self.mcp_rows().len()
-                    };
-                    if dir_up {
-                        self.modal_cursor = self.modal_cursor.saturating_sub(1);
-                    } else if self.modal_cursor + 1 < len {
-                        self.modal_cursor += 1;
-                    }
-                    return Ok(());
+                    return self.key(arrow);
                 }
                 if let Some(field) = self.composer_field {
                     if field.contains(position) {
@@ -237,19 +243,23 @@ impl App {
                         self.cursor = crate::app::navigation::composer_move_visual(
                             &self.input,
                             self.cursor,
-                            if dir_up { -1 } else { 1 },
+                            if up { -1 } else { 1 },
                             width,
                         );
                         return Ok(());
                     }
                 }
+                // The side column pages its card, which is how it scrolls.
                 if self
                     .sidebar_area
                     .is_some_and(|rect| rect.contains(position))
                 {
+                    if !self.wheel_throttled() {
+                        self.page_sidebar(!up);
+                    }
                     return Ok(());
                 }
-                if dir_up {
+                if up {
                     self.scroll = self.scroll.saturating_sub(3);
                     self.auto_scroll = false;
                 } else {
@@ -260,6 +270,23 @@ impl App {
             _ => {}
         }
         Ok(())
+    }
+}
+
+impl App {
+    /// Whether a wheel step moving a selection should be dropped. A
+    /// trackpad sends a burst of wheel events per gesture; one row per event
+    /// would fly past every row in a list. The transcript is not throttled:
+    /// it scrolls by lines, and a burst there is the scroll the user meant.
+    fn wheel_throttled(&mut self) -> bool {
+        let now = std::time::Instant::now();
+        if self.last_wheel.is_some_and(|previous| {
+            now.duration_since(previous) < std::time::Duration::from_millis(WHEEL_THROTTLE_MS)
+        }) {
+            return true;
+        }
+        self.last_wheel = Some(now);
+        false
     }
 }
 

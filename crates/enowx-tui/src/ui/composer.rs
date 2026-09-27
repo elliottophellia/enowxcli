@@ -111,8 +111,9 @@ fn draw_chat_box(frame: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
-fn draw_palette(frame: &mut Frame, app: &App, area: Rect, matches: &[(&str, &str)]) {
+fn draw_palette(frame: &mut Frame, app: &mut App, area: Rect, matches: &[(&str, &str)]) {
     let t = app.theme;
+    app.composer_palette = Some(area);
     let inner = panel_box(frame, area, t.border, t.panel);
     box_title(
         frame,
@@ -148,14 +149,16 @@ fn draw_palette(frame: &mut Frame, app: &App, area: Rect, matches: &[(&str, &str
             ),
             Span::styled(format!(" {summary}"), Style::default().fg(t.muted)),
         ]);
+        let row = Rect::new(inner.x, inner.y + offset as u16, inner.width, 1);
         frame.render_widget(
             Paragraph::new(line).style(Style::default().bg(if selected {
                 t.active_tab
             } else {
                 t.panel
             })),
-            Rect::new(inner.x, inner.y + offset as u16, inner.width, 1),
+            row,
         );
+        app.composer_palette_rows.push((row, index));
     }
 }
 

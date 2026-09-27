@@ -320,6 +320,27 @@ impl TestApp {
         self.inner.page_sidebar(true);
     }
 
+    /// The side card's page on screen, and how many it has.
+    pub fn sidebar_page(&self) -> (usize, usize) {
+        (self.inner.sidebar_page, self.inner.sidebar_pages)
+    }
+
+    /// The inline command list above the composer, as last drawn.
+    pub fn inline_palette_area(&self) -> Option<(u16, u16, u16, u16)> {
+        self.inner
+            .composer_palette
+            .map(|r| (r.x, r.y, r.width, r.height))
+    }
+
+    pub fn inline_palette_cursor(&self) -> usize {
+        self.inner.palette_cursor
+    }
+
+    /// Forget when the wheel last moved a selection, as time passing would.
+    pub fn let_the_wheel_settle(&mut self) {
+        self.inner.last_wheel = None;
+    }
+
     pub fn active_agent(&self) -> String {
         self.inner.active_agent().to_owned()
     }
@@ -776,7 +797,7 @@ impl TestApp {
         self.inner
             .palette_rows()
             .get(self.inner.modal_cursor)
-            .map(|(name, _)| (*name).to_owned())
+            .map(|row| row.name.to_owned())
     }
 
     pub fn press_key(&mut self, code: crossterm::event::KeyCode) -> anyhow::Result<()> {
@@ -801,7 +822,7 @@ impl TestApp {
             .inner
             .palette_rows()
             .iter()
-            .position(|(n, _)| *n == name)
+            .position(|row| row.name == name)
         {
             Some(index) => {
                 self.inner.modal_cursor = index;

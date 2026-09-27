@@ -66,6 +66,8 @@ impl Grid {
 }
 
 pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
+    app.composer_palette = None;
+    app.composer_palette_rows.clear();
     app.sidebar_area = None;
     app.sidebar_tabs.clear();
     app.sidebar_pages_area = None;

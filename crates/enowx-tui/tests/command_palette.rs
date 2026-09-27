@@ -26,13 +26,63 @@ fn it_opens_a_modal() {
 fn every_command_is_listed() {
     let mut app = TestApp::new();
     open(&mut app);
+    assert_eq!(app.palette_row_count(), TestApp::command_names().len());
     let text = app.render_to_text(110, 40).join("\n");
-    for command in ["/help", "/agent", "/model", "/provider", "/quit"] {
-        assert!(
-            text.contains(command),
-            "`{command}` should be listed: {text}"
-        );
+    for label in ["New session", "Agents", "Model", "Provider", "Theme"] {
+        assert!(text.contains(label), "`{label}` should be listed: {text}");
     }
+}
+
+/// The palette is for looking, not typing: rows read as actions, without
+/// the `/` the inline list uses.
+#[test]
+fn rows_carry_no_slash() {
+    let mut app = TestApp::new();
+    open(&mut app);
+    let text = app.render_to_text(110, 40).join("\n");
+    assert!(!text.contains("/new") && !text.contains("/help"), "{text}");
+}
+
+/// Browsing, the commands sit under headings; searching, the best match
+/// comes first.
+#[test]
+fn it_groups_when_browsing_and_ranks_when_searching() {
+    let mut app = TestApp::new();
+    open(&mut app);
+    let text = app.render_to_text(110, 40).join("\n");
+    // Not "SESSION": the side column's card is called that too.
+    assert!(text.contains("AGENTS & MODELS"), "{text}");
+
+    for c in "mo".chars() {
+        app.press_key(KeyCode::Char(c)).expect("type");
+    }
+    assert_eq!(
+        app.palette_selection().as_deref(),
+        Some("model"),
+        "a label starting with the search ranks first"
+    );
+    let text = app.render_to_text(110, 40).join("\n");
+    assert!(
+        !text.contains("AGENTS & MODELS"),
+        "no headings in a ranking: {text}"
+    );
+}
+
+/// The last command is reachable: the list scrolls rather than running off
+/// the bottom of the window.
+#[test]
+fn the_list_scrolls_to_the_last_command() {
+    let mut app = TestApp::new();
+    open(&mut app);
+    for _ in 0..TestApp::command_names().len() {
+        app.press_key(KeyCode::Down).expect("down");
+    }
+    assert_eq!(app.palette_selection().as_deref(), Some("quit"));
+    let text = app.render_to_text(100, 24).join("\n");
+    assert!(
+        text.contains("› Quit"),
+        "the selection is on screen: {text}"
+    );
 }
 
 /// Searching the summary as well as the name is the reason to open a palette

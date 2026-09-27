@@ -57,7 +57,7 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
         return;
     }
     let t = app.theme;
-    let mut y = content.y;
+    let mut heights: Vec<u16> = Vec::with_capacity(app.modal_items.len());
     let items: Vec<ListItem> = app
         .modal_items
         .iter()
@@ -82,17 +82,28 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
                     Line::styled(description.clone(), Style::default().fg(t.muted)),
                 ])
             };
-            let rows = text.lines.len() as u16;
-            if y + rows <= content.bottom() {
-                app.modal_rows
-                    .push((Rect::new(content.x, y, content.width, rows), index));
-                y += rows;
-            }
+            heights.push(text.lines.len() as u16);
             ListItem::new(text)
         })
         .collect();
     let mut state = ListState::default().with_selected(Some(app.modal_cursor));
     frame.render_stateful_widget(selectable(List::new(items), &t), content, &mut state);
+    register_list_rows(app, content, state.offset(), &heights);
+}
+
+/// Click targets for the rows a list drew. The list scrolls to keep the
+/// selection in view, so rows are counted from its offset after drawing:
+/// counted from the top, a click on a scrolled list picked the wrong row.
+fn register_list_rows(app: &mut App, area: Rect, offset: usize, heights: &[u16]) {
+    let mut y = area.y;
+    for (index, rows) in heights.iter().enumerate().skip(offset) {
+        if y + rows > area.bottom() {
+            break;
+        }
+        app.modal_rows
+            .push((Rect::new(area.x, y, area.width, *rows), index));
+        y += rows;
+    }
 }
 
 /// A list whose selected row carries the `›` marker in the two columns before
@@ -106,7 +117,7 @@ pub(super) fn selectable<'a>(list: List<'a>, t: &Theme) -> List<'a> {
         .highlight_style(Style::default().bg(t.active_tab))
 }
 
-pub(super) fn draw_model_list(frame: &mut Frame, app: &App, area: Rect) {
+pub(super) fn draw_model_list(frame: &mut Frame, app: &mut App, area: Rect) {
     if app.discovering_models {
         frame.render_widget(
             Paragraph::new(format!(
@@ -155,8 +166,10 @@ pub(super) fn draw_model_list(frame: &mut Frame, app: &App, area: Rect) {
             ListItem::new(Line::from(spans))
         })
         .collect();
+    let count = items.len();
     let mut state = ListState::default().with_selected(Some(app.modal_cursor));
     frame.render_stateful_widget(selectable(List::new(items), &t), area, &mut state);
+    register_list_rows(app, area, state.offset(), &vec![1; count]);
 }
 
 /// The prompt being edited before it is sent again. A plain field rather than

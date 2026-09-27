@@ -6,7 +6,9 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
         Modal::ModelUrl | Modal::ProviderKey | Modal::TypeSafeKey
     );
     let width = area.width.saturating_sub(2).min(72);
-    let height = if single { 8 } else { 24 };
+    // Content rows: a single field is its label, its value, a blank row and
+    // the note; the full form shows six fields of three rows and the note.
+    let height = if single { 4 } else { 20 };
     // Keys go in the box's bottom edge; the sentence explaining the field, or
     // the error when there is one, keeps one row inside.
     let (keys, note) = if app.modal == Modal::ModelUrl {

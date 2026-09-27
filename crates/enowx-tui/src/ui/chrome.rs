@@ -53,7 +53,12 @@ impl Grid {
         // already separate them, and a wider gap is a gutter with nothing in it.
         Self {
             main: Rect::new(body.x, body.y, body.width - side_w - 1, body.height),
-            side: Some(Rect::new(body.right() - side_w, body.y, side_w, body.height)),
+            side: Some(Rect::new(
+                body.right() - side_w,
+                body.y,
+                side_w,
+                body.height,
+            )),
             status,
             session_card: area.height >= SESSION_MIN_HEIGHT,
         }
@@ -73,6 +78,39 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
     // screen, in the status bar when it is not.
     let figures_elsewhere = grid.side.is_some() && grid.session_card;
     draw_footer(frame, app, grid.status, !figures_elsewhere);
+}
+
+/// Columns between a box's border and its content, on each side.
+pub(super) const PAD_X: u16 = 2;
+/// Rows between a box's border and its content, top and bottom.
+pub(super) const PAD_Y: u16 = 1;
+
+/// The content area inside a box: `inner` (the box minus its border) with
+/// `PAD_X` columns each side and, when `vertical`, `PAD_Y` rows top and
+/// bottom. Text resting against the border reads as cramped and makes the
+/// border look like part of the text.
+///
+/// A box too small to afford it gives up the padding rather than its content:
+/// one column each side below 24 columns, no rows below five.
+pub(super) fn padded(inner: Rect, vertical: bool) -> Rect {
+    let px = if inner.width >= 24 {
+        PAD_X
+    } else if inner.width >= 6 {
+        1
+    } else {
+        0
+    };
+    let py = if vertical && inner.height >= 2 * PAD_Y + 3 {
+        PAD_Y
+    } else {
+        0
+    };
+    Rect::new(
+        inner.x + px,
+        inner.y + py,
+        inner.width.saturating_sub(2 * px),
+        inner.height.saturating_sub(2 * py),
+    )
 }
 
 /// A rounded box on the panel surface. Every box in the window is drawn by
@@ -124,7 +162,13 @@ pub(super) fn box_title(
 /// Keys set into a box's bottom edge, `╰─ ↑↓ move · Esc close ─╯`, where the
 /// sidebar keeps its pager. A row of hints inside the box cost a row of the
 /// content it described.
-pub(super) fn box_hint(frame: &mut Frame, area: Rect, hint: &str, colour: ratatui::style::Color, fill: ratatui::style::Color) {
+pub(super) fn box_hint(
+    frame: &mut Frame,
+    area: Rect,
+    hint: &str,
+    colour: ratatui::style::Color,
+    fill: ratatui::style::Color,
+) {
     if hint.is_empty() || area.width <= 7 || area.height < 2 {
         return;
     }
@@ -138,21 +182,21 @@ pub(super) fn box_hint(frame: &mut Frame, area: Rect, hint: &str, colour: ratatu
 
 /// A centred overlay: the same rounded box as the layout's own, with an accent
 /// edge because it has the keyboard, its title in the top edge and its keys in
-/// the bottom one. Returns the box and its content area — inside the border
-/// with a column of padding each side, so content starts on the overlay's
-/// column 2 like the text in every other box.
+/// the bottom one. `content_rows` is what the caller has to show; the border
+/// and the padding are added here, so no caller counts them. Returns the box
+/// and its padded content area.
 pub(super) fn overlay(
     frame: &mut Frame,
     app: &App,
     width: u16,
-    height: u16,
+    content_rows: u16,
     title: &str,
     hint: &str,
 ) -> (Rect, Rect) {
     let t = app.theme;
     let area = frame.area();
     let width = width.min(area.width.saturating_sub(4));
-    let height = height.min(area.height.saturating_sub(2));
+    let height = (content_rows + 2 + 2 * PAD_Y).min(area.height.saturating_sub(2));
     let rect = Rect::new(
         area.x + area.width.saturating_sub(width) / 2,
         area.y + area.height.saturating_sub(height) / 2,
@@ -174,23 +218,24 @@ pub(super) fn overlay(
         );
     }
     box_hint(frame, rect, hint, t.muted, t.panel);
-    let content = Rect::new(
-        rect.x + 2,
+    let inner = Rect::new(
+        rect.x + 1,
         rect.y + 1,
-        rect.width.saturating_sub(4),
+        rect.width.saturating_sub(2),
         rect.height.saturating_sub(2),
     );
-    (rect, content)
+    (rect, padded(inner, true))
 }
 
 fn draw_footer(frame: &mut Frame, app: &App, area: Rect, show_figures: bool) {
     let t = app.theme;
-    // Inset two columns each side, so the status bar's first and last
+    // Inset by a border and the padding, so the status bar's first and last
     // characters sit on the same columns as the markers inside the boxes above.
-    if area.width < 8 {
+    let inset = 1 + PAD_X;
+    if area.width < 2 * inset + 4 {
         return;
     }
-    let area = Rect::new(area.x + 2, area.y, area.width - 4, area.height);
+    let area = Rect::new(area.x + inset, area.y, area.width - 2 * inset, area.height);
 
     // LEFT: spinner (busy only) + agent + model. Idle just shows agent + model.
     let mut left_spans: Vec<Span<'static>> = Vec::new();

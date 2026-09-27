@@ -93,8 +93,8 @@ fn draw_skills(frame: &mut Frame, app: &mut App) {
     if !rows.is_empty() && app.modal_cursor >= rows.len() {
         app.modal_cursor = rows.len() - 1;
     }
-    // Search row, a blank row, the list, and the two edges.
-    let height = ((rows.len() as u16) + 4).max(8);
+    // The search row, a blank row, then the list.
+    let height = (rows.len() as u16 + 2).max(4);
     let (_, content) = overlay(
         frame,
         app,
@@ -163,8 +163,8 @@ fn draw_mcp(frame: &mut Frame, app: &mut App) {
     if !rows.is_empty() && app.modal_cursor >= rows.len() {
         app.modal_cursor = rows.len() - 1;
     }
-    // Search row, a blank row, the list, and the two edges.
-    let height = ((rows.len() as u16) + 4).max(8);
+    // The search row, a blank row, then the list.
+    let height = (rows.len() as u16 + 2).max(4);
     let (_, content) = overlay(
         frame,
         app,
@@ -249,7 +249,8 @@ fn draw_mcp_form(frame: &mut Frame, app: &mut App) {
         frame,
         app,
         78,
-        MCP_FORM_FIELDS.len() as u16 + 5,
+        // The fields, a blank row, and the row an error goes in.
+        MCP_FORM_FIELDS.len() as u16 + 2,
         title,
         "Tab/↓ next · ↑ prev · Space transport · Enter save · Esc cancel",
     );
@@ -278,14 +279,20 @@ fn draw_mcp_form(frame: &mut Frame, app: &mut App) {
         };
         let empty = value_is_empty(field, app);
         let (value, value_style) = if empty {
-            (field.placeholder().to_string(), Style::default().fg(t.muted))
+            (
+                field.placeholder().to_string(),
+                Style::default().fg(t.muted),
+            )
         } else {
             (value, Style::default().fg(t.text))
         };
         // Marker on column 2, the label on column 4 in a fixed column, and
         // the value after it: every field's value starts on one column.
         let line = Line::from(vec![
-            Span::styled(if selected { "› " } else { "  " }, Style::default().fg(t.accent)),
+            Span::styled(
+                if selected { "› " } else { "  " },
+                Style::default().fg(t.accent),
+            ),
             Span::styled(format!("{:<26}", MCP_FORM_LABELS[i]), label_style),
             Span::styled(value, value_style),
         ]);
@@ -315,21 +322,22 @@ fn value_is_empty(field: &McpFormField, app: &App) -> bool {
 /// Simple confirm dialog for Ctrl+C on an empty composer. Y/Enter quits,
 /// N/Esc cancels. Kept small so it never covers the transcript.
 fn draw_quit_confirm(frame: &mut Frame, app: &mut App) {
+    // The question, a blank row, and the buttons.
     let (_, content) = overlay(
         frame,
         app,
         46,
-        7,
+        3,
         app.modal.title(),
         "Y quit · N stay · Enter confirm",
     );
     let t = app.theme;
     frame.render_widget(
         Paragraph::new("Quit Enx? Unsent input will be lost.").style(Style::default().fg(t.text)),
-        Rect::new(content.x, content.y + 1, content.width, 1),
+        Rect::new(content.x, content.y, content.width, 1),
     );
 
-    // Two buttons centred on the content's fourth row: `[  Yes  ]  [  No  ]`.
+    // Two buttons centred on the content's last row: `[  Yes  ]  [  No  ]`.
     // The active one uses the selection band and the accent so keyboard
     // focus is obvious; the idle one is muted. Both are click targets.
     let yes_label = "  Yes  ";
@@ -337,7 +345,7 @@ fn draw_quit_confirm(frame: &mut Frame, app: &mut App) {
     let gap = 2usize;
     let total_w = yes_label.chars().count() + gap + no_label.chars().count() + 4;
     let start = content.x + (content.width.saturating_sub(total_w as u16)) / 2;
-    let y = content.y + 3;
+    let y = content.y + 2;
     let yes_rect = Rect::new(start, y, (yes_label.chars().count() + 2) as u16, 1);
     let no_rect = Rect::new(
         yes_rect.x + yes_rect.width + gap as u16,
@@ -377,8 +385,8 @@ fn draw_commands(frame: &mut Frame, app: &mut App) {
     if !rows.is_empty() && app.modal_cursor >= rows.len() {
         app.modal_cursor = rows.len() - 1;
     }
-    // Search row, a blank row, the list, and the two edges.
-    let height = ((rows.len() as u16) + 4).max(8);
+    // The search row, a blank row, then the list.
+    let height = (rows.len() as u16 + 2).max(4);
     let (_, content) = overlay(
         frame,
         app,

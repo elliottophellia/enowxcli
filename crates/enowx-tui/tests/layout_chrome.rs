@@ -75,7 +75,10 @@ fn no_box_runs_into_the_status_bar() {
         !status.chars().any(|c| "│╰╯╭╮─".contains(c)),
         "the status bar should carry no box edge: {status:?}"
     );
-    assert!(status.contains("READY"), "and should be the status bar: {status:?}");
+    assert!(
+        status.contains("READY"),
+        "and should be the status bar: {status:?}"
+    );
 }
 
 /// Without room for the side column there is none, and nothing is left in
@@ -87,7 +90,9 @@ fn a_narrow_terminal_draws_no_side_column() {
     assert!(app.side_column(70, H).is_empty());
     let rows = app.render_to_text(70, H);
     assert!(
-        !rows.iter().any(|row| row.contains("╮ ╭") || row.contains("│ │")),
+        !rows
+            .iter()
+            .any(|row| row.contains("╮ ╭") || row.contains("│ │")),
         "no second column of boxes should be drawn: {rows:#?}"
     );
 }
@@ -100,7 +105,10 @@ fn a_short_terminal_moves_the_session_figures_to_the_status_bar() {
     let mut app = TestApp::new();
     app.push_assistant("content");
     let side = app.side_column(W, 14).join("\n");
-    assert!(!side.contains("SESSION"), "no SESSION card at 14 rows: {side}");
+    assert!(
+        !side.contains("SESSION"),
+        "no SESSION card at 14 rows: {side}"
+    );
     let status = app.status_bar(W, 14);
     assert!(status.contains("ctx"), "the figures move here: {status:?}");
 
@@ -133,7 +141,10 @@ fn the_pager_sits_in_the_detail_cards_bottom_edge() {
     let pager_col = (side_x as usize) + last.find('◀').map(|b| last[..b].chars().count()).unwrap();
     let pager_bg = app.row_backgrounds(W, H, pager_row)[pager_col].clone();
     let wall_bg = app.row_backgrounds(W, H, pager_row - 2)[side_x as usize].clone();
-    assert_eq!(pager_bg, wall_bg, "the pager should share the card's background");
+    assert_eq!(
+        pager_bg, wall_bg,
+        "the pager should share the card's background"
+    );
 }
 
 /// Every cell of the side column's left wall shares one background. A cell in

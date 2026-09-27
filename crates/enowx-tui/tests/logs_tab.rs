@@ -14,7 +14,10 @@ const LOG_TAB: usize = 3;
 fn logs(app: &mut TestApp) -> String {
     app.select_sidebar_tab(LOG_TAB);
     let side = app.side_column(120, 34);
-    assert!(!side.is_empty(), "the side column should be on screen at 120x34");
+    assert!(
+        !side.is_empty(),
+        "the side column should be on screen at 120x34"
+    );
     side.join("\n")
 }
 

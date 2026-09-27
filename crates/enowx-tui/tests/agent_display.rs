@@ -68,7 +68,11 @@ fn the_agent_tab_marks_the_active_agent() {
     // colour: under NO_COLOR a colour-only mark says nothing.
     let mut marked: Vec<String> = rows
         .iter()
-        .flat_map(|row| row.split_whitespace().map(str::to_owned).collect::<Vec<_>>())
+        .flat_map(|row| {
+            row.split_whitespace()
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
         .filter_map(|word| word.strip_prefix('›').map(str::to_owned))
         .filter(|name| !name.is_empty())
         .collect();
@@ -93,7 +97,8 @@ fn the_roster_is_names_only() {
     let mut app = TestApp::new();
     let rows = agent_tab_rows(&mut app);
     assert!(
-        rows.iter().any(|row| row.split_whitespace().any(|w| w == "fe")),
+        rows.iter()
+            .any(|row| row.split_whitespace().any(|w| w == "fe")),
         "the roster should still name its agents: {rows:#?}"
     );
     assert!(
@@ -111,7 +116,10 @@ fn the_roster_flows_names_across_rows() {
     let rows = app.side_column(W, H);
     let fe = rows
         .iter()
-        .find(|row| row.split_whitespace().any(|w| w.trim_start_matches('›') == "fe"))
+        .find(|row| {
+            row.split_whitespace()
+                .any(|w| w.trim_start_matches('›') == "fe")
+        })
         .expect("the roster should name `fe`");
     let names_on_row = fe
         .split_whitespace()

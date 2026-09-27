@@ -116,6 +116,23 @@ pub(super) fn draw_transcript(frame: &mut Frame, app: &mut App, area: Rect) {
         compact_tools = cached.is_tool;
     }
 
+    // The last block's closing blank rows are spacing before a block that
+    // has not arrived yet. At the bottom of the transcript they only doubled
+    // the box's own bottom padding, so they are left below the scroll range.
+    let trailing = (0..app.blocks.len())
+        .rev()
+        .filter_map(|idx| app.render_cache.get(idx).and_then(|c| c.as_ref()))
+        .find(|cached| !cached.skipped)
+        .map(|cached| {
+            cached
+                .lines
+                .iter()
+                .rev()
+                .take_while(|line| is_blank_line(Some(line)))
+                .count()
+        })
+        .unwrap_or(0);
+    let total = total.saturating_sub(trailing);
     let content_height = total.min(u16::MAX as usize) as u16;
     let max_scroll = content_height.saturating_sub(area.height);
     app.max_scroll = max_scroll;

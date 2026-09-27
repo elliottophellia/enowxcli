@@ -21,11 +21,15 @@ pub(super) fn draw_sidebar(frame: &mut Frame, app: &mut App, area: Rect, session
     }
     app.sidebar_area = Some(area);
     let detail = if session_card {
-        // Border, one column of padding, then the text: the card's content
-        // starts on its column 2 like everything else.
-        let rows = session_rows(app, area.width.saturating_sub(4) as usize);
-        let height = (rows.len() as u16 + 2).min(area.height);
-        draw_session_card(frame, app, Rect::new(area.x, area.y, area.width, height), rows);
+        // The border and the padding on both sides, the same as every box.
+        let rows = session_rows(app, area.width.saturating_sub(2 + 2 * PAD_X) as usize);
+        let height = (rows.len() as u16 + 2 + 2 * PAD_Y).min(area.height);
+        draw_session_card(
+            frame,
+            app,
+            Rect::new(area.x, area.y, area.width, height),
+            rows,
+        );
         Rect::new(
             area.x,
             area.y + height,
@@ -52,15 +56,7 @@ fn draw_session_card(frame: &mut Frame, app: &App, area: Rect, rows: Vec<Line<'s
         )],
         t.panel,
     );
-    frame.render_widget(
-        Paragraph::new(rows),
-        Rect::new(
-            inner.x + 1,
-            inner.y,
-            inner.width.saturating_sub(2),
-            inner.height,
-        ),
-    );
+    frame.render_widget(Paragraph::new(rows), padded(inner, true));
 }
 
 /// The figures someone glances at the side column for: how full the context
@@ -124,7 +120,10 @@ fn session_rows(app: &App, width: usize) -> Vec<Line<'static>> {
         .count();
     let mut tools = vec![
         label("tools"),
-        value(format!("{calls} {}", if calls == 1 { "call" } else { "calls" })),
+        value(format!(
+            "{calls} {}",
+            if calls == 1 { "call" } else { "calls" }
+        )),
     ];
     // A failure is the one thing here worth interrupting for, so it only
     // appears when there is one, and in red.
@@ -144,7 +143,11 @@ fn session_rows(app: &App, width: usize) -> Vec<Line<'static>> {
             value(format!(
                 "{} {} · {} saved",
                 app.trimmed_count,
-                if app.trimmed_count == 1 { "result" } else { "results" },
+                if app.trimmed_count == 1 {
+                    "result"
+                } else {
+                    "results"
+                },
                 thousands(app.trimmed_saved as u64)
             )),
         ]));
@@ -160,12 +163,7 @@ fn draw_detail_card(frame: &mut Frame, app: &mut App, area: Rect) {
         return;
     }
 
-    let body = Rect::new(
-        inner.x + 1,
-        inner.y,
-        inner.width.saturating_sub(2),
-        inner.height,
-    );
+    let body = padded(inner, true);
     app.delegation_rects.clear();
     let (lines, delegation_markers) = detail_lines(app, body.width as usize);
     let page_size = body.height.max(1) as usize;
@@ -255,7 +253,8 @@ fn draw_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
             )),
             Rect::new(x, area.y, width, 1),
         );
-        app.sidebar_tabs.push((Rect::new(x, area.y, width, 1), index));
+        app.sidebar_tabs
+            .push((Rect::new(x, area.y, width, 1), index));
         x += width;
         if index + 1 < TABS.len() && x + 1 < limit {
             frame.render_widget(
@@ -428,7 +427,11 @@ fn detail_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usi
             headline(
                 &mut lines,
                 &calls.to_string(),
-                if calls == 1 { "tool call" } else { "tool calls" },
+                if calls == 1 {
+                    "tool call"
+                } else {
+                    "tool calls"
+                },
                 t,
             );
 
@@ -461,10 +464,7 @@ fn detail_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usi
             if !blocked.is_empty() {
                 heading(&mut lines, "BLOCKED", t);
                 for name in blocked {
-                    lines.push(Line::styled(
-                        name.to_owned(),
-                        Style::default().fg(t.muted),
-                    ));
+                    lines.push(Line::styled(name.to_owned(), Style::default().fg(t.muted)));
                 }
             }
 
@@ -552,7 +552,12 @@ fn detail_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usi
                 &mut lines,
                 &entries.len().to_string(),
                 &match filter {
-                    None => if entries.len() == 1 { "entry" } else { "entries" }.to_owned(),
+                    None => if entries.len() == 1 {
+                        "entry"
+                    } else {
+                        "entries"
+                    }
+                    .to_owned(),
                     Some(kind) => format!("entries · filtered to {}", kind.label()),
                 },
                 t,

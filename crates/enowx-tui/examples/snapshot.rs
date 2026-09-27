@@ -16,15 +16,27 @@ fn session() -> TestApp {
          3. Footer menimpa sudut kotak sidebar\n\n\
          ```rust\nfn sidebar_width(total: u16) -> u16 {\n    (total * 2 / 5).clamp(38, 60)\n}\n```",
     );
-    app.push_tool("t1", "read", r#"{"path":"crates/enowx-tui/src/ui/sidebar.rs"}"#, "use super::*;\n\npub(super) fn draw_sidebar(...) {\n    ...\n}\n");
-    app.push_tool("t2", "grep", r#"{"pattern":"draw_split_line","path":"crates"}"#, "crates/enowx-tui/src/ui/chrome.rs:316\ncrates/enowx-tui/src/ui/chrome.rs:144\n");
+    app.push_tool(
+        "t1",
+        "read",
+        r#"{"path":"crates/enowx-tui/src/ui/sidebar.rs"}"#,
+        "use super::*;\n\npub(super) fn draw_sidebar(...) {\n    ...\n}\n",
+    );
+    app.push_tool(
+        "t2",
+        "grep",
+        r#"{"pattern":"draw_split_line","path":"crates"}"#,
+        "crates/enowx-tui/src/ui/chrome.rs:316\ncrates/enowx-tui/src/ui/chrome.rs:144\n",
+    );
     app.push_tool(
         "t3",
         "bash",
         r#"{"command":"cargo test -p enowx-tui"}"#,
         "running 304 tests\ntest result: ok. 304 passed; 0 failed\n",
     );
-    app.push_assistant("Semua test lulus. Sidebar sekarang memakai grid dua kolom dengan lebar label tetap.");
+    app.push_assistant(
+        "Semua test lulus. Sidebar sekarang memakai grid dua kolom dengan lebar label tetap.",
+    );
     app
 }
 
@@ -95,8 +107,15 @@ fn scenario(name: &str) -> TestApp {
 fn main() {
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let nums: Vec<u16> = raw.iter().filter_map(|a| a.parse().ok()).collect();
-    let (w, h) = (nums.first().copied().unwrap_or(120), nums.get(1).copied().unwrap_or(36));
-    let name = raw.iter().find(|a| a.parse::<u16>().is_err()).map(String::as_str).unwrap_or("session");
+    let (w, h) = (
+        nums.first().copied().unwrap_or(120),
+        nums.get(1).copied().unwrap_or(36),
+    );
+    let name = raw
+        .iter()
+        .find(|a| a.parse::<u16>().is_err())
+        .map(String::as_str)
+        .unwrap_or("session");
     let mut app = scenario(name);
     for line in app.render_to_text(w, h) {
         println!("{line}");

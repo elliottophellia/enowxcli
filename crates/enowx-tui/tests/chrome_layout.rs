@@ -26,24 +26,83 @@ fn chat_edge(app: &mut TestApp) -> String {
 fn the_chat_box_names_the_workspace() {
     let mut app = TestApp::new();
     let edge = chat_edge(&mut app);
-    assert!(edge.starts_with("╭─ ws"), "the workspace, on the edge: {edge}");
+    assert!(
+        edge.starts_with("╭─ ws"),
+        "the workspace, on the edge: {edge}"
+    );
     assert!(
         !edge.contains("router"),
         "the agent belongs to the status bar, not both: {edge}"
     );
 }
 
-/// No header box above the conversation: the chat box's own edge is the only
-/// row of chrome between the window's top and the first message. The header
-/// it replaced spent four rows to print one word.
+/// No header box above the conversation, and no text against the box: one
+/// row of padding under the chat box's edge, then the first message, with its
+/// marker two columns in from the wall. The header this replaced spent four
+/// rows to print one word; text touching the border read as part of it.
 #[test]
-fn the_conversation_starts_on_the_second_row() {
+fn the_conversation_is_padded_from_the_box() {
     let mut app = TestApp::new();
     app.push_user("first message");
     let main = app.main_column(W, H);
+    let inside = |row: &str| -> String {
+        let chars: Vec<char> = row.chars().collect();
+        chars[1..chars.len().saturating_sub(1)].iter().collect()
+    };
     assert!(
-        main[1].contains("first message"),
-        "the first message sits directly under the edge: {main:#?}"
+        inside(&main[1]).trim().is_empty(),
+        "a row of padding under the edge: {main:#?}"
+    );
+    assert!(
+        main[2].contains("first message"),
+        "then the first message: {main:#?}"
+    );
+    assert_eq!(
+        main[2].chars().position(|c| c == '▌'),
+        Some(3),
+        "its marker two columns in from the wall: {:?}",
+        main[2]
+    );
+}
+
+/// A paragraph long enough to wrap never runs into the right-hand padding.
+#[test]
+fn wrapped_text_keeps_clear_of_the_right_wall() {
+    let mut app = TestApp::new();
+    app.push_assistant(&"a sentence that goes on for a while ".repeat(12));
+    for row in app.main_column(W, H) {
+        let chars: Vec<char> = row.chars().collect();
+        if chars.first() != Some(&'│') || chars.len() < 4 {
+            continue;
+        }
+        let tail: String = chars[chars.len() - 3..chars.len() - 1].iter().collect();
+        assert_eq!(
+            tail, "  ",
+            "two columns of padding before the wall: {row:?}"
+        );
+    }
+}
+
+/// The side column's cards are padded the same way as the chat box.
+#[test]
+fn the_side_cards_are_padded() {
+    let mut app = TestApp::new();
+    let side = app.side_column(W, H);
+    assert!(
+        side[1]
+            .chars()
+            .skip(1)
+            .collect::<String>()
+            .trim_end_matches('│')
+            .trim()
+            .is_empty(),
+        "a row of padding under the SESSION edge: {side:#?}"
+    );
+    let figures = &side[2];
+    assert_eq!(
+        figures.chars().position(|c| c.is_alphanumeric()),
+        Some(3),
+        "the first figure two columns in from the wall: {figures:?}"
     );
 }
 

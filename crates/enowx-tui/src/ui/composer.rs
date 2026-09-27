@@ -3,9 +3,9 @@ use super::*;
 /// The main column: the chat box, the command palette when one is being
 /// typed, and the composer, stacked on the same two edges.
 pub(super) fn draw_main_column(frame: &mut Frame, app: &mut App, area: Rect) {
-    // The field runs from column 4 (after the border, a space, the prompt
-    // and a space) to one column shy of the right border.
-    let field_w = area.width.saturating_sub(6).max(1) as usize;
+    // The field starts on the text column (border, padding, the prompt and a
+    // space) and stops at the padding on the right.
+    let field_w = area.width.saturating_sub(COMPOSER_LEFT + 1 + PAD_X).max(1) as usize;
     let (input, row, col) = input_rows(&app.input, app.cursor, field_w);
     // The box's two edges.
     const FRAME: u16 = 2;
@@ -49,6 +49,10 @@ pub(super) fn draw_main_column(frame: &mut Frame, app: &mut App, area: Rect) {
     );
 }
 
+/// Columns from the composer's left edge to its text: the border, the padding,
+/// the prompt and a space — the same text column as the transcript above it.
+const COMPOSER_LEFT: u16 = 1 + PAD_X + 2;
+
 /// The conversation, in a box titled with the project and the session.
 ///
 /// The title replaces the header box that used to sit above everything: four
@@ -91,15 +95,10 @@ fn draw_chat_box(frame: &mut Frame, app: &mut App, area: Rect) {
         }
     }
     box_title(frame, area, title, t.panel);
-    // One column of padding inside the border: markers land on the box's
-    // column 2 and text on column 4, the same columns as the composer's
-    // prompt and field below.
-    let stream = Rect::new(
-        inner.x + 1,
-        inner.y,
-        inner.width.saturating_sub(2),
-        inner.height,
-    );
+    // Padded on every side, so neither the first nor the last line of the
+    // conversation rests against the box. Markers land on the box's column 3
+    // and text on column 5, the composer's prompt and field below.
+    let stream = padded(inner, true);
     if stream.width == 0 || stream.height == 0 {
         return;
     }
@@ -126,15 +125,21 @@ fn draw_palette(frame: &mut Frame, app: &App, area: Rect, matches: &[(&str, &str
     );
     let rows = inner.height as usize;
     let start = app.palette_cursor.saturating_sub(rows.saturating_sub(1));
-    for (offset, (index, (name, summary))) in
-        matches.iter().enumerate().skip(start).take(rows).enumerate()
+    let lead = " ".repeat(PAD_X as usize);
+    for (offset, (index, (name, summary))) in matches
+        .iter()
+        .enumerate()
+        .skip(start)
+        .take(rows)
+        .enumerate()
     {
         let selected = index == app.palette_cursor;
-        // Marker on column 2 and the command on column 4, like every other
-        // row in the column.
+        // The marker on the marker column and the command on the text
+        // column, like every other row in the column. The selection band
+        // runs the full inner width.
         let line = Line::from(vec![
             Span::styled(
-                format!(" {} ", if selected { "›" } else { " " }),
+                format!("{lead}{} ", if selected { "›" } else { " " }),
                 Style::default().fg(t.accent),
             ),
             Span::styled(
@@ -184,15 +189,16 @@ fn draw_composer_box(
     // something other than send a message. "MESSAGE" on every frame restated
     // what the `❯` already says, and a label that is always there stops being
     // read. An attachment error outranks both: it is why the send will fail.
-    let label: Option<(String, ratatui::style::Color)> = if let Some(error) = app.attach_error.as_deref() {
-        Some((error.to_owned(), t.red))
-    } else if app.busy {
-        Some(("QUEUED".to_owned(), t.yellow))
-    } else if !app.attachments.is_empty() {
-        Some(("WITH IMAGES".to_owned(), t.accent2))
-    } else {
-        None
-    };
+    let label: Option<(String, ratatui::style::Color)> =
+        if let Some(error) = app.attach_error.as_deref() {
+            Some((error.to_owned(), t.red))
+        } else if app.busy {
+            Some(("QUEUED".to_owned(), t.yellow))
+        } else if !app.attachments.is_empty() {
+            Some(("WITH IMAGES".to_owned(), t.accent2))
+        } else {
+            None
+        };
     if let Some((label, colour)) = label.filter(|_| boxed.width > 30) {
         box_title(
             frame,
@@ -208,9 +214,9 @@ fn draw_composer_box(
         return;
     }
     let field = Rect::new(
-        boxed.x + 4,
+        boxed.x + COMPOSER_LEFT,
         boxed.y + 1,
-        boxed.width.saturating_sub(6),
+        boxed.width.saturating_sub(COMPOSER_LEFT + 1 + PAD_X),
         boxed.height.saturating_sub(2),
     );
     // The marker colours to say a command is being typed; it does not change
@@ -223,7 +229,7 @@ fn draw_composer_box(
                 .bg(t.subtle)
                 .add_modifier(Modifier::BOLD),
         ),
-        Rect::new(boxed.x + 2, field.y, 1, 1),
+        Rect::new(boxed.x + 1 + PAD_X, field.y, 1, 1),
     );
     let field_w = field.width as usize;
     let offset = row.saturating_sub(field.height.saturating_sub(1) as usize);

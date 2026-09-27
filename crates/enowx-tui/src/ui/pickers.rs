@@ -51,7 +51,7 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
     } else {
         "Enter uses it now · F5 refresh · Esc cancel"
     };
-    let (_, content) = overlay(frame, app, width, body + 2, app.modal.title(), hint);
+    let (_, content) = overlay(frame, app, width, body, app.modal.title(), hint);
     if app.modal == Modal::Models {
         draw_model_list(frame, app, content);
         return;
@@ -92,11 +92,7 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
         })
         .collect();
     let mut state = ListState::default().with_selected(Some(app.modal_cursor));
-    frame.render_stateful_widget(
-        selectable(List::new(items), &t),
-        content,
-        &mut state,
-    );
+    frame.render_stateful_widget(selectable(List::new(items), &t), content, &mut state);
 }
 
 /// A list whose selected row carries the `›` marker in the two columns before
@@ -170,14 +166,14 @@ fn draw_message_edit(frame: &mut Frame, app: &App) {
     let area = frame.area();
     let width = area.width.saturating_sub(4).min(80);
     // Room for the draft as it grows, without swallowing the screen. The
-    // content is four columns narrower than the box: border and padding.
-    let text_w = width.saturating_sub(4).max(1) as usize;
+    // text is narrower than the box by its border and padding.
+    let text_w = width.saturating_sub(2 + 2 * PAD_X).max(1) as usize;
     let text_rows = (app.message_draft.chars().count() / text_w + 1).clamp(1, 8) as u16;
     let (_, content) = overlay(
         frame,
         app,
         width,
-        text_rows + 2,
+        text_rows,
         app.modal.title(),
         "Enter sends from here · Esc cancels",
     );

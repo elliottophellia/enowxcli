@@ -171,7 +171,11 @@ async fn instruction_files_reach_the_model_once() {
 #[tokio::test]
 async fn every_agent_is_told_to_match_effort_to_the_task() {
     let system = system_prompt_sent("effort").await;
-    for rule in ["Match effort to the task", "never for ls, find, cat"] {
+    for rule in [
+        "Match effort to the task",
+        "never for ls, find, cat",
+        "choose it and say what you chose",
+    ] {
         assert!(system.contains(rule), "missing {rule:?}:\n{system}");
     }
 }

@@ -329,7 +329,7 @@ async fn a_turn_that_never_settles_stops_and_says_so() {
         events.iter().any(|e| matches!(
             e,
             Event::Notice { message }
-                if message.contains("handing over") || message.contains("Stopped after")
+                if message.contains("handing over") || message.contains("Stopped")
         )),
         "the user should be told why it stopped rather than it just ending: \
          {events:#?}"

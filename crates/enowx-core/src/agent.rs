@@ -834,10 +834,6 @@ impl Agent {
             anyhow::bail!("the message is empty");
         }
         anyhow::ensure!(
-            self.config.agent.max_steps > 0,
-            "agent.max_steps must be greater than zero"
-        );
-        anyhow::ensure!(
             self.config.is_ready(),
             "Configure a provider with /provider, or set ENX_BASE_URL, ENX_MODEL and ENX_API_KEY."
         );
@@ -1020,7 +1016,13 @@ impl Agent {
         // that fell down two tiers would otherwise lose two of its steps to
         // failures it did not cause.
         let mut step = 0u32;
-        while step < self.config.agent.max_steps {
+        let limit = self.config.agent.max_steps;
+        // The tool calls of the last step, and how many steps in a row made
+        // exactly those. With no cap on steps, this is what ends a turn stuck
+        // repeating itself.
+        let mut last_calls = String::new();
+        let mut repeats = 0u32;
+        while limit == 0 || step < limit {
             if cancel.is_cancelled() {
                 stop_reason = "aborted".into();
                 break;
@@ -1333,8 +1335,31 @@ impl Agent {
                     }
                 }
             }
+            let calls: String = completion
+                .tool_calls
+                .iter()
+                .map(|call| format!("{}:{}\n", call.name, call.arguments))
+                .collect();
+            if calls == last_calls {
+                repeats += 1;
+            } else {
+                last_calls = calls;
+                repeats = 1;
+            }
+            if repeats >= REPEAT_LIMIT {
+                stop_reason = "repeating".into();
+                let _ = events
+                    .send(Event::Notice {
+                        message: format!(
+                            "Stopped: the agent made the same call {REPEAT_LIMIT} times in a row \
+                             without getting anywhere."
+                        ),
+                    })
+                    .await;
+                break;
+            }
             step += 1;
-            if step == self.config.agent.max_steps {
+            if step == limit {
                 stop_reason = "step_limit".into();
                 let _ = events
                     .send(Event::Notice {
@@ -1414,6 +1439,10 @@ fn accepted_message(switch: &crate::routing::Switch) -> String {
         }
     }
 }
+
+/// Steps in a row making exactly the same tool calls before a turn is taken
+/// to be stuck and stopped.
+const REPEAT_LIMIT: u32 = 3;
 
 /// What an agent that has just been handed the conversation is told.
 fn handoff_note(switch: &crate::session::AgentSwitch) -> String {

@@ -193,7 +193,10 @@ impl Default for ServerConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AgentConfig {
-    /// Hard cap on model round-trips in a single turn, so a tool loop cannot spin forever.
+    /// Cap on model calls in a single turn; 0 means none, and the turn runs
+    /// until the work is done. A cap cut long work off mid-task ("Stopped
+    /// after 32 model calls"), so what stops a runaway turn by default is the
+    /// loop guard in the agent: the same calls three steps running.
     pub max_steps: u32,
     /// Working directory the file and shell tools are rooted in.
     pub workspace: Option<PathBuf>,
@@ -225,7 +228,7 @@ pub struct AgentConfig {
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
-            max_steps: 32,
+            max_steps: 0,
             workspace: None,
             shell_timeout_secs: 120,
             auto_compact_at: 0.85,
@@ -434,8 +437,8 @@ impl Config {
 
     fn validate(&self) -> Result<()> {
         anyhow::ensure!(
-            self.agent.max_steps > 0 && self.agent.max_steps <= 256,
-            "agent.max_steps must be 1..=256"
+            self.agent.max_steps <= 10_000,
+            "agent.max_steps must be 0 (no limit) to 10000"
         );
         anyhow::ensure!(
             self.agent.shell_timeout_secs > 0 && self.agent.shell_timeout_secs <= 86_400,

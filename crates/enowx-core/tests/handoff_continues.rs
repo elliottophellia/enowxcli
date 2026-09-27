@@ -135,7 +135,11 @@ fn isolated_agent(config: Config) -> Agent {
         agents: builtin_agents(),
         ..Discovery::default()
     };
-    Agent::with_discovery(config, SessionStore::default(), discovery)
+    // Sessions go in the test's own directory, cleaned up with it. The
+    // default store is the user's real one: every run of these tests left a
+    // handful of sessions there, 372 of them before this was noticed.
+    let store = SessionStore::new(config.workspace().join(".enx-sessions"));
+    Agent::with_discovery(config, store, discovery)
 }
 
 async fn collect(replies: Vec<String>, tag: &str) -> (Vec<Event>, usize) {

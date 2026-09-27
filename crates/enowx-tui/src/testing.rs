@@ -46,6 +46,21 @@ impl TestApp {
         }
     }
 
+    /// A conversation under way: the chat layout rather than the home
+    /// screen, with nothing in the transcript yet. For tests of the layout
+    /// itself, which a first message would only add rows to.
+    pub fn in_conversation() -> Self {
+        let mut app = Self::new();
+        app.begin_conversation();
+        app
+    }
+
+    /// Give the app a session, as the first message or `/resume` does, so
+    /// it draws the chat layout.
+    pub fn begin_conversation(&mut self) {
+        self.inner.session_id = Some("test-conversation".into());
+    }
+
     pub fn new_with_skills(names: &[&str]) -> Self {
         let mut app = Self::new();
         let ws = app.inner.config.workspace();
@@ -361,6 +376,51 @@ impl TestApp {
 
     pub fn active_agent(&self) -> String {
         self.inner.active_agent().to_owned()
+    }
+
+    /// Whether the window shows the home screen rather than the chat layout.
+    pub fn is_home(&self) -> bool {
+        self.inner.is_home()
+    }
+
+    /// Put the home screen `seconds` into its opening: 0 is the first frame,
+    /// and anything past a second is the settled screen.
+    pub fn home_at(&mut self, seconds: f32) {
+        self.inner.home_started =
+            Some(std::time::Instant::now() - std::time::Duration::from_secs_f32(seconds));
+    }
+
+    /// Start a new conversation, as `/new` does.
+    pub fn new_session(&mut self) {
+        self.inner.new_session();
+    }
+
+    /// The colours of the cell at (x, y) in a render at this size.
+    pub fn cell_colours(
+        &mut self,
+        width: u16,
+        height: u16,
+        x: u16,
+        y: u16,
+    ) -> (String, ratatui::style::Color, ratatui::style::Color) {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let mut term = Terminal::new(TestBackend::new(width, height)).unwrap();
+        term.draw(|f| crate::ui::draw(f, &mut self.inner)).unwrap();
+        let cell = &term.backend().buffer()[(x, y)];
+        (cell.symbol().to_owned(), cell.fg, cell.bg)
+    }
+
+    /// The theme's colours by role, for asserting what a cell was painted.
+    pub fn theme_colour(&self, role: &str) -> ratatui::style::Color {
+        let t = self.inner.theme;
+        match role {
+            "canvas" => t.canvas,
+            "text" => t.text,
+            "accent" => t.accent,
+            "accent2" => t.accent2,
+            other => panic!("no theme colour named {other}"),
+        }
     }
 
     /// The agent the next message asks a new session to start with.

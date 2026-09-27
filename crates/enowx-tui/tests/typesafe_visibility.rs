@@ -35,7 +35,7 @@ fn a_trim_says_what_it_did() {
 
 #[test]
 fn the_sidebar_carries_the_running_total() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     app.deliver_trimmed("bash", 4876, 620);
     // In the SESSION card, which is always on screen beside the chat.
     let row = app

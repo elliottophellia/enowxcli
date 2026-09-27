@@ -71,6 +71,12 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
     app.sidebar_area = None;
     app.sidebar_tabs.clear();
     app.sidebar_pages_area = None;
+    if app.is_home() {
+        draw_home(frame, app, area);
+        return;
+    }
+    // The next home screen plays its opening again.
+    app.home_started = None;
     let grid = Grid::new(area, app.show_sidebar);
     draw_main_column(frame, app, grid.main);
     if let Some(side) = grid.side {
@@ -229,7 +235,7 @@ pub(super) fn overlay(
     (rect, padded(inner, true))
 }
 
-fn draw_footer(frame: &mut Frame, app: &App, area: Rect, show_figures: bool) {
+pub(super) fn draw_footer(frame: &mut Frame, app: &App, area: Rect, show_figures: bool) {
     let t = app.theme;
     // Inset by a border and the padding, so the status bar's first and last
     // characters sit on the same columns as the markers inside the boxes above.

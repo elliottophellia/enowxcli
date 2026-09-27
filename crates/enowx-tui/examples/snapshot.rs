@@ -1,6 +1,7 @@
 //! Render the whole app at any terminal size, as plain text, to check the
 //! grid without a terminal. Scenarios: session (default), empty, busy,
-//! palette, detail, rich, delegate, work.
+//! palette, detail, rich, delegate, work, home, home-palette, and home@SECS
+//! for the home screen that far into its opening.
 //! Run: cargo run -q -p enowx-tui --example snapshot -- 120 36 rich
 use enowx_tui::testing::TestApp;
 
@@ -40,10 +41,42 @@ fn session() -> TestApp {
     app
 }
 
+/// A fresh app with a provider and a model, as after setup.
+fn ready() -> TestApp {
+    let mut app = TestApp::new();
+    app.seed_provider(
+        "deepseek",
+        "deepseek",
+        "http://127.0.0.1:1/v1",
+        "",
+        "test-key",
+        "deepseek-flash",
+        128_000,
+    );
+    app
+}
+
 /// States beyond the plain session, selected by the third argument.
 fn scenario(name: &str) -> TestApp {
     match name {
-        "empty" => TestApp::new(),
+        "empty" => {
+            let mut app = TestApp::new();
+            app.home_at(10.0);
+            app
+        }
+        "home" | "home-palette" => {
+            let mut app = ready();
+            if name == "home-palette" {
+                app.type_input("/m");
+            }
+            app.home_at(10.0);
+            app
+        }
+        opening if opening.starts_with("home@") => {
+            let mut app = ready();
+            app.home_at(opening[5..].parse().expect("home@SECONDS"));
+            app
+        }
         "busy" => {
             let mut app = session();
             app.set_busy(true);

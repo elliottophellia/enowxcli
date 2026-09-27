@@ -15,6 +15,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 mod chrome;
 mod composer;
+mod home;
 mod markdown;
 mod pickers;
 mod popups;
@@ -24,6 +25,7 @@ mod tool;
 mod transcript;
 use chrome::*;
 use composer::*;
+use home::*;
 use pickers::*;
 use popups::draw_popup;
 use sidebar::*;

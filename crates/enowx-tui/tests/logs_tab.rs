@@ -23,7 +23,7 @@ fn logs(app: &mut TestApp) -> String {
 
 #[test]
 fn the_fourth_tab_is_the_log() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     app.select_sidebar_tab(LOG_TAB);
     let text = app.side_column(120, 34).join("\n");
     assert!(text.contains("Log"), "the tab should be named: {text}");
@@ -39,7 +39,7 @@ fn the_fourth_tab_is_the_log() {
 
 #[test]
 fn an_empty_session_says_so() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     assert!(
         logs(&mut app).contains("Nothing logged yet."),
         "an empty log should say it is empty rather than looking broken"
@@ -50,7 +50,7 @@ fn an_empty_session_says_so() {
 /// transcript and it changes who is answering.
 #[test]
 fn a_handoff_is_logged() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     app.switch_agent("fe", "this is frontend work");
     let text = logs(&mut app);
     assert!(text.contains("fe"), "the agent taken over by: {text}");
@@ -85,7 +85,7 @@ fn a_failed_delegation_is_logged_as_failed() {
 
 #[test]
 fn a_trim_is_logged() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     app.deliver_trimmed("bash", 4876, 620);
     assert!(logs(&mut app).contains("trimmed bash"));
 }
@@ -94,7 +94,7 @@ fn a_trim_is_logged() {
 /// happened" and the detail answers "by how much".
 #[test]
 fn detail_is_hidden_until_asked_for() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     app.deliver_trimmed("bash", 4876, 620);
     assert!(
         !logs(&mut app).contains("4,876"),
@@ -118,7 +118,7 @@ fn detail_is_hidden_until_asked_for() {
 /// model calls in it has the one handoff buried.
 #[test]
 fn the_filter_narrows_to_one_kind() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     app.switch_agent("fe", "frontend work");
     app.deliver_trimmed("bash", 4876, 620);
     let all = logs(&mut app);
@@ -141,7 +141,7 @@ fn the_filter_narrows_to_one_kind() {
 /// Cycling has to come back round, or a filter is a trap.
 #[test]
 fn the_filter_cycles_back_to_everything() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     app.deliver_trimmed("bash", 4876, 620);
     for _ in 0..5 {
         app.press(KeyCode::F(6), false).expect("F6");
@@ -159,7 +159,7 @@ fn the_filter_cycles_back_to_everything() {
 /// F6 and F7 are useless if the user is looking at another tab.
 #[test]
 fn the_filter_keys_bring_the_tab_forward() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     app.select_sidebar_tab(0);
     app.press(KeyCode::F(6), false).expect("F6");
     let text = app.side_column(120, 34).join("\n");

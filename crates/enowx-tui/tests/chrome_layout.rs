@@ -24,7 +24,7 @@ fn chat_edge(app: &mut TestApp) -> String {
 /// left neither able to say anything else.
 #[test]
 fn the_chat_box_names_the_workspace() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     let edge = chat_edge(&mut app);
     assert!(
         edge.starts_with("╭─ ws"),
@@ -86,7 +86,7 @@ fn wrapped_text_keeps_clear_of_the_right_wall() {
 /// The side column's cards are padded the same way as the chat box.
 #[test]
 fn the_side_cards_are_padded() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     let side = app.side_column(W, H);
     assert!(
         side[1]
@@ -110,7 +110,7 @@ fn the_side_cards_are_padded() {
 /// right column. Boxes that nearly line up read worse than none at all.
 #[test]
 fn the_chat_box_and_composer_line_up() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     app.type_input("hello");
     let main = app.main_column(W, H);
     let composer_top = main
@@ -145,7 +145,7 @@ fn the_chrome_carries_no_decoration() {
 /// its tabs in its own top edge, where a bordered box names itself.
 #[test]
 fn the_side_column_titles_its_cards_on_their_edges() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     let side = app.side_column(W, H);
     assert!(
         side[0].starts_with("╭─ SESSION"),
@@ -162,7 +162,7 @@ fn the_side_column_titles_its_cards_on_their_edges() {
 /// strip names as current something that is not showing.
 #[test]
 fn the_selected_tab_is_marked_on_the_strip() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     for (tab, name) in [(0, "Agents"), (3, "Log")] {
         app.select_sidebar_tab(tab);
         let rows = screen(&mut app);
@@ -209,7 +209,7 @@ fn the_status_bar_leads_with_the_state() {
 /// the side column is hidden.
 #[test]
 fn how_full_the_context_is_is_always_on_screen() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     app.deliver_usage(12_481, 240, 12_481, 128_000);
     let side = app.side_column(W, H).join("\n");
     assert!(
@@ -260,7 +260,7 @@ fn the_composer_is_bare_until_it_has_something_to_say() {
 /// is worth a word — in the composer's own edge.
 #[test]
 fn the_composer_says_when_a_message_will_be_queued() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     app.start_fake_turn();
     let main = app.main_column(W, H);
     assert!(

@@ -16,6 +16,7 @@ Each was chosen from rendered mockups.
 | Narrow terminal (< 100 columns) | Side column hidden; its figures move to the status bar |
 | Wide terminal | Full width; nothing capped or centred |
 | Interface language | English throughout |
+| First screen | A home screen: wordmark and composer centred, no side column (2026-09-28) |
 
 ## The grid
 
@@ -53,6 +54,42 @@ keys or a pager into the bottom edge as `╰─ keys ─╯`. Box titles are upp
 labels (SESSION, COMMANDS, THEME); tabs are title case because they are
 navigation. The chat box's title is the project and the session, which replaced
 the header box: four rows of chrome that printed one word.
+
+## Home screen
+
+A new conversation opens on a home screen rather than an empty chat box
+(`ui/home.rs`). It shows while there is no session and nothing in the
+transcript: at launch, and after `/new`. The first block, a message or a
+command's notice, brings the grid above; a resumed session opens straight
+into it. `App::is_home` is the rule.
+
+| Region | Rule |
+| --- | --- |
+| Wordmark | `enowX`, 41 × 5, in half blocks. Dropped below 43 columns or 15 rows |
+| Composer | 57 columns (the wordmark plus eight each side), narrower windows minus four; grows downward |
+| Under the composer | The workspace, read from its end, and the version; or what to set up (`/provider`, `/model`) |
+| Command list | Under the composer; over the wordmark only when there is no room below |
+| Status bar | As in the grid, without the session figures: there are none yet |
+
+The block sits two fifths of the way down, placed for a one-line composer, so
+the wordmark does not move while a message grows.
+
+**The wordmark** is drawn per pixel from the brand's own (`web/public/logos`):
+lowercase `enow` in two-pixel strokes and the taller X, whose long stroke takes
+`theme.accent`, short stroke `theme.accent2`, and a dot where they cross. The
+SVG's paths rasterised at this size filled the X, since its strokes are a third
+of its width, so the X is redrawn at the letters' weight. In the default theme
+the accents are the brand's sky and purple.
+
+**The opening** lasts 0.8 s: the long stroke draws top to bottom, the short
+one from both ends inward, then the dot lights; the letters fade in over the
+same stretch. Afterwards only the dot moves, one breath every 2.4 s. The frame
+loop already redraws every 40 ms, and a breath changes two cells.
+
+```sh
+cargo run -q -p enowx-tui --example snapshot -- 100 30 home        # settled
+cargo run -q -p enowx-tui --example snapshot -- 100 30 home@0.35   # mid-opening
+```
 
 ## Contrast
 
@@ -194,6 +231,8 @@ for a title broke every time the decoration changed.
 | `main_column` | The chat column's rows |
 | `status_bar` | The status bar row |
 | `side_area` | Where the side column was drawn |
+| `in_conversation` | An app in the chat layout, past the home screen |
+| `home_at` | The home screen that many seconds into its opening |
 | `row_bold` | Which cells of a row are bold |
 
 `tests/layout_chrome.rs` and `tests/chrome_layout.rs` assert the grid:
@@ -232,6 +271,8 @@ cargo run -q -p enowx-tui --example popups -- settings          # any overlay
   replay that draws a sub-agent's branch also bumped the counters, and it runs
   every half second while a branch is watched.
 - **Agent tests wrote their sessions into the user's own store:** 372 of 430.
+- **After `/new`, a click could open a file from the old conversation.** The
+  transcript's click targets outlived it; the empty screens now drop them.
 - **The instruction files and the skill list reached the model twice** on
   every call.
 

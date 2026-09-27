@@ -31,7 +31,7 @@ fn agent_tab_rows(app: &mut TestApp) -> Vec<String> {
 
 #[test]
 fn the_agent_tab_lists_the_roster() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     let roster = app.roster_names();
     assert!(
         roster.len() > 3,
@@ -58,7 +58,7 @@ fn the_agent_tab_lists_the_roster() {
 /// answering.
 #[test]
 fn the_agent_tab_marks_the_active_agent() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     let active = app.active_agent();
     let rows = agent_tab_rows(&mut app);
 
@@ -94,7 +94,7 @@ fn the_agent_tab_marks_the_active_agent() {
 /// went because nothing here acts on them.
 #[test]
 fn the_roster_is_names_only() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     let rows = agent_tab_rows(&mut app);
     assert!(
         rows.iter()
@@ -111,7 +111,7 @@ fn the_roster_is_names_only() {
 /// rows rather than sixteen.
 #[test]
 fn the_roster_flows_names_across_rows() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     app.select_sidebar_tab(AGENT_TAB);
     let rows = app.side_column(W, H);
     let fe = rows

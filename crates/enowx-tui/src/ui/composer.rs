@@ -51,7 +51,7 @@ pub(super) fn draw_main_column(frame: &mut Frame, app: &mut App, area: Rect) {
 
 /// Columns from the composer's left edge to its text: the border, the padding,
 /// the prompt and a space — the same text column as the transcript above it.
-const COMPOSER_LEFT: u16 = 1 + PAD_X + 2;
+pub(super) const COMPOSER_LEFT: u16 = 1 + PAD_X + 2;
 
 /// The conversation, in a box titled with the project and the session.
 ///
@@ -105,13 +105,14 @@ fn draw_chat_box(frame: &mut Frame, app: &mut App, area: Rect) {
     if app.blocks.is_empty() {
         app.scroll = 0;
         app.max_scroll = 0;
+        app.forget_transcript_targets();
         draw_welcome(frame, app, stream);
     } else {
         draw_transcript(frame, app, stream);
     }
 }
 
-fn draw_palette(frame: &mut Frame, app: &mut App, area: Rect, matches: &[(&str, &str)]) {
+pub(super) fn draw_palette(frame: &mut Frame, app: &mut App, area: Rect, matches: &[(&str, &str)]) {
     let t = app.theme;
     app.composer_palette = Some(area);
     let inner = panel_box(frame, area, t.border, t.panel);
@@ -162,7 +163,7 @@ fn draw_palette(frame: &mut Frame, app: &mut App, area: Rect, matches: &[(&str, 
     }
 }
 
-fn draw_composer_box(
+pub(super) fn draw_composer_box(
     frame: &mut Frame,
     app: &mut App,
     boxed: Rect,

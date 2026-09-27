@@ -88,7 +88,7 @@ fn a_burst_moves_a_list_one_row() {
 
 #[test]
 fn the_wheel_pages_the_side_column() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     for n in 0..80 {
         app.deliver_trimmed(&format!("tool-{n}"), 9000, 800);
     }

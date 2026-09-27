@@ -118,6 +118,9 @@ pub(crate) struct App {
     pub(crate) delegations: Vec<Delegation>,
     /// Set while viewing a branch: what to restore on the way back.
     pub(crate) viewing: Option<Viewing>,
+    /// When the home screen went up, for its opening animation. Cleared when
+    /// the chat layout takes over, so the next home screen plays it again.
+    pub(crate) home_started: Option<std::time::Instant>,
     /// On-screen rows of the delegation list, so a click finds which one was
     /// hit. Rebuilt each frame from the line indices the sidebar returns.
     pub(crate) delegation_rects: Vec<(Rect, usize)>,
@@ -302,6 +305,7 @@ impl App {
             delegations: Vec::new(),
             viewing: None,
             delegation_rects: Vec::new(),
+            home_started: None,
             logs: crate::logs::Logs::default(),
             log_filter: 0,
             log_detail: false,
@@ -555,6 +559,27 @@ impl App {
         // does not wait on them.
         self.agent.start_mcp();
         self.refresh_discovery();
+    }
+
+    /// Whether the window shows the home screen: a new conversation with
+    /// nothing in it yet. The first block, a message or a command's notice,
+    /// brings the chat layout; a resumed session opens straight into it.
+    pub(crate) fn is_home(&self) -> bool {
+        self.session_id.is_none() && self.blocks.is_empty() && self.viewing.is_none()
+    }
+
+    /// Drop the click targets the last transcript drew. Once it is off
+    /// screen nothing it showed can be clicked: after `/new`, a click where a
+    /// file link used to be opened that file from the old conversation.
+    pub(crate) fn forget_transcript_targets(&mut self) {
+        self.tool_header_markers.clear();
+        self.tool_header_rects.clear();
+        self.file_link_markers.clear();
+        self.file_link_rects.clear();
+        self.user_block_markers.clear();
+        self.user_block_rects.clear();
+        self.delegation_rects.clear();
+        self.transcript_area = None;
     }
 
     pub(crate) fn new_session(&mut self) {

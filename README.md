@@ -9,8 +9,10 @@ enx config set model.default anthropic/claude-sonnet-4.5
 enx config path
 ```
 
-enowx-cli opens the TUI immediately; there is no onboarding screen. Open
-`/provider`, choose a supported provider, then enter only its API key. Built-in
+enowx-cli opens on a home screen: the enowX wordmark with the composer under
+it. Until a provider and a model are set, the line under the composer says
+which one is missing. Open `/provider`, choose a supported provider, then enter
+only its API key. Built-in
 providers: **enxapi**, OpenAI, OpenRouter, Groq, and DeepSeek; Custom keeps
 editable OpenAI-compatible endpoints. enxapi uses `https://enxapi.id/v1` and
 `https://enxapi.id/v1/models`. Settings persist under `~/.enx/config.toml`.

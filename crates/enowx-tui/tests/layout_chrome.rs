@@ -129,6 +129,7 @@ fn the_pager_sits_in_the_detail_cards_bottom_edge() {
     let names: Vec<String> = (0..40).map(|i| format!("skill-{i:02}")).collect();
     let names: Vec<&str> = names.iter().map(String::as_str).collect();
     let mut app = TestApp::new_with_skills(&names);
+    app.begin_conversation();
     app.select_sidebar_tab(2);
     let side = app.side_column(W, H);
     let (side_x, side_y, ..) = app.side_area().expect("the side column");
@@ -170,7 +171,7 @@ fn the_side_column_wall_is_one_colour_all_the_way_down() {
 #[test]
 fn the_input_stays_inside_the_composer() {
     for input in ["halo", "satu\ndua", "satu\ndua\ntiga\nempat"] {
-        let mut app = TestApp::new();
+        let mut app = TestApp::in_conversation();
         app.type_input(input);
         let rendered = app.main_column(W, H);
         let last = input.lines().next_back().expect("a last line");

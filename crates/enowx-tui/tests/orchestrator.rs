@@ -27,7 +27,7 @@ fn agent_router_still_reaches_the_orchestrator() {
 /// `/agent` switch to it, offered something no request can use.
 #[test]
 fn the_roster_lists_only_agents_a_request_can_go_to() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     app.select_sidebar_tab(0);
     let side = app.side_column(W, H).join("\n");
     assert!(!side.contains("compactor"), "{side}");
@@ -69,7 +69,7 @@ fn status_names_the_agent_not_a_role() {
 /// rather than what a retired role could not.
 #[test]
 fn the_tools_card_shows_what_the_active_agent_cannot_use() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     app.select_sidebar_tab(1);
     let side = app.side_column(W, H).join("\n");
     assert!(side.contains("BLOCKED"), "{side}");

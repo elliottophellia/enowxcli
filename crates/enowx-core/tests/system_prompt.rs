@@ -273,7 +273,32 @@ async fn built_in_skills_reach_only_the_agents_that_carry_them() {
         );
     }
     assert!(
+        lists(&orchestrator, "brainstorming"),
+        "it agrees a new project's design first:\n{orchestrator}"
+    );
+    assert!(tools.iter().any(|t| t == "skill_read"), "{tools:?}");
+
+    // `research` carries nothing, so it has nothing to read.
+    let (_, tools) = sent_to("research", "research-skills").await;
+    assert!(
         !tools.iter().any(|t| t == "skill_read"),
         "nothing to read, so no tool to read it: {tools:?}"
     );
+}
+
+/// The orchestrator brainstorms only when the shape of the work is open,
+/// and asks through `ask`, never in prose.
+#[test]
+fn the_orchestrator_brainstorms_only_when_the_shape_is_open() {
+    let orchestrator = builtin_agents()
+        .into_iter()
+        .find(|a| a.name == "orchestrator")
+        .unwrap();
+    for needed in [
+        "read the `brainstorming` skill",
+        "Not for a fix, a small change with a clear result",
+        "never as prose",
+    ] {
+        assert!(orchestrator.prompt.contains(needed), "missing {needed:?}");
+    }
 }

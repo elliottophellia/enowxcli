@@ -141,6 +141,7 @@ and three built-in skills are there to stop that (2026-09-28).
 | `ui-components` | Each part of a page: header, navigation, sidebar, page header, footer, hero, sections, cards, social proof, pricing, FAQ, CTA band, buttons, links, forms, choices, tables, lists, dialogs, drawers, menus, tooltips, notifications, badges, loading, tabs, breadcrumbs, pagination, search, images, avatars, charts. Each says what it is for, how to build it, and the generated version to avoid |
 | `code` | Reading the codebase first, structure, names, types, errors, dependencies, frontend specifics, comments, hygiene |
 | `writing` | Specific over generic, words to drop, sentences, interface copy, errors and empty states, docs, voice |
+| `brainstorming` | When to agree a design with the user before building (a new project, feature or page, a redesign) and when not to; how: look first, ask one question at a time with `ask`, offer approaches, confirm, hand the agreed design over |
 
 They ship inside the binary (`crates/enowx-core/skills/`), so every install
 has them, and are listed with the scope `built-in`. A project or user skill of
@@ -159,10 +160,11 @@ with a skill to read.
 | `general` | `code`, `writing` |
 | `docs` | `writing` |
 | `be`, `db`, `devops`, `systems`, `test`, `perf` | `code` |
-| `orchestrator`, `librarian`, `research`, `security` | none |
+| `orchestrator` | `brainstorming` |
+| `librarian`, `research`, `security` | none |
 
-The orchestrator routes, the read-only gatherers and the auditor have nothing
-to shape, so they carry none. Skills found on disk (the project's and the
+The orchestrator carries `brainstorming` only; the read-only gatherers and
+the auditor have nothing to shape, so they carry none. Skills found on disk (the project's and the
 user's) are still offered to every agent: nothing says which agent they are
 for. An agent file names the built-ins it carries with `skills: ui, code`;
 without the field it carries none. `/skills` shows who carries each built-in.
@@ -807,15 +809,38 @@ unclear.
 
 A later run stalled the other way: asked for "a simple portfolio", the
 orchestrator delegated nothing and sent the user three questions (whose content,
-which stack, where), after reading a story into the workspace's folder name.
-So:
+which stack, where) as prose at the end of its reply, after reading a story
+into the workspace's folder name. That became a rule never to stop and ask,
+and then no agent ever asked anything, including before building a whole new
+project on guesses.
+
+Since 2026-09-28 the two are split. Work whose shape is open is brainstormed
+first, through the `ask` tool and the `brainstorming` skill; small details in
+work whose shape is settled are still chosen, not asked:
 
 ```
-A request that leaves details open is not a reason to stop and ask. Choose
-the plainest thing that does the job, with placeholder content marked as
-such, say so in the brief, and delegate. Ask only when the work cannot
-start without the answer. The workspace path is where to work, not
-information about the task.
+BRAINSTORM FIRST WHEN THE SHAPE IS OPEN
+A new project, a new feature or page, a redesign: work two reasonable
+specialists would build differently. Before routing it, read the
+`brainstorming` skill and agree the design with the user through `ask`, one
+question at a time, then hand the agreed design over as the brief. Not for a
+fix, a small change with a clear result, a question, work the user already
+specified, or when they say to just build it.
+```
+
+The skill asks what is still open in a fixed order (what it is for and who
+uses it, the first version's scope, how it should feel, the constraints),
+three to six questions and never more than eight, then offers two or three
+approaches, confirms the design in a few lines ("Build it like this?"), and
+hands it over with every decision the user made. The earlier rule survives
+for details:
+
+```
+Small details left open in work whose shape is settled are not a reason to
+stop: choose the plainest thing that does the job, with placeholder content
+marked as such, say so in the brief, and route it. A question goes through
+`ask`, with options, never as prose at the end of a reply; without `ask`
+there is no one to ask, so choose and say what you chose.
 ```
 
 ## Effort

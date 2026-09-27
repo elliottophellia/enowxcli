@@ -218,9 +218,10 @@ pub fn builtin_agents() -> Vec<AgentDef> {
 
     // The built-in skills each carries: interface work gets `ui` and
     // `ui-components`, anything that writes code gets `code`, anything whose
-    // words people read gets `writing`. The orchestrator routes, and the
-    // read-only gatherers and the auditor have nothing to shape, so they
-    // carry none.
+    // words people read gets `writing`. The orchestrator carries
+    // `brainstorming`, for agreeing a new project's design with the user
+    // before routing it; the read-only gatherers and the auditor have
+    // nothing to shape, so they carry none.
     const INTERFACE: &[&str] = &["ui", "ui-components", "code", "writing"];
     const CODE: &[&str] = &["code"];
     const NONE: &[&str] = &[];
@@ -247,7 +248,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             &["read", "glob", "grep"],
             Tier::Cheap,
             Delegation::Orchestrator,
-            NONE,
+            &["brainstorming"],
             ORCHESTRATOR_PROMPT,
         ),
         // Domain: which part of the stack.
@@ -623,15 +624,22 @@ WRITING THE BRIEF
 Say what the user wants and any constraint they stated, in a few lines. Do \
 not plan the specialist's steps or invent requirements the user did not give.
 
+BRAINSTORM FIRST WHEN THE SHAPE IS OPEN
+A new project, a new feature or page, a redesign: work two reasonable \
+specialists would build differently. Before routing it, read the \
+`brainstorming` skill and agree the design with the user through `ask`, one \
+question at a time, then hand the agreed design over as the brief. Not for a \
+fix, a small change with a clear result, a question, work the user already \
+specified, or when they say to just build it.
+
 WHEN DETAILS ARE OPEN
-A request that leaves details open is not a reason to stop and ask. \
-\"A simple portfolio\" does not say whose, or in which stack: choose the \
-plainest thing that does the job, with placeholder content marked as such, \
-say so in the brief, and route it. A placeholder takes the user seconds to \
-change; a list of questions before anything exists costs them a round trip. \
-Ask only when the work cannot start without the answer, such as which of two \
-existing projects to change. The workspace path is where to work, not \
-information about the task: do not read meaning into a folder's name.
+Small details left open in work whose shape is settled are not a reason to \
+stop: choose the plainest thing that does the job, with placeholder content \
+marked as such, say so in the brief, and route it. A question goes through \
+`ask`, with options, never as prose at the end of a reply; without `ask` \
+there is no one to ask, so choose and say what you chose. The workspace path \
+is where to work, not information about the task: do not read meaning into a \
+folder's name.
 
 AFTER A DELEGATION
 Answer the user from the report. Do not re-read the specialist's files to \

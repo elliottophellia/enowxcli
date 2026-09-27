@@ -60,7 +60,7 @@ fn every_workspace_has_the_builtin_skills() {
     let _home = HOME.lock().unwrap_or_else(|e| e.into_inner());
     let scratch = Scratch::new("empty");
     let discovery = scratch.discover();
-    for name in ["ui", "ui-components", "code", "writing"] {
+    for name in ["ui", "ui-components", "code", "writing", "brainstorming"] {
         let skill = discovery
             .skills
             .iter()
@@ -74,7 +74,13 @@ fn every_workspace_has_the_builtin_skills() {
         );
     }
     let listed = discovery.system_prompt_supplement().expect("a skill list");
-    for name in ["`ui`", "`ui-components`", "`code`", "`writing`"] {
+    for name in [
+        "`ui`",
+        "`ui-components`",
+        "`code`",
+        "`writing`",
+        "`brainstorming`",
+    ] {
         assert!(listed.contains(name), "{name} is offered: {listed}");
     }
 }
@@ -196,13 +202,8 @@ fn each_agent_carries_the_skills_for_its_work() {
     for name in ["be", "db", "devops", "systems", "test", "perf"] {
         assert_eq!(carried(name), ["code"], "{name}");
     }
-    for name in [
-        "orchestrator",
-        "librarian",
-        "research",
-        "security",
-        "compactor",
-    ] {
+    assert_eq!(carried("orchestrator"), ["brainstorming"]);
+    for name in ["librarian", "research", "security", "compactor"] {
         assert!(carried(name).is_empty(), "{name} carries none");
     }
 }
@@ -224,7 +225,7 @@ fn an_agent_file_names_its_skills() {
 /// generated page would say about itself.
 #[test]
 fn the_builtin_skills_follow_their_own_rules() {
-    for name in ["ui", "ui-components", "code", "writing"] {
+    for name in ["ui", "ui-components", "code", "writing", "brainstorming"] {
         let source = builtin_source(name).expect("built in");
         assert!(!source.contains('—'), "`{name}` has an em dash");
         assert!(

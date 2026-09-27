@@ -90,7 +90,7 @@ pub fn builtin_entries() -> Vec<SkillEntry> {
 /// Skills compiled into enx, as `(name, SKILL.md)`: how to design an
 /// interface, write code and write prose without the marks of generated
 /// work. The specialists' prompts name the one to read for each kind of task.
-const BUILTIN: [(&str, &str); 4] = [
+const BUILTIN: [(&str, &str); 5] = [
     ("ui", include_str!("../../skills/ui/SKILL.md")),
     (
         "ui-components",
@@ -98,6 +98,10 @@ const BUILTIN: [(&str, &str); 4] = [
     ),
     ("code", include_str!("../../skills/code/SKILL.md")),
     ("writing", include_str!("../../skills/writing/SKILL.md")),
+    (
+        "brainstorming",
+        include_str!("../../skills/brainstorming/SKILL.md"),
+    ),
 ];
 
 /// The whole `SKILL.md` of a built-in skill.

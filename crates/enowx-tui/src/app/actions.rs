@@ -418,7 +418,10 @@ impl App {
             "sidebar" => self.toggle_sidebar()?,
             "reasoning" => {
                 self.show_reasoning = !self.show_reasoning;
-                self.status = format!("reasoning {}", if self.show_reasoning { "on" } else { "off" });
+                self.status = format!(
+                    "thinking {}",
+                    if self.show_reasoning { "open" } else { "closed" }
+                );
             }
             "tools" => {
                 self.show_tool_output = !self.show_tool_output;
@@ -427,10 +430,10 @@ impl App {
             "clear" => { self.blocks.clear(); self.status = "transcript cleared".into(); }
             "stop" => self.interrupt(),
             "status" => self.push(TranscriptKind::System, format!(
-                "Model: {} · {}\nAgent: {}\nWorkspace: {}\nSession: {}\nTokens: {} in / {} out\nTheme: {}\nReasoning: {}",
+                "Model: {} · {}\nAgent: {}\nWorkspace: {}\nSession: {}\nTokens: {} in / {} out\nTheme: {}\nThinking: {}",
                 self.config.model.default, self.config.provider.name, self.active_agent(), self.config.workspace().display(),
                 self.session_id.as_deref().unwrap_or("(new)"), self.tokens_in, self.tokens_out, self.theme.name,
-                if self.show_reasoning { "on" } else { "off" },
+                if self.show_reasoning { "open" } else { "closed" },
             )),
             "quit" | "exit" => self.should_quit = true,
             "" => {}

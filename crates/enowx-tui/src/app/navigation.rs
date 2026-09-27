@@ -146,18 +146,12 @@ impl App {
                     .find(|(rect, _)| rect.contains(position))
                     .map(|(r, id)| (*r, id.clone()))
                 {
-                    // A brief is closed by default whatever the tool-output
-                    // toggle says, so asking that toggle for its current
-                    // state made the first click a no-op: `!true` closed a
-                    // row that was already closed.
-                    let is_brief = self.blocks.iter().any(|block| {
-                        matches!(&block.kind, TranscriptKind::Brief { id: block_id, .. } if *block_id == id)
-                    });
-                    let default = if is_brief {
-                        false
-                    } else {
-                        self.show_tool_output
-                    };
+                    // The row's current state is whatever the renderer drew,
+                    // so the default has to be the renderer's own. Reading
+                    // the tool-output toggle for everything made the first
+                    // click a no-op on any row whose default differs from
+                    // it: a brief (always closed), a diff (always open).
+                    let default = self.opens_by_default(&id);
                     let current = self.tool_expanded.get(&id).copied().unwrap_or(default);
                     self.tool_expanded.insert(id, !current);
                 } else if let Some(index) = self
@@ -446,4 +440,22 @@ fn strip_card_chrome(line: &str) -> String {
     // Collapse the leading padding a stripped `│ ` leaves behind but keep
     // interior spacing (indentation inside code blocks is real content).
     out.trim_start().trim_end().to_string()
+}
+
+impl App {
+    /// Whether the row keyed `id` is open when nothing has toggled it: the
+    /// same rule the renderer draws it by.
+    fn opens_by_default(&self, id: &str) -> bool {
+        self.blocks
+            .iter()
+            .find_map(|block| match &block.kind {
+                TranscriptKind::Brief { id: row, .. } if row == id => Some(false),
+                TranscriptKind::Reasoning { id: row, .. } if row == id => Some(self.show_reasoning),
+                TranscriptKind::Tool { id: row, name, .. } if row == id => {
+                    Some(crate::ui::opens_by_default(name, self.show_tool_output))
+                }
+                _ => None,
+            })
+            .unwrap_or(self.show_tool_output)
+    }
 }

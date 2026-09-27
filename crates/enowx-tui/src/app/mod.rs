@@ -136,7 +136,10 @@ pub(crate) struct App {
     pub(crate) cancel: Option<CancellationToken>,
     pub(crate) events: Option<mpsc::Receiver<Event>>,
     pub(crate) task: Option<tokio::task::JoinHandle<()>>,
+    /// Whether thinking opens by default; each row still toggles on a click.
     pub(crate) show_reasoning: bool,
+    /// Numbers thinking blocks so each has an id to open by.
+    pub(crate) reasoning_seq: usize,
     pub(crate) show_tool_output: bool,
     /// Per-block override of `show_tool_output`. Keyed by the tool call id so
     /// re-renders keep the same open/closed state after a scroll or resize.
@@ -244,7 +247,7 @@ pub(crate) struct App {
     /// Draft text while a message is being edited.
     pub(crate) message_draft: String,
     pub(crate) message_draft_cursor: usize,
-    pub(crate) file_link_markers: Vec<(usize, String)>,
+    pub(crate) file_link_markers: Vec<crate::ui::FileLink>,
     pub(crate) file_link_rects: Vec<(Rect, String)>,
     /// Rendered lines per transcript block, so a frame only re-parses the
     /// blocks that actually changed. Without it every keystroke and every
@@ -309,7 +312,8 @@ impl App {
             cancel: None,
             events: None,
             task: None,
-            show_reasoning: true,
+            show_reasoning: false,
+            reasoning_seq: 0,
             show_tool_output: true,
             tool_expanded: std::collections::HashMap::new(),
             tool_header_markers: Vec::new(),

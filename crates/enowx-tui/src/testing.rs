@@ -247,7 +247,16 @@ impl TestApp {
     }
 
     pub fn push_reasoning(&mut self, text: &str) {
-        self.inner.push(TranscriptKind::Reasoning, text);
+        self.inner.reasoning_seq += 1;
+        let id = format!("thinking-{}", self.inner.reasoning_seq);
+        self.inner.push(
+            TranscriptKind::Reasoning {
+                id,
+                started: None,
+                elapsed: Some(std::time::Duration::from_secs(6)),
+            },
+            text,
+        );
     }
 }
 
@@ -265,6 +274,15 @@ impl TestApp {
 
     /// Rows of the transcript body that a click handler currently maps to a
     /// tool header, as (screen_y, tool_id).
+    /// Where each clickable path sits: row, first column, width, path.
+    pub fn file_link_areas(&self) -> Vec<(u16, u16, u16, String)> {
+        self.inner
+            .file_link_rects
+            .iter()
+            .map(|(rect, path)| (rect.y, rect.x, rect.width, path.clone()))
+            .collect()
+    }
+
     pub fn tool_header_rows(&self) -> Vec<(u16, String)> {
         self.inner
             .tool_header_rects
@@ -1189,6 +1207,13 @@ impl TestApp {
 }
 
 impl TestApp {
+    /// A piece of streaming thinking, as the provider sends it.
+    pub fn deliver_reasoning(&mut self, delta: &str) {
+        self.inner.apply_event(enowx_core::Event::Reasoning {
+            delta: delta.to_owned(),
+        });
+    }
+
     pub fn deliver_assistant_text(&mut self, text: &str) {
         self.inner.apply_event(enowx_core::Event::Text {
             delta: text.to_owned(),

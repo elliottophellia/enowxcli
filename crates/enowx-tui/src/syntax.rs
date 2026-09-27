@@ -202,6 +202,25 @@ const DATA: Syntax = Syntax {
     camel_types: false,
 };
 
+/// Stylesheets: comments and strings, and `clamp(`/`var(` read as calls.
+const CSS: Syntax = Syntax {
+    line_comment: &[],
+    block_comment: Some(("/*", "*/")),
+    quotes: &['"', '\''],
+    keywords: &["!important"],
+    camel_types: false,
+};
+
+/// Markup: comments and attribute values. Only double quotes open a string,
+/// or every apostrophe in the page's prose would colour the rest of its line.
+const MARKUP: Syntax = Syntax {
+    line_comment: &[],
+    block_comment: Some(("<!--", "-->")),
+    quotes: &['"'],
+    keywords: &[],
+    camel_types: false,
+};
+
 /// Map a fence's language tag to a syntax family. Returns None for unknown
 /// tags so the caller renders the block plain rather than guessing wrong.
 pub fn lookup(lang: &str) -> Option<Syntax> {
@@ -217,6 +236,8 @@ pub fn lookup(lang: &str) -> Option<Syntax> {
         | "make" => SHELL,
         "sql" | "postgres" | "postgresql" | "mysql" | "sqlite" => SQL,
         "json" | "json5" | "yaml" | "yml" | "toml" | "ini" | "conf" | "hcl" | "tf" => DATA,
+        "css" | "scss" | "sass" | "less" => CSS,
+        "html" | "htm" | "xml" | "svg" | "vue" | "svelte" | "astro" | "xhtml" => MARKUP,
         _ => return None,
     })
 }

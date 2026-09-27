@@ -194,7 +194,14 @@ impl App {
                 }
                 MessageRole::Assistant => {
                     if let Some(reasoning) = turn.message.reasoning {
-                        self.show(TranscriptKind::Reasoning, reasoning);
+                        self.show(
+                            TranscriptKind::Reasoning {
+                                id: format!("thinking-replayed-{turn_index}"),
+                                started: None,
+                                elapsed: None,
+                            },
+                            reasoning,
+                        );
                     }
                     if !turn.message.content.is_empty() {
                         self.show(TranscriptKind::Assistant, turn.message.content);

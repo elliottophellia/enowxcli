@@ -99,6 +99,9 @@ impl App {
     }
 
     pub(crate) fn apply_event(&mut self, event: Event) {
+        if !matches!(event, Event::Reasoning { .. }) {
+            self.finish_thinking();
+        }
         match event {
             Event::Session { id, title } => {
                 self.session_id = Some(id);
@@ -119,14 +122,28 @@ impl App {
             }
             Event::Reasoning { delta } => {
                 self.set_activity(Activity::Thinking);
-                if let Some(last) = self
-                    .conversation_mut()
-                    .last_mut()
-                    .filter(|block| matches!(block.kind, TranscriptKind::Reasoning))
-                {
+                if let Some(last) = self.conversation_mut().last_mut().filter(|block| {
+                    matches!(
+                        block.kind,
+                        TranscriptKind::Reasoning {
+                            started: Some(_),
+                            elapsed: None,
+                            ..
+                        }
+                    )
+                }) {
                     last.text.push_str(&delta);
                 } else {
-                    self.push(TranscriptKind::Reasoning, delta);
+                    self.reasoning_seq += 1;
+                    let id = format!("thinking-{}", self.reasoning_seq);
+                    self.push(
+                        TranscriptKind::Reasoning {
+                            id,
+                            started: Some(std::time::Instant::now()),
+                            elapsed: None,
+                        },
+                        delta,
+                    );
                 }
             }
             Event::ToolCall {
@@ -414,6 +431,25 @@ impl App {
                     break;
                 }
                 _ => break,
+            }
+        }
+    }
+}
+
+impl App {
+    /// Close the thinking that was streaming, now that something else has
+    /// begun, and note how long it took.
+    fn finish_thinking(&mut self) {
+        if let Some(block) = self.conversation_mut().last_mut() {
+            if let TranscriptKind::Reasoning {
+                started: Some(started),
+                elapsed,
+                ..
+            } = &mut block.kind
+            {
+                if elapsed.is_none() {
+                    *elapsed = Some(started.elapsed());
+                }
             }
         }
     }

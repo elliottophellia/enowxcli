@@ -174,10 +174,10 @@ pub(super) fn draw_transcript(frame: &mut Frame, app: &mut App, area: Rect) {
             .iter()
             .map(|(id, off)| (id.clone(), base + off))
             .collect();
-        let links: Vec<(usize, String)> = cached
+        let links: Vec<FileLink> = cached
             .file_links
             .iter()
-            .map(|(off, path)| (base + off, path.clone()))
+            .map(|(off, path, columns)| (base + off, path.clone(), *columns))
             .collect();
         let block_end = base + cached.lines.len();
         if block_end > view_start && base < view_end {
@@ -275,14 +275,17 @@ pub(super) fn draw_transcript(frame: &mut Frame, app: &mut App, area: Rect) {
     }
     // Convert file link markers to on-screen rects so a click can open the
     // file with the OS default app.
-    for (marker, path) in std::mem::take(&mut app.file_link_markers) {
+    for (marker, path, columns) in std::mem::take(&mut app.file_link_markers) {
         let screen_y = marker as i32 - view_offset as i32;
         if screen_y < 0 || screen_y >= area.height as i32 {
             continue;
         }
         let y = area.y + screen_y as u16;
-        app.file_link_rects
-            .push((Rect::new(area.x, y, width as u16, 1), path));
+        let (x, w) = match columns {
+            Some((start, end)) => (area.x + start, end.saturating_sub(start).max(1)),
+            None => (area.x, width as u16),
+        };
+        app.file_link_rects.push((Rect::new(x, y, w, 1), path));
     }
     // Apply active selection highlight before rendering.
     if let Some(sel) = app.selection {
@@ -410,32 +413,41 @@ fn args_path(args: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// A clickable path: its line, the path, and the columns it covers (`None`
+/// for the whole line).
+pub(crate) type FileLink = (usize, String, Option<(u16, u16)>);
+
 pub(super) fn register_summary_file_link(
     name: &str,
     args: &str,
     _text: &str,
     line_index: usize,
-    markers: &mut Vec<(usize, String)>,
+    markers: &mut Vec<FileLink>,
 ) {
     if !matches!(name, "read" | "write" | "skill_read" | "fetch") {
         return;
     }
     if let Some(path) = args_path(args) {
-        markers.push((line_index, path));
+        // A row that does not open: the whole of it can be the link.
+        markers.push((line_index, path, None));
     }
 }
 
+/// The path on a row that also opens and closes: only the path's own
+/// columns are the link, or a click anywhere on the row launched the file
+/// in another app and the row itself could never be opened.
 pub(super) fn register_detail_file_link(
     name: &str,
     args: &str,
     line_index: usize,
-    markers: &mut Vec<(usize, String)>,
+    columns: (u16, u16),
+    markers: &mut Vec<FileLink>,
 ) {
     if !matches!(name, "write" | "edit") {
         return;
     }
     if let Some(path) = args_path(args) {
-        markers.push((line_index, path));
+        markers.push((line_index, path, Some(columns)));
     }
 }
 
@@ -458,7 +470,7 @@ fn render_block(
     tool_expanded: &std::collections::HashMap<String, bool>,
     lines: &mut Vec<Line<'static>>,
     tool_headers: &mut Vec<(String, usize)>,
-    file_links: &mut Vec<(usize, String)>,
+    file_links: &mut Vec<FileLink>,
 ) {
     match &block.kind {
         TranscriptKind::User => {
@@ -469,30 +481,54 @@ fn render_block(
                 render_markdown(&block.text, w, out, theme)
             });
         }
-        TranscriptKind::Reasoning if show_reasoning => {
-            // Quiet on purpose: the model's working, not its answer. A marker
-            // in the gutter and the text dimmed and slanted says "this is the
-            // thinking" without the accent-filled band it used to sit under,
-            // which was the loudest thing in the transcript.
-            lines.push(Line::from(vec![
-                Span::styled("✻ ", Style::default().fg(theme.accent2)),
-                Span::styled(
-                    "thinking",
-                    Style::default()
-                        .fg(theme.muted)
-                        .add_modifier(Modifier::BOLD | Modifier::ITALIC),
+        TranscriptKind::Reasoning {
+            id,
+            started,
+            elapsed,
+        } => {
+            // One row, like a tool call's: the model's working is not its
+            // answer, and printed in full it was paragraphs of slanted text
+            // between the steps. While it streams the row carries its latest
+            // sentence, so it is visibly alive; then how long it took.
+            let expanded = tool_expanded.get(id).copied().unwrap_or(show_reasoning);
+            let live = started.is_some() && elapsed.is_none();
+            let label = match elapsed {
+                _ if live && !expanded => match latest_sentence(&block.text) {
+                    Some(sentence) => format!("Thinking… {sentence}"),
+                    None => "Thinking…".to_owned(),
+                },
+                _ if live => "Thinking…".to_owned(),
+                Some(took) => format!(
+                    "Thought for {}",
+                    crate::app::fmt_elapsed(took.as_secs().max(1))
                 ),
-            ]));
-            indented(lines, theme, width, |w, out| {
-                render_markdown(&block.text, w, out, theme);
-                for line in out.iter_mut() {
-                    for span in line.spans.iter_mut() {
-                        span.style = span.style.fg(theme.muted).add_modifier(Modifier::ITALIC);
+                None => "Thought".to_owned(),
+            };
+            tool_headers.push((id.clone(), lines.len()));
+            let chevron = if block.text.trim().is_empty() {
+                None
+            } else if expanded {
+                Some("▾")
+            } else {
+                Some("▸")
+            };
+            lines.push(thinking_row(&label, chevron, width, theme));
+            if expanded && !block.text.trim().is_empty() {
+                let bar = Style::default().fg(theme.border);
+                indented(lines, theme, width, |w, out| {
+                    let mut body = Vec::new();
+                    render_markdown(&block.text, w.saturating_sub(2).max(1), &mut body, theme);
+                    for line in body {
+                        let mut spans = vec![Span::styled("│ ", bar)];
+                        spans.extend(line.spans.into_iter().map(|span| {
+                            let style = span.style.fg(theme.muted);
+                            Span::styled(span.content, style)
+                        }));
+                        out.push(Line::from(spans));
                     }
-                }
-            });
+                });
+            }
         }
-        TranscriptKind::Reasoning => return,
         TranscriptKind::Brief {
             agent,
             id,
@@ -602,17 +638,25 @@ fn render_block(
                 } => {
                     let chevron = if expanded { "▾" } else { "▸" };
                     let header_y_marker = lines.len();
-                    lines.push(tool_row(
+                    let (row, path_columns) = tool_row_with_span(
                         &header,
                         Some(chevron),
                         icon,
                         waiting.as_deref(),
                         width,
                         theme,
-                    ));
+                    );
+                    lines.push(row);
                     tool_headers.push((id.clone(), header_y_marker));
-                    // Header path (write, bash) is also a link target.
-                    register_detail_file_link(name, args, header_y_marker, file_links);
+                    // The path on the row is also a link: clicking it opens
+                    // the file, clicking the rest of the row opens the row.
+                    register_detail_file_link(
+                        name,
+                        args,
+                        header_y_marker,
+                        path_columns,
+                        file_links,
+                    );
                     if expanded || *error {
                         // Rendered two columns narrower and shifted onto the
                         // text column afterwards, so the body sits under the
@@ -653,7 +697,7 @@ fn render_block(
                                 // have no escapes or the parser drops
                                 // them.
                                 let bg = theme.subtle;
-                                let border_style = Style::default().fg(theme.accent).bg(bg);
+                                let border_style = Style::default().fg(theme.border).bg(bg);
                                 let pieces = crate::ansi::parse(text);
                                 let mut current: Vec<Span<'static>> = Vec::new();
                                 let mut current_w: usize = 0;
@@ -715,9 +759,13 @@ fn render_block(
                             } => {
                                 render_diff(&old, &new, start_line, width, lines, theme);
                             }
-                            ToolBody::Preview { content, total } => {
-                                crate::ui::tool::render_preview(
-                                    &content, total, width, lines, theme,
+                            ToolBody::Preview {
+                                path,
+                                content,
+                                total,
+                            } => {
+                                crate::ui::tool::render_file_card(
+                                    &path, &content, total, width, lines, theme,
                                 );
                             }
                             ToolBody::Tree { items } => {
@@ -799,11 +847,15 @@ fn render_block(
             });
         }
     }
-    // Tool rows stack directly on top of each other: a blank line between
+    // Tool rows (and thinking rows, which read as part of the same list of
+    // what the agent did) stack directly on top of each other: a blank line between
     // each one turned a run of ten calls into twenty rows of mostly empty
     // space. The separator before and after the whole run is added during
     // assembly, so the group still reads as distinct from the prose.
-    if !matches!(block.kind, TranscriptKind::Tool { .. }) {
+    if !matches!(
+        block.kind,
+        TranscriptKind::Tool { .. } | TranscriptKind::Reasoning { .. }
+    ) {
         lines.push(Line::default());
     }
 }
@@ -953,6 +1005,24 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 // space.
                 (false, app.tool_expanded.get(id).copied().unwrap_or(false))
             }
+            TranscriptKind::Reasoning {
+                id,
+                started,
+                elapsed,
+            } => {
+                std::mem::discriminant(&block.kind).hash(&mut hasher);
+                id.hash(&mut hasher);
+                started.is_some().hash(&mut hasher);
+                // Drawn in whole seconds, so keyed on them: finer would
+                // re-render a row whose text had not changed.
+                elapsed.map(|took| took.as_secs()).hash(&mut hasher);
+                // Packed with the tool rows around it: one list of what the
+                // agent did, the answer apart from it.
+                (
+                    true,
+                    app.tool_expanded.get(id).copied().unwrap_or(show_reasoning),
+                )
+            }
             other => {
                 std::mem::discriminant(other).hash(&mut hasher);
                 // The repeat counter is drawn into the error block, so a
@@ -969,8 +1039,7 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 (false, false)
             }
         };
-        let hidden = (matches!(block.kind, TranscriptKind::Reasoning) && !show_reasoning)
-            || routing_row(&block.kind);
+        let hidden = routing_row(&block.kind);
         // A hidden block that carries a handover still has to draw, or
         // collapsing reasoning would silently swallow the marker with it.
         let skipped = hidden && before.is_empty() && after.is_empty();
@@ -991,7 +1060,7 @@ fn refresh_render_cache(app: &mut App, width: usize) {
         }
         let mut lines: Vec<Line<'static>> = Vec::new();
         let mut tool_headers: Vec<(String, usize)> = Vec::new();
-        let mut file_links: Vec<(usize, String)> = Vec::new();
+        let mut file_links: Vec<FileLink> = Vec::new();
         for text in &before {
             switch_marker(&mut lines, text, width, &theme);
         }
@@ -1018,7 +1087,7 @@ fn refresh_render_cache(app: &mut App, width: usize) {
         for (_, at) in tool_headers.iter_mut() {
             *at += offset;
         }
-        for (at, _) in file_links.iter_mut() {
+        for (at, _, _) in file_links.iter_mut() {
             *at += offset;
         }
         for text in after {
@@ -1033,6 +1102,33 @@ fn refresh_render_cache(app: &mut App, width: usize) {
             skipped,
         });
     }
+}
+
+/// A thinking row: `✻ Thought for 6s`, with the chevron on the same column as
+/// a tool row's so the two read as one list.
+fn thinking_row(label: &str, chevron: Option<&str>, width: usize, theme: &Theme) -> Line<'static> {
+    let room = width.saturating_sub(4).max(1);
+    let label = trim(label, room);
+    let pad = room.saturating_sub(unicode_width_of(&label));
+    Line::from(vec![
+        Span::styled("✻ ", Style::default().fg(theme.accent2)),
+        Span::styled(label, Style::default().fg(theme.muted)),
+        Span::raw(" ".repeat(pad)),
+        Span::styled(
+            format!(" {}", chevron.unwrap_or(" ")),
+            Style::default().fg(theme.faint),
+        ),
+    ])
+}
+
+/// The last complete thought in streaming text: its last line, cut back to
+/// the start of its last sentence.
+fn latest_sentence(text: &str) -> Option<String> {
+    let line = text.lines().rev().map(str::trim).find(|l| !l.is_empty())?;
+    let trimmed = line.trim_end_matches(['.', ' ']);
+    let start = trimmed.rfind(". ").map(|at| at + 2).unwrap_or(0);
+    let sentence = trimmed[start..].trim();
+    (!sentence.is_empty()).then(|| sentence.to_owned())
 }
 
 /// Width of the verb column.
@@ -1058,6 +1154,19 @@ fn tool_row(
     width: usize,
     theme: &Theme,
 ) -> Line<'static> {
+    tool_row_with_span(parts, chevron, icon, waiting, width, theme).0
+}
+
+/// A tool row and the columns its argument occupies, so the argument alone
+/// can be a link while the rest of the row opens and closes it.
+fn tool_row_with_span(
+    parts: &crate::ui::tool::RowParts,
+    chevron: Option<&str>,
+    icon: (&str, ratatui::style::Color),
+    waiting: Option<&str>,
+    width: usize,
+    theme: &Theme,
+) -> (Line<'static>, (u16, u16)) {
     let faint = Style::default().fg(theme.faint);
     let dim = Style::default().fg(theme.muted);
 
@@ -1090,7 +1199,10 @@ fn tool_row(
 
     let mut spans = vec![
         Span::styled(format!("{} ", icon.0), Style::default().fg(icon.1)),
-        Span::styled(verb, Style::default().fg(theme.accent)),
+        // The verb in the text's quiet colour: the status marker before it
+        // carries the row's colour, and a coloured verb on every row made
+        // a run of tool calls the loudest thing in the transcript.
+        Span::styled(verb, Style::default().fg(theme.muted)),
         Span::raw(" ".repeat(verb_pad + 2)),
     ];
     // The space and the chevron column at the far right.
@@ -1111,7 +1223,8 @@ fn tool_row(
     spans.push(Span::raw(" ".repeat(gap)));
     spans.push(Span::styled(right, right_style));
     spans.push(Span::styled(format!(" {}", chevron.unwrap_or(" ")), faint));
-    Line::from(spans)
+    let span = (used as u16, (used + arg_w) as u16);
+    (Line::from(spans), span)
 }
 
 /// A `delegate` or `handoff` call that went through. Its row only repeats

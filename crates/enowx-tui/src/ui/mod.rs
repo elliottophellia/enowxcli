@@ -28,6 +28,8 @@ use pickers::*;
 use popups::draw_popup;
 use sidebar::*;
 pub(crate) use sidebar::{AGENTS_TAB, LOG_TAB, TABS};
+pub(crate) use tool::opens_by_default;
+pub(crate) use transcript::FileLink;
 use transcript::*;
 
 /// One transcript block's rendered output, cached between frames.
@@ -45,7 +47,7 @@ pub(crate) struct BlockRender {
     /// (tool_id, line_offset_within_block)
     pub(crate) tool_headers: Vec<(String, usize)>,
     /// (line_offset_within_block, path)
-    pub(crate) file_links: Vec<(usize, String)>,
+    pub(crate) file_links: Vec<transcript::FileLink>,
     /// Whether this block is a tool call. Consecutive tool blocks render
     /// without a blank line between them, so assembly needs to know.
     pub(crate) is_tool: bool,

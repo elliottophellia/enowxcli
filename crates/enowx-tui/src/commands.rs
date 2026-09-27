@@ -12,7 +12,7 @@ pub(crate) const COMMANDS: [(&str, &str); 19] = [
     ("mcp", "Browse, toggle, or add MCP servers"),
     ("compact", "Summarise older turns to free context"),
     ("sidebar", "Toggle telemetry right sidebar"),
-    ("reasoning", "Show or hide reasoning"),
+    ("reasoning", "Open or close every thinking row"),
     ("tools", "Expand or collapse tool output"),
     ("status", "Show runtime summary"),
     ("clear", "Clear the visible transcript"),
@@ -68,7 +68,7 @@ const PALETTE: [(&str, &[(&str, &str)]); 5] = [
         &[
             ("theme", "Theme"),
             ("sidebar", "Sidebar"),
-            ("reasoning", "Reasoning"),
+            ("reasoning", "Thinking"),
             ("tools", "Tool output"),
         ],
     ),

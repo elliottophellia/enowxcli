@@ -78,8 +78,25 @@ assistant text, notices, reasoning and system lines; `gutter_from()` for an
 opened tool body. Lines are pushed straight into the block's own list, so the
 row numbers recorded for click targets stay correct.
 
-- **Reasoning** is `✻ thinking`, then its text dimmed and italic. There is no
-  accent-filled band.
+- **Thinking** is one row: `✻ Thinking… <its latest sentence>` while it
+  streams, then `✻ Thought for 6s`. A click opens it (the text behind a thin
+  `│` bar, muted, not italic); Ctrl+R or `/reasoning` opens every one. It
+  used to print in full, paragraphs of slanted text between the steps.
+- **A file write** is a closed row, `✓ write  index.html  151 lines ▸`,
+  whatever the tool-output toggle says. Opened, it is a card: the file name
+  and language in the top edge, the first twelve lines with faint numbers and
+  syntax colours (HTML and CSS included), the rest folded into one row. The
+  old preview was a tinted band with an accent bar and `··` for every indent.
+- **Clicks on a row**: the path is a link that opens the file; the rest of
+  the row opens and closes it. The whole row used to be the link, so a write
+  could never be opened in place. The click uses the renderer's own default
+  (`opens_by_default`), which made the first click on an open diff a no-op
+  before.
+- **Thinking and tool rows are one list**, packed without blank rows; the
+  blank row comes between that list and the conversation.
+- **The accent is for markers and what is active**: tool verbs, the side
+  card's section labels, figures and the chat box's title are neutral, and
+  tool bodies (diff, bash output) are framed in the border colour.
 - **Code blocks** show their language on the first row, on the same `│` bar as
   the code. They have no `┌`/`└` caps.
 - **An edit** shows `+N -M` as its metric. The diff has no header row of its

@@ -84,7 +84,7 @@ fn draw_chat_box(frame: &mut Frame, app: &mut App, area: Rect) {
             .into_owned();
         title.push(Span::styled(
             project,
-            Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+            Style::default().fg(t.text).add_modifier(Modifier::BOLD),
         ));
         if !app.title.is_empty() {
             title.push(Span::styled(" · ", Style::default().fg(t.faint)));

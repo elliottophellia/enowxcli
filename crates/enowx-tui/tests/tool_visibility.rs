@@ -120,17 +120,19 @@ fn a_todo_list_shows_its_items() {
     );
 }
 
-/// A write shows what went into the file.
+/// A write is a closed row: which file, how many lines. Its content is a
+/// click away, as a card (see `transcript_rows.rs`). Open by default, a page
+/// of HTML per write pushed the conversation off the screen.
 #[test]
-fn a_write_shows_its_content() {
+fn a_write_stays_closed_until_opened() {
     assert!(
-        body_visible(
+        !body_visible(
             "write",
             r#"{"path":"a.rs","content":"fn main() {}"}"#,
             "wrote a.rs",
             "fn main()"
         ),
-        "the file's new contents are worth seeing"
+        "the content waits for a click"
     );
 }
 

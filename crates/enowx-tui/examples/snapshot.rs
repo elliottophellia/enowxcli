@@ -1,6 +1,6 @@
 //! Render the whole app at any terminal size, as plain text, to check the
 //! grid without a terminal. Scenarios: session (default), empty, busy,
-//! palette, detail, rich, delegate.
+//! palette, detail, rich, delegate, work.
 //! Run: cargo run -q -p enowx-tui --example snapshot -- 120 36 rich
 use enowx_tui::testing::TestApp;
 
@@ -125,6 +125,49 @@ fn scenario(name: &str) -> TestApp {
                 false,
             );
             app.push_assistant("Portfolio sudah jadi: `index.html` dan `style.css`.");
+            app
+        }
+        "work" => {
+            let mut app = TestApp::new();
+            app.push_user("halo, bisa tolong buatkan saya portofolio sederhana");
+            app.push_reasoning(
+                "Workspace is empty. Plan: index.html + styles.css, no build step.\n\n\
+                 Placeholders in Indonesian, since the user speaks Indonesian.",
+            );
+            app.push_assistant("Workspace kosong, saya buat dari nol.");
+            let html = "<!DOCTYPE html>\n<html lang=\"id\">\n<head>\n  <meta charset=\"utf-8\">\n  \
+                        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  \
+                        <title>Rani Prasetyo - Frontend Developer</title>\n  \
+                        <!-- styles live in one file -->\n  \
+                        <link rel=\"stylesheet\" href=\"styles.css\">\n</head>\n<body>\n  \
+                        <a class=\"skip-link\" href=\"#main\">Lewati ke konten utama</a>\n"
+                .to_owned()
+                + &"  <p>...</p>\n".repeat(139);
+            app.push_tool(
+                "w1",
+                "write",
+                &serde_json::json!({"path": "index.html", "content": html}).to_string(),
+                "wrote index.html",
+            );
+            app.push_reasoning("Now styles.css. Simple, restrained palette, light/dark.");
+            let css = "/* ==== Token ==== */\n:root {\n  --kertas: #fbfaf8;\n  --tinta: #1a1a18;\n  \
+                       --aksen: #1f5f4a;\n  --jarak: clamp(1rem, 4vw, 2rem);\n  --radius: 10px;\n}\n"
+                .to_owned()
+                + &"body { margin: 0; }\n".repeat(244);
+            app.push_tool(
+                "w2",
+                "write",
+                &serde_json::json!({"path": "styles.css", "content": css}).to_string(),
+                "wrote styles.css",
+            );
+            app.expand_tool("w2");
+            app.push_reasoning(
+                "Verify: classes in HTML exist in CSS. Reading both back is cheapest.",
+            );
+            app.push_tool("r1", "read", r#"{"path":"index.html"}"#, "…");
+            app.push_assistant(
+                "Selesai. Portofolio satu halaman:\n\n- `index.html`: hero, about, projects\n- `styles.css`: light/dark, responsif",
+            );
             app
         }
         _ => session(),

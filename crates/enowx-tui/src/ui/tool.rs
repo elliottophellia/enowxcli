@@ -83,6 +83,7 @@ pub(super) enum ToolBody<'a> {
     /// File preview capped to a max number of lines; the header carries the
     /// total count so the reader knows there is more.
     Preview {
+        path: String,
         content: String,
         total: usize,
     },
@@ -136,7 +137,7 @@ pub(super) fn render_tree(
     width: usize,
     lines: &mut Vec<Line<'static>>,
     theme: &Theme,
-    file_markers: &mut Vec<(usize, String)>,
+    file_markers: &mut Vec<crate::ui::FileLink>,
 ) {
     let text_w = width.saturating_sub(5).max(1);
     let shown = items.len().min(TREE_PREVIEW_MAX);
@@ -155,7 +156,7 @@ pub(super) fn render_tree(
             .unwrap_or(clipped.as_str())
             .to_string();
         let row_idx = lines.len();
-        file_markers.push((row_idx, path));
+        file_markers.push((row_idx, path, None));
         lines.push(Line::from(vec![
             Span::styled(format!("{connector} "), Style::default().fg(theme.muted)),
             Span::styled(
@@ -199,7 +200,7 @@ pub(super) fn render_todo(
                     .fg(theme.green)
                     .add_modifier(Modifier::CROSSED_OUT),
             ),
-            TodoState::Pending => ("☐", Style::default().fg(theme.accent)),
+            TodoState::Pending => ("☐", Style::default().fg(theme.muted)),
             TodoState::InProgress => (
                 "▶",
                 Style::default()
@@ -284,6 +285,7 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
                 header: RowParts::new("write", path.clone(), counted(n, "line", "lines")),
                 subtitle: None,
                 body: ToolBody::Preview {
+                    path: path.clone(),
                     content: content.to_string(),
                     total: n,
                 },
@@ -478,52 +480,125 @@ fn parse_start_line(result: &str) -> Option<usize> {
 /// gets `+N more lines` at the bottom; click the header to see full output.
 pub(super) const WRITE_PREVIEW_MAX: usize = 12;
 
-/// Compact write preview matching the diff style: single-line header, then
-/// rows shaped ` NNN│content`. Overlong rows truncate with `…`; content past
-/// `WRITE_PREVIEW_MAX` is folded into a `↳ N more lines` hint.
-pub(super) fn render_preview(
+/// A written file as a card: its name and language in the top edge, then its
+/// first lines with faint numbers and syntax colours, the rest folded into
+/// one row. It replaced a tinted band with an accent bar, `··` for every
+/// indent and no colour, which read as noise rather than as code.
+pub(super) fn render_file_card(
+    path: &str,
     content: &str,
     total: usize,
     width: usize,
     lines: &mut Vec<Line<'static>>,
     theme: &Theme,
 ) {
-    let num_w = total.to_string().len().max(2);
-    // Layout: `  NNN│content` — 2 space + num_w + 1 `│`
-    let text_w = width.saturating_sub(num_w + 3).max(1);
+    if width < 12 {
+        return;
+    }
+    let border = Style::default().fg(theme.border);
+    let faint = Style::default().fg(theme.faint);
+    let file = std::path::Path::new(path);
+    let name = file
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.to_owned());
+    let ext = file
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    let syntax = crate::syntax::lookup(&ext);
+    let language = language_label(&ext);
 
-    let bg = theme.subtle;
-    let border = Style::default().fg(theme.accent).bg(bg);
-    let dim_bg = Style::default().fg(theme.muted).bg(bg);
-    let text_bg = Style::default().fg(theme.text).bg(bg);
-    let show: Vec<&str> = content.lines().take(WRITE_PREVIEW_MAX).collect();
-    for (idx, raw) in show.iter().enumerate() {
-        let line_no = idx + 1;
-        let (indent_viz, rest) = visualize_indent(raw);
-        let indent_w = indent_viz.chars().count();
-        let body_budget = text_w.saturating_sub(indent_w);
-        let (body_shown, _) = truncate(&rest, body_budget);
-        let used = 2 + num_w + 1 + indent_w + body_shown.chars().count();
-        let pad = width.saturating_sub(used);
-        lines.push(Line::from(vec![
+    // Top edge: `╭─ name · language ───╮`.
+    let inner = width - 2;
+    let title = if language.is_empty() {
+        format!(" {name} ")
+    } else {
+        format!(" {name} · {language} ")
+    };
+    let title = trim(&title, inner.saturating_sub(2));
+    let rule = inner.saturating_sub(1 + title.width());
+    lines.push(Line::from(vec![
+        Span::styled("╭─", border),
+        Span::styled(title, Style::default().fg(theme.muted)),
+        Span::styled(format!("{}╮", "─".repeat(rule)), border),
+    ]));
+
+    // Rows: `│ NN  code │`.
+    let num_w = total.max(1).to_string().len().max(2);
+    // `│ NN  code │`: the two walls with a space inside each, and two
+    // spaces after the number.
+    let code_w = inner.saturating_sub(num_w + 4);
+    let mut state = crate::syntax::State::default();
+    for (index, raw) in content.lines().take(WRITE_PREVIEW_MAX).enumerate() {
+        let raw = raw.replace('\t', "    ");
+        let runs: Vec<(String, crate::syntax::Tok)> = match syntax.as_ref() {
+            Some(syntax) => crate::syntax::highlight(&raw, syntax, &mut state),
+            None => vec![(raw.clone(), crate::syntax::Tok::Plain)],
+        };
+        let mut spans = vec![
             Span::styled("│ ", border),
-            Span::styled(format!("{line_no:>num_w$}"), dim_bg),
-            Span::styled("│", dim_bg),
-            Span::styled(indent_viz, dim_bg),
-            Span::styled(body_shown, text_bg),
-            Span::styled(" ".repeat(pad), Style::default().bg(bg)),
-        ]));
+            Span::styled(format!("{:>num_w$}  ", index + 1), faint),
+        ];
+        let mut used = 0usize;
+        let full: usize = runs.iter().map(|(text, _)| text.width()).sum();
+        let budget = if full > code_w {
+            code_w.saturating_sub(1)
+        } else {
+            code_w
+        };
+        for (text, tok) in runs {
+            if used >= budget {
+                break;
+            }
+            let mut piece = String::new();
+            for c in text.chars() {
+                let w = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+                if used + w > budget {
+                    break;
+                }
+                used += w;
+                piece.push(c);
+            }
+            spans.push(Span::styled(piece, tok.style(theme)));
+        }
+        if full > code_w {
+            spans.push(Span::styled("…", faint));
+            used += 1;
+        }
+        spans.push(Span::raw(" ".repeat(code_w.saturating_sub(used))));
+        spans.push(Span::styled(" │", border));
+        lines.push(Line::from(spans));
     }
     if total > WRITE_PREVIEW_MAX {
-        let extra = total - WRITE_PREVIEW_MAX;
-        let msg = format!("↳ {extra} more lines");
-        let pad = width.saturating_sub(2 + msg.chars().count());
+        let more = format!("{} more lines", total - WRITE_PREVIEW_MAX);
+        let used = num_w + 2 + more.width();
         lines.push(Line::from(vec![
             Span::styled("│ ", border),
-            Span::styled(msg, dim_bg),
-            Span::styled(" ".repeat(pad), Style::default().bg(bg)),
+            Span::styled(format!("{:>num_w$}  ", "…"), faint),
+            Span::styled(more, Style::default().fg(theme.muted)),
+            Span::raw(" ".repeat(inner.saturating_sub(2 + used))),
+            Span::styled(" │", border),
         ]));
     }
+    lines.push(Line::styled(format!("╰{}╯", "─".repeat(inner)), border));
+}
+
+/// A file extension as the card names its language.
+fn language_label(ext: &str) -> String {
+    match ext {
+        "rs" => "rust",
+        "js" | "mjs" | "cjs" => "javascript",
+        "ts" => "typescript",
+        "py" => "python",
+        "rb" => "ruby",
+        "md" | "markdown" => "markdown",
+        "yml" => "yaml",
+        "sh" | "bash" | "zsh" => "shell",
+        "htm" => "html",
+        other => other,
+    }
+    .to_owned()
 }
 
 /// Rich per-line diff: header with `✎ Edit: 📄 <path> [+N/-M]`, colored
@@ -575,7 +650,7 @@ pub(super) fn render_diff(
     let del_c = Style::default().fg(theme.red);
 
     let bg = theme.subtle;
-    let border = Style::default().fg(theme.accent).bg(bg);
+    let border = Style::default().fg(theme.border).bg(bg);
 
     let total_target = start_line + old_lines.len().max(new_lines.len());
     let num_w = total_target.to_string().len().max(2);
@@ -701,37 +776,24 @@ pub(super) fn render_diff(
     }
 }
 
-/// Render indent as visible glyphs (space → `·`, tab → ` → `) and return the
-/// visualized indent plus the remaining text after the leading whitespace.
+/// Split a line into its leading whitespace, as plain spaces (a tab is
+/// four), and the rest. It used to draw the indent as `··` and ` → `: noise
+/// on every indented line, for a whitespace change that almost never matters.
 fn visualize_indent(s: &str) -> (String, String) {
     let mut indent = String::new();
     let mut rest = String::new();
     let mut in_leading = true;
     for c in s.chars() {
         if in_leading && c == ' ' {
-            indent.push('·');
+            indent.push(' ');
         } else if in_leading && c == '\t' {
-            indent.push_str(" → ");
+            indent.push_str("    ");
         } else {
             in_leading = false;
             rest.push(c);
         }
     }
     (indent, rest)
-}
-
-/// Truncate a string with `…` when it exceeds `budget`. Returns
-/// `(shown, was_truncated)`.
-fn truncate(text: &str, budget: usize) -> (String, bool) {
-    if text.chars().count() <= budget {
-        return (text.to_string(), false);
-    }
-    if budget == 0 {
-        return (String::new(), true);
-    }
-    let mut s: String = text.chars().take(budget.saturating_sub(1).max(1)).collect();
-    s.push('…');
-    (s, true)
 }
 
 enum DiffOp {
@@ -1442,7 +1504,7 @@ mod search_view_tests {
 ///
 /// Collapsed does not mean hidden — every one of these keeps its chevron and
 /// opens on a click, so nothing is lost, it just does not arrive uninvited.
-pub(super) fn opens_by_default(name: &str, master_toggle: bool) -> bool {
+pub(crate) fn opens_by_default(name: &str, master_toggle: bool) -> bool {
     match name {
         // The paths only restate the pattern that produced them: "*.md
         // matched 4 files" is the whole story, and the agent is the one that
@@ -1457,6 +1519,10 @@ pub(super) fn opens_by_default(name: &str, master_toggle: bool) -> bool {
         "grep" => false,
         // Even `ls` in a large tree spills hundreds of lines.
         "bash" => false,
+        // A written file is the agent's output to disk: the row says which
+        // file and how long, and the file itself is a click away. Open, a
+        // page of HTML per write pushed the conversation off the screen.
+        "write" => false,
         // Everything else — a diff, a file being written, a todo list, an
         // MCP payload — is the reason the call was made.
         _ => master_toggle,

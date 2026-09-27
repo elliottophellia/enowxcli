@@ -279,10 +279,12 @@ fn heading(lines: &mut Vec<Line<'static>>, title: &str, theme: &Theme) {
     if !lines.is_empty() {
         lines.push(Line::default());
     }
+    // A label, not a highlight: muted and bold, as the palette's group
+    // headings are. The accent is kept for what is active.
     lines.push(Line::styled(
         title.to_owned(),
         Style::default()
-            .fg(theme.accent)
+            .fg(theme.muted)
             .add_modifier(Modifier::BOLD),
     ));
 }
@@ -292,9 +294,7 @@ fn headline(lines: &mut Vec<Line<'static>>, value: &str, label: &str, theme: &Th
     lines.push(Line::from(vec![
         Span::styled(
             value.to_owned(),
-            Style::default()
-                .fg(theme.accent)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
         ),
         Span::styled(format!("  {label}"), Style::default().fg(theme.muted)),
     ]));
@@ -395,7 +395,7 @@ fn detail_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usi
                         ),
                         Span::styled(
                             trim(&delegation.agent, width.saturating_sub(4).max(1)),
-                            Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+                            Style::default().fg(t.text).add_modifier(Modifier::BOLD),
                         ),
                     ]));
                     // The task says which delegation this is when the same

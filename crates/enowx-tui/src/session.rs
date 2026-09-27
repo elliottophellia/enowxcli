@@ -2,7 +2,17 @@
 pub(crate) enum TranscriptKind {
     User,
     Assistant,
-    Reasoning,
+    /// The model's thinking, drawn as one row (`Thought for 6s`) with its
+    /// text a click or Ctrl+R away.
+    Reasoning {
+        /// Key for opening it, as a tool call's id is.
+        id: String,
+        /// When it began streaming. `None` when replayed from a session file.
+        started: Option<std::time::Instant>,
+        /// How long it took, set once something else began. `None` while it
+        /// streams, and when replayed.
+        elapsed: Option<std::time::Duration>,
+    },
     Tool {
         id: String,
         name: String,

@@ -59,7 +59,23 @@ pub struct Session {
     /// spend alone and is wrong by an order of magnitude.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
+    /// Every delegation this session made, oldest first. Its own turns carry
+    /// only the sub-agent's report; this is how a resumed session reaches the
+    /// branch holding the work behind it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub delegations: Vec<DelegationRecord>,
     pub turns: Vec<StoredTurn>,
+}
+
+/// One delegation, recorded on the session that made it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DelegationRecord {
+    pub agent: String,
+    /// The branch session the sub-agent worked in.
+    pub session_id: String,
+    /// Set once it has finished, when it ended in failure.
+    #[serde(default)]
+    pub failed: bool,
 }
 
 /// One handover, recorded so the transcript can show who answered what.
@@ -145,6 +161,7 @@ impl Session {
             agent: agent.into(),
             switches: Vec::new(),
             parent: Some(self.id.clone()),
+            delegations: Vec::new(),
             turns: Vec::new(),
         }
     }
@@ -173,6 +190,7 @@ impl Session {
             agent: String::new(),
             switches: Vec::new(),
             parent: None,
+            delegations: Vec::new(),
             turns: Vec::new(),
         }
     }
@@ -324,6 +342,8 @@ struct Header {
     switches: Vec<AgentSwitch>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     parent: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    delegations: Vec<DelegationRecord>,
 }
 
 impl Default for SessionStore {
@@ -357,6 +377,7 @@ impl SessionStore {
             agent: session.agent.clone(),
             switches: session.switches.clone(),
             parent: session.parent.clone(),
+            delegations: session.delegations.clone(),
         };
         out.push_str(&serde_json::to_string(&header)?);
         out.push('\n');
@@ -397,6 +418,7 @@ impl SessionStore {
             agent: header.agent,
             switches: header.switches,
             parent: header.parent,
+            delegations: header.delegations,
             turns,
         })
     }

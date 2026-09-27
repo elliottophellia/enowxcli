@@ -370,7 +370,18 @@ impl Agent {
     ) -> String {
         let mut branch = parent.branch(&delegation.to);
         if let Err(error) = self.store.save(&branch) {
-            return format!("could not start the delegation: {error:#}");
+            // Said on screen as well as to the caller: the delegate call
+            // itself went through, so without this the failure shows nowhere.
+            let summary = format!("failed before changing anything: could not start: {error:#}");
+            let _ = events
+                .send(Event::DelegationFinished {
+                    agent: delegation.to.clone(),
+                    summary: summary.clone(),
+                    session_id: branch.id.clone(),
+                    failed: true,
+                })
+                .await;
+            return summary;
         }
         // The task alone. The report the sub-agent owes (DONE/CHANGED/…) rides
         // in its system prompt via REPORT_CONTRACT, keyed off the branch's
@@ -384,6 +395,11 @@ impl Agent {
             role: parent.role,
             attachments: Vec::new(),
         };
+        parent.delegations.push(crate::session::DelegationRecord {
+            agent: delegation.to.clone(),
+            session_id: branch.id.clone(),
+            failed: false,
+        });
         let _ = events
             .send(Event::DelegationStarted {
                 agent: delegation.to.clone(),
@@ -439,6 +455,14 @@ impl Agent {
             }
         };
         let failed = summary.starts_with("failed") || summary.starts_with("PARTIAL FAILURE");
+        if let Some(record) = parent
+            .delegations
+            .iter_mut()
+            .rev()
+            .find(|record| record.session_id == branch.id)
+        {
+            record.failed = failed;
+        }
         let _ = events
             .send(Event::DelegationFinished {
                 agent: delegation.to.clone(),
@@ -946,10 +970,7 @@ impl Agent {
                         let summary = self.run_delegated(&mut session, &delegation, events).await;
                         session.push(Message {
                             role: MessageRole::User,
-                            content: format!(
-                                "[delegation to `{}` finished]\n{summary}",
-                                delegation.to
-                            ),
+                            content: crate::routing::report_message(&delegation.to, &summary),
                             reasoning: None,
                             tool_calls: Vec::new(),
                             attachments: Vec::new(),

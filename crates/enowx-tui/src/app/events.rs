@@ -232,6 +232,8 @@ impl App {
                     TranscriptKind::Brief {
                         agent: agent.clone(),
                         id: session_id.clone(),
+                        state: crate::app::DelegationState::Running,
+                        report: String::new(),
                     },
                     task.clone(),
                 );
@@ -253,10 +255,41 @@ impl App {
                 session_id,
                 failed,
             } => {
-                self.push(
-                    TranscriptKind::Notice,
-                    format!("{agent} finished\n{summary}"),
-                );
+                let outcome = if failed {
+                    crate::app::DelegationState::Failed
+                } else {
+                    crate::app::DelegationState::Finished
+                };
+                // The report lands on the delegation's own row rather than as
+                // a notice under it: one delegation, one block, from the
+                // moment it starts to the moment it reports.
+                let landed = self
+                    .conversation_mut()
+                    .iter_mut()
+                    .rev()
+                    .any(|block| match &mut block.kind {
+                        TranscriptKind::Brief {
+                            id, state, report, ..
+                        } if *id == session_id => {
+                            *state = outcome;
+                            *report = summary.clone();
+                            true
+                        }
+                        _ => false,
+                    });
+                if !landed {
+                    // Finished without having started: it failed before the
+                    // branch existed. The report still has to be seen.
+                    self.push(
+                        TranscriptKind::Brief {
+                            agent: agent.clone(),
+                            id: session_id.clone(),
+                            state: outcome,
+                            report: summary.clone(),
+                        },
+                        String::new(),
+                    );
+                }
                 self.logs.push(
                     crate::logs::LogKind::Agent,
                     format!("{agent} {}", if failed { "failed" } else { "finished" }),
@@ -269,11 +302,7 @@ impl App {
                     .iter_mut()
                     .find(|d| d.session_id == session_id)
                 {
-                    entry.state = if failed {
-                        crate::app::DelegationState::Failed
-                    } else {
-                        crate::app::DelegationState::Finished
-                    };
+                    entry.state = outcome;
                 }
             }
             Event::Retry {

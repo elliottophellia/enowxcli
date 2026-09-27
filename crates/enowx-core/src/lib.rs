@@ -33,5 +33,5 @@ pub use provider::{
 };
 pub use role::{Role, ROLES};
 pub use routing::{Delegation as DelegationRequest, Refusal, Switch};
-pub use session::{Session, SessionStore, StoredTurn};
+pub use session::{DelegationRecord, Session, SessionStore, StoredTurn};
 pub use tools::{Tool, ToolCtx, ToolOutput, ToolRegistry};

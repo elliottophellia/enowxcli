@@ -73,7 +73,7 @@ impl App {
         self.switch_markers.clear();
         self.events = None;
         self.auto_scroll = true;
-        self.replay_into_blocks(&session);
+        self.delegations = self.replay_into_blocks(&session);
         self.status = format!("resumed {}", &session.id[..8]);
         Ok(())
     }
@@ -91,8 +91,18 @@ impl App {
         });
     }
 
-    pub(crate) fn replay_into_blocks(&mut self, session: &enowx_core::Session) {
+    /// Returns the delegations the session made, for the Agents tab.
+    pub(crate) fn replay_into_blocks(
+        &mut self,
+        session: &enowx_core::Session,
+    ) -> Vec<crate::app::Delegation> {
         let mut tool_blocks: HashMap<String, usize> = HashMap::new();
+        // Delegations come back as a report message; the branch behind each
+        // is in the session's records, in the same order. The task is in the
+        // `delegate` call that started it.
+        let mut records = session.delegations.iter();
+        let mut tasks: Vec<(String, String)> = Vec::new();
+        let mut delegations: Vec<crate::app::Delegation> = Vec::new();
         // A switch names the turn it happened at, but a turn expands into
         // several blocks, so the marker is pinned to the first block a turn
         // produces as the replay reaches it.
@@ -109,6 +119,53 @@ impl App {
             let turn = turn.clone();
             match turn.message.role {
                 MessageRole::User => {
+                    if let Some((agent, report)) =
+                        enowx_core::routing::parse_report_message(&turn.message.content)
+                    {
+                        let task = tasks
+                            .iter()
+                            .position(|(name, _)| name == agent)
+                            .map(|at| tasks.remove(at).1)
+                            .unwrap_or_default();
+                        let record = records.next().filter(|record| record.agent == agent);
+                        let failed = record.map_or_else(
+                            || {
+                                report.starts_with("failed")
+                                    || report.starts_with("PARTIAL FAILURE")
+                            },
+                            |record| record.failed,
+                        );
+                        let state = if failed {
+                            crate::app::DelegationState::Failed
+                        } else {
+                            crate::app::DelegationState::Finished
+                        };
+                        // Without a record (a session from before they were
+                        // kept) the row still shows; it just has no branch
+                        // to open.
+                        let id = record.map_or_else(
+                            || format!("replayed-{turn_index}"),
+                            |record| record.session_id.clone(),
+                        );
+                        if let Some(record) = record {
+                            delegations.push(crate::app::Delegation {
+                                agent: agent.to_owned(),
+                                task: task.clone(),
+                                session_id: record.session_id.clone(),
+                                state,
+                            });
+                        }
+                        self.show(
+                            TranscriptKind::Brief {
+                                agent: agent.to_owned(),
+                                id,
+                                state,
+                                report: report.to_owned(),
+                            },
+                            task,
+                        );
+                        continue;
+                    }
                     let mut display = turn.message.content.clone();
                     if !turn.message.attachments.is_empty() {
                         let mut names: Vec<String> = turn
@@ -133,6 +190,19 @@ impl App {
                         self.show(TranscriptKind::Assistant, turn.message.content);
                     }
                     for call in turn.message.tool_calls {
+                        if call.name == "delegate" {
+                            if let Ok(args) =
+                                serde_json::from_str::<serde_json::Value>(&call.arguments)
+                            {
+                                let field = |key: &str| {
+                                    args.get(key)
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or_default()
+                                        .to_owned()
+                                };
+                                tasks.push((field("agent"), field("task")));
+                            }
+                        }
                         let index = self.blocks.len();
                         tool_blocks.insert(call.id.clone(), index);
                         self.show(
@@ -182,6 +252,7 @@ impl App {
             self.switch_markers
                 .push((self.blocks.len(), switch.clone()));
         }
+        delegations
     }
 }
 
@@ -217,6 +288,7 @@ impl App {
         }
         let branch = self.store.load(&delegation.session_id)?;
         let blocks_at_open = self.blocks.len();
+        let reports_at_open = crate::app::reports_in(&self.blocks);
         let saved = crate::app::Viewing {
             blocks: std::mem::take(&mut self.blocks),
             scroll: self.scroll,
@@ -226,6 +298,7 @@ impl App {
             session_id: delegation.session_id.clone(),
             last_refresh: std::time::Instant::now(),
             blocks_at_open,
+            reports_at_open,
         };
         self.render_cache.clear();
         self.switch_markers.clear();

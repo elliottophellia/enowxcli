@@ -218,6 +218,21 @@ fn globs_overlap(a: &str, b: &str) -> bool {
     pa.starts_with(&pb) || pb.starts_with(&pa)
 }
 
+/// The message a sub-agent's report reaches its caller in. The interface
+/// reads it back out when a session is replayed, so both sides go through
+/// this pair rather than each spelling the format.
+pub fn report_message(agent: &str, summary: &str) -> String {
+    format!("[delegation to `{agent}` finished]\n{summary}")
+}
+
+/// The agent and report in a `report_message`; None for any other text.
+pub fn parse_report_message(content: &str) -> Option<(&str, &str)> {
+    let rest = content.strip_prefix("[delegation to `")?;
+    let (agent, rest) = rest.split_once('`')?;
+    let summary = rest.strip_prefix(" finished]")?;
+    Some((agent, summary.strip_prefix('\n').unwrap_or(summary)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -654,5 +669,15 @@ mod wire_tests {
         assert!(!is_routing_tool("read"));
         assert!(is_routing_tool("handoff"));
         assert!(is_routing_tool("delegate"));
+    }
+
+    #[test]
+    fn a_report_message_reads_back() {
+        let message = report_message("fe", "DONE: it\nCHANGED: a.rs");
+        assert_eq!(
+            parse_report_message(&message),
+            Some(("fe", "DONE: it\nCHANGED: a.rs"))
+        );
+        assert_eq!(parse_report_message("an ordinary user message"), None);
     }
 }

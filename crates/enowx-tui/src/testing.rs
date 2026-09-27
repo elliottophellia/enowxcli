@@ -979,6 +979,67 @@ impl TestApp {
             });
     }
 
+    /// A delegation reporting back with a report of the test's choosing.
+    pub fn deliver_delegation_report(
+        &mut self,
+        agent: &str,
+        session_id: &str,
+        summary: &str,
+        failed: bool,
+    ) {
+        self.inner
+            .apply_event(enowx_core::Event::DelegationFinished {
+                agent: agent.to_owned(),
+                summary: summary.to_owned(),
+                session_id: session_id.to_owned(),
+                failed,
+            });
+    }
+
+    /// Resume a saved session that delegated once, recorded as the agent
+    /// loop records it: the `delegate` call, its acknowledgement, the report
+    /// message, and the branch on the session. Returns the branch id.
+    pub fn resume_with_delegation(
+        &mut self,
+        agent: &str,
+        task: &str,
+        report: &str,
+        failed: bool,
+    ) -> anyhow::Result<String> {
+        use enowx_core::message::{Message, ToolCall};
+        use enowx_core::{DelegationRecord, Session};
+
+        let workspace = std::fs::canonicalize(self.inner.config.workspace())?;
+        let mut session = Session::new(self.inner.role);
+        session.workspace = workspace.clone();
+        let mut branch = session.branch(agent);
+        branch.push(Message::assistant(report));
+        self.inner.store.save(&branch)?;
+
+        session.push(Message::user("build the page"));
+        let mut call = Message::assistant("Sending this to the specialist.");
+        call.tool_calls.push(ToolCall {
+            id: "call-delegate".into(),
+            name: "delegate".into(),
+            arguments: serde_json::json!({ "agent": agent, "task": task }).to_string(),
+        });
+        session.push(call);
+        session.push(Message::tool_result("call-delegate", "delegating"));
+        session.push(Message::user(enowx_core::routing::report_message(
+            agent, report,
+        )));
+        session.push(Message::assistant("All done."));
+        session.delegations.push(DelegationRecord {
+            agent: agent.to_owned(),
+            session_id: branch.id.clone(),
+            failed,
+        });
+        let id = session.id.clone();
+        self.inner.store.save(&session)?;
+        self.inner.resume(&id)?;
+        Ok(branch.id)
+    }
+
     pub fn delegation_rows(&self) -> usize {
         self.inner.delegation_rects.len()
     }

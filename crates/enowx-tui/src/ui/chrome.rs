@@ -283,7 +283,10 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect, show_figures: bool) {
         left_spans.push(Span::styled(" · Esc back", Style::default().fg(t.muted)));
         // The conversation carries on behind this. Say when it has, or
         // staying here to read the work looks like being stuck in it.
-        let moved_on = viewing.blocks.len().saturating_sub(viewing.blocks_at_open);
+        // A delegation's report lands on its existing row, so it is counted
+        // on its own: the block count alone would miss it.
+        let moved_on = viewing.blocks.len().saturating_sub(viewing.blocks_at_open)
+            + crate::app::reports_in(&viewing.blocks).saturating_sub(viewing.reports_at_open);
         let right = Line::from(vec![if moved_on > 0 {
             Span::styled(
                 format!("main chat +{moved_on} ↑"),

@@ -239,3 +239,63 @@ async fn cancelling_still_stops_the_turn_itself() {
         calls.load(Ordering::SeqCst)
     );
 }
+
+/// The parent session records which branch did the work. Its own turns
+/// only carry the report, so without this a resumed session shows a report
+/// with no way to reach the transcript behind it.
+#[tokio::test]
+async fn the_parent_session_records_its_delegation() {
+    let dir = Dir::new("record");
+    let (base_url, _calls) = fake_provider(vec![
+        delegates_to("fe", "write the page"),
+        says("DONE: wrote it\nCHANGED: index.html\nVERIFIED: opened it\nNEXT: nothing"),
+        says("all finished"),
+    ])
+    .await;
+
+    let config = config_for(&base_url, &dir.0);
+    let store = SessionStore::new(config.workspace().join(".enx-sessions"));
+    let agent = isolated_agent(config);
+    let (tx, mut rx) = tokio::sync::mpsc::channel(256);
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let request = enowx_core::agent::RunRequest {
+        prompt: "build the page".into(),
+        session_id: None,
+        role: Role::Orchestrator,
+        attachments: Vec::new(),
+    };
+    let handle = tokio::spawn(async move { agent.run(request, tx, cancel).await });
+    let mut events = Vec::new();
+    while let Some(event) = rx.recv().await {
+        events.push(event);
+    }
+    let _ = handle.await;
+
+    let parent = events
+        .iter()
+        .find_map(|e| match e {
+            Event::Session { id, .. } => Some(id.clone()),
+            _ => None,
+        })
+        .expect("the turn should announce its session");
+    let branch = events
+        .iter()
+        .find_map(|e| match e {
+            Event::DelegationStarted { session_id, .. } => Some(session_id.clone()),
+            _ => None,
+        })
+        .expect("the delegation should start");
+
+    let saved = store.load(&parent).expect("the parent session is saved");
+    assert_eq!(
+        saved.delegations,
+        vec![enowx_core::DelegationRecord {
+            agent: "fe".into(),
+            session_id: branch.clone(),
+            failed: false,
+        }],
+        "the parent should name the branch it delegated to"
+    );
+    let branch = store.load(&branch).expect("the branch is saved");
+    assert_eq!(branch.parent.as_deref(), Some(parent.as_str()));
+}

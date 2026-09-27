@@ -1,6 +1,6 @@
 //! Render the whole app at any terminal size, as plain text, to check the
 //! grid without a terminal. Scenarios: session (default), empty, busy,
-//! palette, detail, rich.
+//! palette, detail, rich, delegate.
 //! Run: cargo run -q -p enowx-tui --example snapshot -- 120 36 rich
 use enowx_tui::testing::TestApp;
 
@@ -98,6 +98,33 @@ fn scenario(name: &str) -> TestApp {
             );
             app.push_retry("provider returned 503", 2, 10);
             app.push_assistant("Selesai. Semua kotak sejajar.");
+            app
+        }
+        "delegate" => {
+            let mut app = TestApp::new();
+            app.push_user("buatkan portfolio simple");
+            app.push_assistant("Ini kerja frontend, saya serahkan ke fe.");
+            app.push_tool(
+                "d1",
+                "delegate",
+                r#"{"agent":"fe","task":"Build a simple portfolio page"}"#,
+                "delegating to fe",
+            );
+            app.deliver_delegation_started(
+                "fe",
+                "Build a simple one-page portfolio.\n- hero with name and role\n- projects grid\n- contact links",
+                "s-1",
+            );
+            app.deliver_delegation_report(
+                "fe",
+                "s-1",
+                "DONE: Built a one-page portfolio with a hero, a projects grid and contact links.\n\
+                 CHANGED: index.html, style.css\n\
+                 VERIFIED: Opened it at 375 and 1280 wide; no horizontal scroll.\n\
+                 NEXT: nothing",
+                false,
+            );
+            app.push_assistant("Portfolio sudah jadi: `index.html` dan `style.css`.");
             app
         }
         _ => session(),

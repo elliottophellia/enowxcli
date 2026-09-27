@@ -332,7 +332,7 @@ fn text_arriving_while_viewing_is_not_lost() {
         "and what arrived while viewing should be in it: {text}"
     );
     assert!(
-        text.contains("fe finished"),
+        text.contains("did the work"),
         "including the delegation's own report: {text}"
     );
 }

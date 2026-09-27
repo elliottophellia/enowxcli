@@ -34,11 +34,21 @@ pub(crate) struct Delegation {
     pub(crate) state: DelegationState,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum DelegationState {
     Running,
     Finished,
     Failed,
+}
+
+/// How many delegations in `blocks` have reported back.
+pub(crate) fn reports_in(blocks: &[TranscriptBlock]) -> usize {
+    blocks
+        .iter()
+        .filter(|block| {
+            matches!(&block.kind, TranscriptKind::Brief { report, .. } if !report.is_empty())
+        })
+        .count()
 }
 
 impl DelegationState {
@@ -72,6 +82,8 @@ pub(crate) struct Viewing {
     /// the footer can say it has moved on without the user having to leave
     /// to find out.
     pub(crate) blocks_at_open: usize,
+    /// Delegation reports in it then; see `reports_in`.
+    pub(crate) reports_at_open: usize,
 }
 
 pub(crate) struct App {
@@ -531,6 +543,8 @@ impl App {
     pub(crate) fn new_session(&mut self) {
         self.blocks.clear();
         self.switch_markers.clear();
+        // The Agents tab lists this session's sub-agents, not the last one's.
+        self.delegations.clear();
         self.adopt_agent(&enowx_core::Session::new(self.role));
         self.session_id = None;
         self.title.clear();

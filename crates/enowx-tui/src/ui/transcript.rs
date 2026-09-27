@@ -493,38 +493,54 @@ fn render_block(
             });
         }
         TranscriptKind::Reasoning => return,
-        TranscriptKind::Brief { agent, id } => {
-            // Closed by default. The brief is written for the sub-agent —
-            // forty lines of instructions, exclusions and acceptance criteria
-            // — and printing it in full buries the conversation it belongs
-            // to. The row says who was sent what; the text is one click away.
+        TranscriptKind::Brief {
+            agent,
+            id,
+            state,
+            report,
+        } => {
+            // One row for the whole delegation, marked like a tool call: still
+            // going, done, or failed. The brief under it stays closed until
+            // clicked, since it is written for the sub-agent; the report is
+            // written for the reader and is always shown.
             let expanded = tool_expanded.get(id).copied().unwrap_or(false);
-            let body: Vec<&str> = block.text.lines().collect();
+            let brief_rows = block.text.lines().count();
+            let icon = match state {
+                crate::app::DelegationState::Running => ("›", theme.yellow),
+                crate::app::DelegationState::Finished => ("✓", theme.green),
+                crate::app::DelegationState::Failed => ("✗", theme.red),
+            };
             let parts = crate::ui::tool::RowParts {
                 verb: "delegate".into(),
                 arg: agent.clone(),
-                metric: format!("{} line brief", body.len()),
-                status: None,
+                metric: if brief_rows == 0 {
+                    String::new()
+                } else {
+                    format!("{brief_rows} line brief")
+                },
+                status: (*state == crate::app::DelegationState::Running)
+                    .then(|| "working".to_owned()),
             };
             tool_headers.push((id.clone(), lines.len()));
-            lines.push(tool_row(
-                &parts,
-                Some(if expanded { "▾" } else { "▸" }),
-                ("◆", theme.accent),
-                None,
-                width,
-                theme,
-            ));
-            if expanded {
-                for line in body {
-                    lines.push(Line::styled(
-                        format!(
-                            "  {}",
-                            crate::text::trim(line, width.saturating_sub(2).max(1))
-                        ),
-                        Style::default().fg(theme.muted),
-                    ));
+            let chevron = (brief_rows > 0).then_some(if expanded { "▾" } else { "▸" });
+            lines.push(tool_row(&parts, chevron, icon, None, width, theme));
+            if expanded && brief_rows > 0 {
+                indented(lines, theme, width, |w, out| {
+                    render_markdown(&block.text, w, out, theme);
+                    for line in out.iter_mut() {
+                        for span in line.spans.iter_mut() {
+                            span.style = span.style.fg(theme.muted);
+                        }
+                    }
+                });
+            }
+            if !report.is_empty() {
+                if expanded && brief_rows > 0 {
+                    lines.push(Line::default());
                 }
+                indented(lines, theme, width, |w, out| {
+                    report_card(report, w, out, theme)
+                });
             }
         }
         TranscriptKind::Tool {
@@ -912,13 +928,20 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                     app.tool_expanded.get(id).copied().unwrap_or(default_expand),
                 )
             }
-            TranscriptKind::Brief { agent, id } => {
+            TranscriptKind::Brief {
+                agent,
+                id,
+                state,
+                report,
+            } => {
                 // Clicking the row toggles it, so the key has to carry that
                 // state — otherwise the cached closed row is served again and
                 // the click looks ignored.
                 std::mem::discriminant(&block.kind).hash(&mut hasher);
                 agent.hash(&mut hasher);
                 id.hash(&mut hasher);
+                state.hash(&mut hasher);
+                report.hash(&mut hasher);
                 // Not `is_tool`: that flag closes the gap between
                 // consecutive tool rows, and a brief is punctuation between
                 // the conversation and a sub-agent's work — it needs its
@@ -941,7 +964,8 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 (false, false)
             }
         };
-        let hidden = matches!(block.kind, TranscriptKind::Reasoning) && !show_reasoning;
+        let hidden = (matches!(block.kind, TranscriptKind::Reasoning) && !show_reasoning)
+            || routing_row(&block.kind);
         // A hidden block that carries a handover still has to draw, or
         // collapsing reasoning would silently swallow the marker with it.
         let skipped = hidden && before.is_empty() && after.is_empty();
@@ -1083,6 +1107,106 @@ fn tool_row(
     spans.push(Span::styled(right, right_style));
     spans.push(Span::styled(format!(" {}", chevron.unwrap_or(" ")), faint));
     Line::from(spans)
+}
+
+/// A `delegate` or `handoff` call that went through. Its row only repeats
+/// what the delegation row or the handover marker says, so it is not drawn;
+/// one that failed is, since nothing else reports it.
+fn routing_row(kind: &TranscriptKind) -> bool {
+    matches!(
+        kind,
+        TranscriptKind::Tool { name, error: false, .. } if name == "delegate" || name == "handoff"
+    )
+}
+
+/// A sub-agent's report under its row.
+///
+/// The report contract is a set of `LABEL: value` lines (DONE, CHANGED,
+/// VERIFIED, NEXT). They are laid out as a label column and a value column,
+/// so the values line up and each reads on its own; a value can run to
+/// several lines, lists included. Text that is not a field is shown as it
+/// is. On a panel too narrow for two columns, each label sits above its
+/// value.
+fn report_card(report: &str, width: usize, out: &mut Vec<Line<'static>>, theme: &Theme) {
+    let fields = report_fields(report);
+    let label_width = fields
+        .iter()
+        .filter_map(|(label, _)| label.as_deref())
+        .map(unicode_width_of)
+        .max()
+        .unwrap_or(0);
+    let value_width = width.saturating_sub(label_width + 2);
+    let columns = label_width > 0 && value_width >= 24;
+    let label_style = Style::default()
+        .fg(theme.muted)
+        .add_modifier(Modifier::BOLD);
+    for (label, value) in &fields {
+        let mut rows: Vec<Line<'static>> = Vec::new();
+        match label {
+            Some(label) if columns => {
+                render_markdown(value, value_width, &mut rows, theme);
+                if rows.is_empty() {
+                    rows.push(Line::default());
+                }
+                for (index, row) in rows.into_iter().enumerate() {
+                    let lead = if index == 0 {
+                        format!("{label:<label_width$}  ")
+                    } else {
+                        " ".repeat(label_width + 2)
+                    };
+                    let mut spans = vec![Span::styled(lead, label_style)];
+                    spans.extend(row.spans);
+                    out.push(Line::from(spans));
+                }
+            }
+            Some(label) => {
+                out.push(Line::styled(label.clone(), label_style));
+                render_markdown(value, width.saturating_sub(2).max(1), &mut rows, theme);
+                for row in rows {
+                    let mut spans = vec![Span::raw("  ")];
+                    spans.extend(row.spans);
+                    out.push(Line::from(spans));
+                }
+            }
+            None => {
+                render_markdown(value, width, &mut rows, theme);
+                out.extend(rows);
+            }
+        }
+    }
+}
+
+/// Split a report into `(label, value)` fields. A line opening with an
+/// upper-case label and a colon starts a field; the lines after it, up to
+/// the next label, continue its value. Lines before the first label have no
+/// label.
+fn report_fields(report: &str) -> Vec<(Option<String>, String)> {
+    let mut fields: Vec<(Option<String>, String)> = Vec::new();
+    for line in report.trim().lines() {
+        if let Some((label, value)) = report_label(line) {
+            fields.push((Some(label.to_owned()), value.trim().to_owned()));
+            continue;
+        }
+        match fields.last_mut() {
+            Some((_, value)) => {
+                if !value.is_empty() {
+                    value.push('\n');
+                }
+                value.push_str(line);
+            }
+            None => fields.push((None, line.to_owned())),
+        }
+    }
+    fields
+}
+
+fn report_label(line: &str) -> Option<(&str, &str)> {
+    let (label, value) = line.split_once(':')?;
+    let label = label.trim_end();
+    let is_label = (2..=16).contains(&label.len())
+        && label.starts_with(|c: char| c.is_ascii_uppercase())
+        && label.chars().all(|c| c.is_ascii_uppercase() || c == ' ');
+    is_label.then_some((label, value))
 }
 
 /// Whether a rendered line is empty, used to avoid stacking blank lines.

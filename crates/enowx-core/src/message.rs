@@ -107,6 +107,17 @@ impl Message {
     /// The provider payload for this message. Reasoning is dropped: replaying a
     /// summary back to the model wastes context and some providers reject it.
     pub fn to_wire(&self) -> serde_json::Value {
+        self.to_wire_with(false)
+    }
+
+    /// The payload, with an assistant turn's reasoning sent back as
+    /// `reasoning_content` when `with_reasoning` is set.
+    ///
+    /// DeepSeek requires it: with thinking on (its default) and `tools` in
+    /// the request, every earlier turn's `reasoning_content` must be passed
+    /// back, or the API answers 400. The agent always sends tools, so without
+    /// this the second step of every turn failed.
+    pub fn to_wire_with(&self, with_reasoning: bool) -> serde_json::Value {
         let mut out = serde_json::Map::new();
         out.insert(
             "role".into(),
@@ -157,6 +168,14 @@ impl Message {
                 .collect();
             out.insert("tool_calls".into(), serde_json::Value::Array(calls));
         }
+        if with_reasoning && matches!(self.role, Role::Assistant) {
+            if let Some(reasoning) = self.reasoning.as_deref().filter(|r| !r.is_empty()) {
+                out.insert(
+                    "reasoning_content".into(),
+                    serde_json::Value::String(reasoning.to_owned()),
+                );
+            }
+        }
         serde_json::Value::Object(out)
     }
 }
@@ -164,6 +183,24 @@ impl Message {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reasoning_goes_back_only_when_asked_and_only_for_the_assistant() {
+        let mut message = Message::assistant("answer");
+        message.reasoning = Some("thought it through".into());
+        assert!(message.to_wire().get("reasoning_content").is_none());
+        assert_eq!(
+            message.to_wire_with(true)["reasoning_content"],
+            "thought it through"
+        );
+        let mut user = Message::user("question");
+        user.reasoning = Some("not a thing users have".into());
+        assert!(user.to_wire_with(true).get("reasoning_content").is_none());
+        assert!(Message::assistant("no thinking")
+            .to_wire_with(true)
+            .get("reasoning_content")
+            .is_none());
+    }
 
     #[test]
     fn assistant_tool_calls_reach_the_wire_and_reasoning_does_not() {

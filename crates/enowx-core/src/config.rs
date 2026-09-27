@@ -310,7 +310,7 @@ impl Config {
             return;
         }
         let catalog = crate::catalog::Catalog::load_cached();
-        let Some(entry) = catalog.lookup(&self.model.default) else {
+        let Some(entry) = self.model_facts(&catalog, &self.model.default) else {
             return;
         };
         if (self.model.context_window == 0 || self.model.context_window == 128_000)
@@ -356,7 +356,8 @@ impl Config {
     pub fn adopt_model(&mut self, model_id: &str, upstream: UpstreamModel) {
         self.model.default = model_id.trim().to_owned();
         let catalog = crate::catalog::Catalog::load_cached();
-        let entry = catalog.lookup(&self.model.default);
+        let facts = self.model_facts(&catalog, &self.model.default);
+        let entry = facts.as_ref();
 
         self.model.context_window = upstream
             .context_window
@@ -374,6 +375,37 @@ impl Config {
         // an unlisted model is far more often capable than not, and turning
         // it off would silently disable every tool.
         self.model.tool_call = entry.map(|e| e.tool_call).unwrap_or(true);
+    }
+
+    /// What is known about `model_id` as the configured provider serves it:
+    /// the provider's own published figures where enx carries them, then
+    /// the catalogue, asking that provider's listing before anyone else's.
+    fn model_facts(
+        &self,
+        catalog: &crate::catalog::Catalog,
+        model_id: &str,
+    ) -> Option<crate::catalog::CatalogModel> {
+        let provider = self.catalog_provider();
+        if let Some(official) = crate::catalog::official(provider, model_id) {
+            return Some(official);
+        }
+        if provider.is_empty() {
+            catalog.lookup(model_id).cloned()
+        } else {
+            catalog.lookup_for(provider, model_id).cloned()
+        }
+    }
+
+    /// The catalogue's id for the configured provider, or "" when it has
+    /// none (a custom endpoint, a gateway).
+    fn catalog_provider(&self) -> &str {
+        if crate::provider::is_deepseek(self) {
+            return "deepseek";
+        }
+        match self.provider.preset.as_str() {
+            preset @ ("openai" | "openrouter" | "groq") => preset,
+            _ => "",
+        }
     }
 
     /// The model an agent should run on: per-agent override, then its tier,
@@ -844,5 +876,25 @@ mod adopt_model_tests {
         let mut config = Config::default();
         config.adopt_model("  spaced-model  ", UpstreamModel::default());
         assert_eq!(config.model.default, "spaced-model");
+    }
+
+    /// Choosing a model on DeepSeek's own API takes DeepSeek's published
+    /// figures, whatever the public catalogue says.
+    #[test]
+    fn a_deepseek_model_takes_deepseeks_own_figures() {
+        let mut config = Config::default();
+        config.provider.preset = "deepseek".into();
+        config.provider.base_url = "https://api.deepseek.com".into();
+        config.adopt_model("deepseek-v4-pro", UpstreamModel::default());
+        assert_eq!(config.model.price_input, 0.66);
+        assert_eq!(config.model.price_output, 1.98);
+        assert_eq!(config.model.price_cache_read, 0.022);
+        assert_eq!(config.model.context_window, 1_000_000);
+        assert!(!config.model.vision);
+        assert!(config.model.reasoning && config.model.tool_call);
+
+        config.adopt_model("deepseek-flash", UpstreamModel::default());
+        assert_eq!(config.model.price_input, 0.15);
+        assert!(config.model.vision, "Flash takes images");
     }
 }

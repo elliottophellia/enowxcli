@@ -564,6 +564,13 @@ impl TestApp {
         )
     }
 
+    /// The model's prices (input, output, cache read) and whether it takes
+    /// images.
+    pub fn config_model_pricing(&self) -> (f64, f64, f64, bool) {
+        let m = &self.inner.config.model;
+        (m.price_input, m.price_output, m.price_cache_read, m.vision)
+    }
+
     pub fn config_agent_max_steps(&self) -> u32 {
         self.inner.config.agent.max_steps
     }

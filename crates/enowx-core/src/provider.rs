@@ -70,6 +70,16 @@ pub const PROVIDER_PRESETS: [ProviderPreset; 6] = [
     },
 ];
 
+/// Whether the configured provider is DeepSeek's own API: its preset, or a
+/// custom entry pointing at its host.
+pub fn is_deepseek(config: &Config) -> bool {
+    config.provider.preset == "deepseek"
+        || reqwest::Url::parse(config.provider.base_url.trim())
+            .ok()
+            .and_then(|url| url.host_str().map(|host| host == "api.deepseek.com"))
+            .unwrap_or(false)
+}
+
 pub fn provider_preset(id: &str) -> Option<ProviderPreset> {
     PROVIDER_PRESETS
         .iter()
@@ -133,6 +143,9 @@ pub struct Provider {
     model: String,
     temperature: Option<f32>,
     active: bool,
+    /// Send earlier turns' reasoning back as `reasoning_content`; see
+    /// `Message::to_wire_with`.
+    pass_back_reasoning: bool,
 }
 
 impl Provider {
@@ -147,6 +160,7 @@ impl Provider {
             model: config.model.default.clone(),
             temperature: config.model.temperature,
             active: config.provider_active(),
+            pass_back_reasoning: is_deepseek(config),
         })
     }
 
@@ -304,7 +318,10 @@ impl Provider {
     ) -> Result<Completion> {
         let mut payload = json!({
             "model": self.model,
-            "messages": messages.iter().map(Message::to_wire).collect::<Vec<_>>(),
+            "messages": messages
+                .iter()
+                .map(|message| message.to_wire_with(self.pass_back_reasoning))
+                .collect::<Vec<_>>(),
             "stream": true,
             "stream_options": {"include_usage": true},
         });

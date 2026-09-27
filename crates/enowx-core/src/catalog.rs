@@ -155,6 +155,30 @@ impl Catalog {
         Ok(cat)
     }
 
+    /// The entry for `model_id` as `provider` serves it: that provider's own
+    /// listing first, then the whole catalogue.
+    ///
+    /// `lookup` alone takes the first provider in alphabetical order that
+    /// lists the id, and many resellers list the same ids at their own
+    /// prices: `deepseek-chat` resolved to helicone's before DeepSeek's.
+    pub fn lookup_for(&self, provider: &str, model_id: &str) -> Option<&CatalogModel> {
+        if let Some(listing) = self.providers.get(provider.trim()) {
+            if let Some(model) = listing.models.get(model_id) {
+                return Some(model);
+            }
+            let bare = model_id.split('/').next_back().unwrap_or(model_id);
+            if let Some(model) = listing
+                .models
+                .iter()
+                .find(|(id, _)| id.split('/').next_back().unwrap_or(id) == bare)
+                .map(|(_, model)| model)
+            {
+                return Some(model);
+            }
+        }
+        self.lookup(model_id)
+    }
+
     /// Best-effort lookup: exact match first, then fuzzy across the whole
     /// catalog. Returns `None` when no candidate scores well enough.
     pub fn lookup(&self, model_id: &str) -> Option<&CatalogModel> {
@@ -190,6 +214,55 @@ impl Catalog {
         }
         best.filter(|(_, s)| *s >= 70).map(|(m, _)| m)
     }
+}
+
+/// Limits and prices from a provider's own documentation, for models where
+/// the public catalogue has drifted from it. Checked before the catalogue.
+///
+/// DeepSeek, from https://api-docs.deepseek.com/quick_start/pricing on
+/// 2026-09-27: models.dev listed `deepseek-v4-pro` at $0.435/$0.87 per 1M
+/// where DeepSeek charges $0.66/$1.98. These are DeepSeek's off-peak rates.
+/// Peak hours (01:00–04:00 and 06:00–10:00 UTC on weekdays) cost double,
+/// which a per-model price cannot express. `deepseek-v4-flash` and
+/// `deepseek-v4-flash-vision-exp` are retired names DeepSeek still accepts
+/// and bills as `deepseek-flash`.
+pub fn official(provider: &str, model_id: &str) -> Option<CatalogModel> {
+    if provider.trim() != "deepseek" {
+        return None;
+    }
+    let (name, input, output, cache_read, vision) = match model_id.trim() {
+        "deepseek-flash" | "deepseek-v4-flash" | "deepseek-v4-flash-vision-exp" => {
+            ("DeepSeek-V4.1-Flash", 0.15, 0.6, 0.003, true)
+        }
+        "deepseek-v4-pro" => ("DeepSeek-V4-Pro", 0.66, 1.98, 0.022, false),
+        _ => return None,
+    };
+    let mut input_modes = vec!["text".to_owned()];
+    if vision {
+        input_modes.push("image".to_owned());
+    }
+    Some(CatalogModel {
+        id: model_id.trim().to_owned(),
+        name: name.to_owned(),
+        description: String::new(),
+        reasoning: true,
+        tool_call: true,
+        attachment: vision,
+        limit: CatalogLimit {
+            context: 1_000_000,
+            output: 393_216,
+        },
+        cost: CatalogCost {
+            input,
+            output,
+            cache_read: Some(cache_read),
+            cache_write: None,
+        },
+        modalities: CatalogModalities {
+            input: input_modes,
+            output: vec!["text".to_owned()],
+        },
+    })
 }
 
 /// 0-100 score. 100 = exact, 90+ = one contains the other, drops with
@@ -251,5 +324,70 @@ mod tests {
     fn fuzzy_matches_close_variants() {
         assert!(fuzzy_score("claude-sonnet-4.5", "claude-sonnet-4-5") >= 70);
         assert!(fuzzy_score("gpt-4o-2024-11", "gpt-4o") >= 70);
+    }
+
+    fn priced(input: f64) -> CatalogModel {
+        CatalogModel {
+            cost: CatalogCost {
+                input,
+                ..CatalogCost::default()
+            },
+            ..CatalogModel::default()
+        }
+    }
+
+    /// A reseller listing the same id sorts first alphabetically; the
+    /// provider actually serving the model has to win.
+    #[test]
+    fn the_serving_providers_entry_wins_over_a_resellers() {
+        let mut catalog = Catalog::default();
+        for (provider, price) in [("aaa-reseller", 9.0), ("deepseek", 0.15)] {
+            catalog.providers.insert(
+                provider.into(),
+                CatalogProvider {
+                    models: [("deepseek-flash".to_owned(), priced(price))].into(),
+                    ..CatalogProvider::default()
+                },
+            );
+        }
+        assert_eq!(catalog.lookup("deepseek-flash").unwrap().cost.input, 9.0);
+        assert_eq!(
+            catalog
+                .lookup_for("deepseek", "deepseek-flash")
+                .unwrap()
+                .cost
+                .input,
+            0.15
+        );
+        // Unknown to that provider: the whole catalogue still answers.
+        assert_eq!(
+            catalog
+                .lookup_for("openai", "deepseek-flash")
+                .unwrap()
+                .cost
+                .input,
+            9.0
+        );
+    }
+
+    #[test]
+    fn deepseek_publishes_its_own_prices() {
+        let pro = official("deepseek", "deepseek-v4-pro").expect("pro");
+        assert_eq!((pro.cost.input, pro.cost.output), (0.66, 1.98));
+        assert_eq!(pro.cost.cache_read, Some(0.022));
+        assert_eq!(pro.limit.context, 1_000_000);
+        assert!(!pro.modalities.supports_vision());
+
+        let flash = official("deepseek", "deepseek-flash").expect("flash");
+        assert_eq!((flash.cost.input, flash.cost.output), (0.15, 0.6));
+        assert!(flash.modalities.supports_vision());
+        assert!(flash.reasoning && flash.tool_call);
+
+        // Retired names still work and bill as Flash.
+        let legacy = official("deepseek", "deepseek-v4-flash").expect("legacy");
+        assert_eq!(legacy.cost.input, 0.15);
+
+        assert!(official("deepseek", "deepseek-chat").is_none());
+        assert!(official("openai", "deepseek-flash").is_none());
     }
 }

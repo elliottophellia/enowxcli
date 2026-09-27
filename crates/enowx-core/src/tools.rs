@@ -265,9 +265,41 @@ impl ToolRegistry {
             }
         }
         match tool.execute(ctx, args).await {
-            Ok(output) => output,
+            Ok(output) => cap_output(output),
             Err(error) => ToolOutput::error(format!("{error:#}")),
         }
+    }
+}
+
+/// The most text one tool result may put into the context, about 12k
+/// tokens. Each tool bounds itself, but one unbounded result is enough to
+/// push the next request past any model's window, and that failure (a 400
+/// from the provider) ends the turn with nothing to show for it.
+pub const MAX_TOOL_OUTPUT_CHARS: usize = 48_000;
+
+fn cap_output(mut output: ToolOutput) -> ToolOutput {
+    let total = output.content.chars().count();
+    if total <= MAX_TOOL_OUTPUT_CHARS {
+        return output;
+    }
+    let kept: String = output.content.chars().take(MAX_TOOL_OUTPUT_CHARS).collect();
+    output.content = format!(
+        "{kept}\n[output cut at {MAX_TOOL_OUTPUT_CHARS} of {total} characters: narrow the \
+         search, or read a smaller range]"
+    );
+    output
+}
+
+#[cfg(test)]
+mod cap_tests {
+    use super::*;
+
+    #[test]
+    fn a_huge_result_is_cut_and_says_so() {
+        let out = cap_output(ToolOutput::ok("x".repeat(MAX_TOOL_OUTPUT_CHARS * 3)));
+        assert!(out.content.chars().count() < MAX_TOOL_OUTPUT_CHARS + 200);
+        assert!(out.content.contains("output cut at"));
+        assert_eq!(cap_output(ToolOutput::ok("small")).content, "small");
     }
 }
 

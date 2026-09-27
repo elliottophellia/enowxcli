@@ -582,4 +582,9 @@ async fn the_incoming_agent_is_told_the_work_is_now_its_own() {
         bodies[1].contains("`orchestrator` handed this conversation to you: this is frontend work"),
         "who handed it over, and why"
     );
+    // The handoff's own result, the last thing fe reads, speaks to fe.
+    assert!(
+        bodies[1].contains("`fe`: the user's last request is yours to carry out now"),
+        "the tool result addresses the incoming agent"
+    );
 }

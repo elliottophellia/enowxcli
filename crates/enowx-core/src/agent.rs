@@ -1219,10 +1219,9 @@ impl Agent {
                                         &self.discovery.agents,
                                     ) {
                                         Ok(()) => {
+                                            let accepted = accepted_message(&switch);
                                             pending_switch = Some(switch);
-                                            ToolOutput::ok(
-                                                "accepted; the session continues with that agent",
-                                            )
+                                            ToolOutput::ok(accepted)
                                         }
                                         Err(refusal) => ToolOutput::error(refusal.message()),
                                     }
@@ -1393,6 +1392,25 @@ impl Agent {
     async fn give_back_saved(&self, session_id: &str, events: &mpsc::Sender<Event>) {
         if let Ok(mut session) = self.store.load(session_id) {
             let _ = self.give_back(&mut session, events).await;
+        }
+    }
+}
+
+/// The result of an accepted routing call. A handoff's is the last thing the
+/// incoming agent reads before its first step, and the agent that made the
+/// call never reads it (its turn ends there), so it speaks to the incoming
+/// agent. With only the system prompt saying so, a model taking over after
+/// a long brainstorm went on as the orchestrator: "the design is agreed and
+/// passed to the frontend specialist", and nothing was built.
+fn accepted_message(switch: &crate::routing::Switch) -> String {
+    match switch {
+        crate::routing::Switch::Handoff { to, .. } => format!(
+            "Handed to `{to}`, which holds the conversation from here. `{to}`: the user's \
+             last request is yours to carry out now, with your own tools, then answer \
+             the user. Do not repeat, describe or confirm the handoff."
+        ),
+        crate::routing::Switch::Delegate(delegation) => {
+            format!("Delegated to `{}`; its report follows.", delegation.to)
         }
     }
 }

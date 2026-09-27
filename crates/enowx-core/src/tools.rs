@@ -37,6 +37,9 @@ pub struct ToolCtx {
     /// The current tool call id, so progress deltas can be tagged without
     /// threading it through every helper.
     pub call_id: String,
+    /// The built-in skills the running agent carries. `skill_read` refuses
+    /// the others, since the model can name a skill it was never shown.
+    pub skills: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -121,11 +124,9 @@ impl ToolRegistry {
     /// Agent-shaped counterpart to `schemas`. Keeping the surface tied to the
     /// active agent is what stops a specialist's ten-tool schema reaching the
     /// router, which only needs to read enough to classify.
-    pub fn schemas_for_agent(
-        &self,
-        allowed_tools: &[String],
-        discovery: Option<&Discovery>,
-    ) -> Vec<Value> {
+    /// The schemas an agent declaring `allowed_tools` is shown, with
+    /// `skill_read` when `skills` says it has a skill to read.
+    pub fn schemas_for_agent(&self, allowed_tools: &[String], skills: bool) -> Vec<Value> {
         let mut allowed: Vec<String> = allowed_tools.to_vec();
         // Discovered MCP tools are namespaced and reachable from any agent;
         // the declared surface still gates the built-ins.
@@ -135,7 +136,7 @@ impl ToolRegistry {
                 .filter(|name| name.starts_with("mcp__"))
                 .cloned(),
         );
-        if discovery.is_some_and(|d| !d.skills.is_empty()) {
+        if skills {
             allowed.push("skill_read".to_owned());
         }
         allowed
@@ -348,6 +349,7 @@ mod tests {
                 cancel: CancellationToken::new(),
                 progress: None,
                 call_id: String::new(),
+                skills: Vec::new(),
             },
             root,
         )

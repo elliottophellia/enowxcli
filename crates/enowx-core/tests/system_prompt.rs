@@ -191,3 +191,89 @@ async fn the_prompt_says_what_the_workspace_holds() {
         "an empty workspace should say so:\n{system}"
     );
 }
+
+/// What `agent` is sent when it starts a session: its system prompt and the
+/// names of the tools it is offered. Only the built-in skills are discovered,
+/// so what each agent is offered is down to what it carries.
+async fn sent_to(agent: &str, tag: &str) -> (String, Vec<String>) {
+    let dir = Dir::new(tag);
+    let (base_url, bodies) = recording_provider().await;
+    let mut config = Config::default();
+    config.provider.name = "test".into();
+    config.provider.base_url = base_url;
+    config.provider.api_key = "test-key".into();
+    config.model.default = "test-model".into();
+    config.agent.workspace = Some(dir.0.clone());
+    config.agent.max_steps = 2;
+    config.agent.auto_compact = false;
+    let discovery = Discovery {
+        agents: builtin_agents(),
+        skills: enowx_core::discovery::skills::builtin_entries(),
+        ..Discovery::default()
+    };
+    let store = SessionStore::new(dir.0.join(".enx-sessions"));
+    let runner = Agent::with_discovery(config, store, discovery);
+    let (tx, mut rx) = tokio::sync::mpsc::channel(256);
+    let request = enowx_core::agent::RunRequest {
+        prompt: "hello".into(),
+        session_id: None,
+        role: Role::Orchestrator,
+        attachments: Vec::new(),
+        agent: Some(agent.into()),
+    };
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let handle = tokio::spawn(async move { runner.run(request, tx, cancel).await });
+    while rx.recv().await.is_some() {}
+    let _ = handle.await;
+    let body = bodies.lock().unwrap().first().cloned().expect("a call");
+    let json: serde_json::Value = serde_json::from_str(&body).expect("a JSON request");
+    let system = json["messages"][0]["content"]
+        .as_str()
+        .expect("a system message")
+        .to_owned();
+    let tools = json["tools"]
+        .as_array()
+        .map(|tools| {
+            tools
+                .iter()
+                .filter_map(|tool| tool["function"]["name"].as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    (system, tools)
+}
+
+fn lists(system: &str, skill: &str) -> bool {
+    system.contains(&format!("- `{skill}` "))
+}
+
+/// A built-in skill reaches only the agents that carry it: `fe` is offered
+/// all three, `be` only `code`, and the orchestrator none, nor the tool to
+/// read one.
+#[tokio::test]
+async fn built_in_skills_reach_only_the_agents_that_carry_them() {
+    let (fe, fe_tools) = sent_to("fe", "fe-skills").await;
+    for skill in ["ui", "code", "writing"] {
+        assert!(lists(&fe, skill), "fe is offered `{skill}`:\n{fe}");
+    }
+    assert!(fe_tools.iter().any(|t| t == "skill_read"), "{fe_tools:?}");
+
+    let (be, _) = sent_to("be", "be-skills").await;
+    assert!(lists(&be, "code"), "be is offered `code`:\n{be}");
+    assert!(
+        !lists(&be, "ui") && !lists(&be, "writing"),
+        "and nothing else:\n{be}"
+    );
+
+    let (orchestrator, tools) = sent_to("orchestrator", "orchestrator-skills").await;
+    for skill in ["ui", "code", "writing"] {
+        assert!(
+            !lists(&orchestrator, skill),
+            "the orchestrator routes:\n{orchestrator}"
+        );
+    }
+    assert!(
+        !tools.iter().any(|t| t == "skill_read"),
+        "nothing to read, so no tool to read it: {tools:?}"
+    );
+}

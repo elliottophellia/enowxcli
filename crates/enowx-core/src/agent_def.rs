@@ -96,6 +96,12 @@ pub struct AgentDef {
     pub prompt: String,
     /// What this agent may do to the roster.
     pub delegation: Delegation,
+    /// The built-in skills this agent carries (`ui`, `code`, `writing`):
+    /// listed in its prompt and readable by it, and by no other agent.
+    /// Skills found on disk are offered to every agent, since nothing says
+    /// which one they are for.
+    #[serde(default)]
+    pub skills: Vec<String>,
 }
 
 /// Who an agent may call.
@@ -167,15 +173,18 @@ impl AgentDef {
         if name.is_empty() {
             return None;
         }
-        let tools: Vec<String> = front
-            .get("tools")
-            .map(|raw| {
-                raw.split(',')
-                    .map(|t| t.trim().to_ascii_lowercase())
-                    .filter(|t| !t.is_empty())
-                    .collect()
-            })
-            .unwrap_or_default();
+        let list = |key: &str| -> Vec<String> {
+            front
+                .get(key)
+                .map(|raw| {
+                    raw.split(',')
+                        .map(|t| t.trim().to_ascii_lowercase())
+                        .filter(|t| !t.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let tools = list("tools");
         Some(Self {
             name,
             description: front.get("description").cloned().unwrap_or_default(),
@@ -194,6 +203,7 @@ impl AgentDef {
                     _ => None,
                 })
                 .unwrap_or_default(),
+            skills: list("skills"),
         })
     }
 }
@@ -206,11 +216,19 @@ pub fn builtin_agents() -> Vec<AgentDef> {
     const READ_ONLY: &[&str] = &["read", "glob", "grep", "todo"];
     const FULL: &[&str] = &["read", "write", "edit", "glob", "grep", "bash", "todo"];
 
+    // The built-in skills each carries: interface work gets `ui`, anything
+    // that writes code gets `code`, anything whose words people read gets
+    // `writing`. The orchestrator routes, and the read-only gatherers and the
+    // auditor have nothing to shape, so they carry none.
+    const UI_CODE_WRITING: &[&str] = &["ui", "code", "writing"];
+    const CODE: &[&str] = &["code"];
+    const NONE: &[&str] = &[];
     let make = |name: &str,
                 description: &str,
                 tools: &[&str],
                 tier: Tier,
                 delegation: Delegation,
+                skills: &[&str],
                 prompt: &str| AgentDef {
         name: name.to_owned(),
         description: description.to_owned(),
@@ -218,6 +236,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
         tier,
         prompt: prompt.trim().to_owned(),
         delegation,
+        skills: skills.iter().map(|s| (*s).to_owned()).collect(),
     };
 
     vec![
@@ -227,6 +246,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             &["read", "glob", "grep"],
             Tier::Cheap,
             Delegation::Orchestrator,
+            NONE,
             ORCHESTRATOR_PROMPT,
         ),
         // Domain: which part of the stack.
@@ -237,6 +257,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             FULL,
             Tier::Balanced,
             Delegation::Librarian,
+            UI_CODE_WRITING,
             FE_PROMPT,
         ),
         make(
@@ -245,6 +266,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             FULL,
             Tier::Balanced,
             Delegation::Librarian,
+            CODE,
             "You are a backend specialist: APIs, services, business logic and auth.\n\
              - Trace a request end to end (route, handler, service, storage) before \
              changing any of it.\n\
@@ -261,6 +283,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             FULL,
             Tier::Balanced,
             Delegation::Librarian,
+            CODE,
             "You are a data specialist: schema, migrations, queries, indexing and data \
              modelling.\n\
              - A migration must be reversible, or say plainly why it is not. Never drop or \
@@ -278,6 +301,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             FULL,
             Tier::Balanced,
             Delegation::Librarian,
+            CODE,
             "You are an infrastructure specialist: CI, containers, deployment and \
              observability.\n\
              - Prefer changes that fail loudly in CI over ones that fail quietly in \
@@ -296,6 +320,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             FULL,
             Tier::Balanced,
             Delegation::Librarian,
+            &["ui", "code"],
             "You are a mobile specialist: platform APIs, app lifecycle, and the limits of \
              a device: memory, battery and an intermittent network.\n\
              - Follow the project's platform and architecture, and match its navigation and \
@@ -311,6 +336,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             FULL,
             Tier::Strong,
             Delegation::Librarian,
+            CODE,
             "You are a systems specialist: memory, concurrency, FFI and binary formats.\n\
              - Be explicit about ownership, lifetimes and what happens under contention. \
              Unsafe code needs a stated invariant.\n\
@@ -325,6 +351,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             READ_ONLY,
             Tier::Cheap,
             Delegation::None,
+            NONE,
             "You gather material for another agent. Find what you are asked about and \
              return the relevant excerpts with their paths and line numbers.\n\
              Do NOT draw conclusions, propose changes, or answer the underlying question: \
@@ -337,6 +364,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             &["read", "glob", "grep", "fetch", "todo"],
             Tier::Balanced,
             Delegation::Librarian,
+            NONE,
             "You answer questions about a codebase, its dependencies or the web, with \
              evidence. You never modify anything.\n\
              - Map the ground with glob and grep, then read the ranges that answer the \
@@ -352,6 +380,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             &["read", "glob", "grep", "bash", "todo"],
             Tier::Strong,
             Delegation::Librarian,
+            UI_CODE_WRITING,
             "You review code and diffs for defects. You do not edit: a review that \
              rewrites the code is not a review.\n\
              - For each finding: what breaks, under what input, and where (path and line). \
@@ -368,6 +397,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             FULL,
             Tier::Balanced,
             Delegation::Librarian,
+            CODE,
             "You write and fix tests, and reproduce reported failures.\n\
              - Reproduce a reported failure before fixing it, and make a new test fail for \
              the stated reason before you make it pass. A test that cannot fail is worse \
@@ -383,6 +413,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             &["read", "write", "edit", "glob", "grep", "todo"],
             Tier::Balanced,
             Delegation::Librarian,
+            &["writing"],
             "You write documentation: READMEs, changelogs, API docs and comments.\n\
              - Read the code you are describing before describing it; do not infer \
              behaviour from names.\n\
@@ -395,6 +426,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             &["read", "glob", "grep", "bash", "todo"],
             Tier::Strong,
             Delegation::Librarian,
+            NONE,
             "You audit for security problems: authentication, authorisation, secrets, \
              injection and dependency risk.\n\
              - Describe the class of problem and where it is (path and line), not a working \
@@ -408,6 +440,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             FULL,
             Tier::Strong,
             Delegation::Librarian,
+            CODE,
             "You work on performance. Measure before and after: a change without a \
              measurement is a guess.\n\
              - State the workload you measured and how. An optimisation that helps one \
@@ -421,6 +454,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             FULL,
             Tier::Balanced,
             Delegation::Librarian,
+            &["code", "writing"],
             "You handle work that fits no specialist. Establish facts with tools before \
              acting, edit surgically, and verify what you changed with the project's own \
              build or tests.",
@@ -432,6 +466,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             &[],
             Tier::Cheap,
             Delegation::None,
+            NONE,
             COMPACTOR_PROMPT,
         ),
     ]

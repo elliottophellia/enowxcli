@@ -63,19 +63,28 @@ pub fn collect(workspace: &Path, discovery: &mut Discovery) {
     }
 
     // Last, so a project or user skill of the same name replaces one.
-    for (name, source) in BUILTIN {
-        if !seen.insert(name.to_owned()) {
-            continue;
+    for skill in builtin_entries() {
+        if seen.insert(skill.name.clone()) {
+            discovery.skills.push(skill);
         }
-        let (front, _) = parse_frontmatter(source);
-        discovery.skills.push(SkillEntry {
-            name: name.to_owned(),
-            description: front.get("description").cloned().unwrap_or_default(),
-            allowed_tools: Vec::new(),
-            path: PathBuf::from(format!("built-in/{name}/SKILL.md")),
-            scope: SkillScope::Builtin,
-        });
     }
+}
+
+/// The built-in skills as discovery lists them.
+pub fn builtin_entries() -> Vec<SkillEntry> {
+    BUILTIN
+        .iter()
+        .map(|(name, source)| {
+            let (front, _) = parse_frontmatter(source);
+            SkillEntry {
+                name: (*name).to_owned(),
+                description: front.get("description").cloned().unwrap_or_default(),
+                allowed_tools: Vec::new(),
+                path: PathBuf::from(format!("built-in/{name}/SKILL.md")),
+                scope: SkillScope::Builtin,
+            }
+        })
+        .collect()
 }
 
 /// Skills compiled into enx, as `(name, SKILL.md)`: how to design an

@@ -131,6 +131,7 @@ mod tests {
             cancel: tokio_util::sync::CancellationToken::new(),
             progress: None,
             call_id: String::new(),
+            skills: Vec::new(),
         }
     }
 

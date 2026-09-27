@@ -146,6 +146,26 @@ has them, and are listed with the scope `built-in`. A project or user skill of
 the same name replaces one, so a team with its own design system writes its
 own `ui`.
 
+A built-in skill goes only to the agents that carry it (`AgentDef::skills`):
+it is listed in their prompt and nowhere else, and `skill_read` refuses it to
+any other agent that names it anyway. `skill_read` is offered only to an agent
+with a skill to read.
+
+| Agent | Carries |
+|---|---|
+| `fe`, `review` | `ui`, `code`, `writing` |
+| `mobile` | `ui`, `code` |
+| `general` | `code`, `writing` |
+| `docs` | `writing` |
+| `be`, `db`, `devops`, `systems`, `test`, `perf` | `code` |
+| `orchestrator`, `librarian`, `research`, `security` | none |
+
+The orchestrator routes, the read-only gatherers and the auditor have nothing
+to shape, so they carry none. Skills found on disk (the project's and the
+user's) are still offered to every agent: nothing says which agent they are
+for. An agent file names the built-ins it carries with `skills: ui, code`;
+without the field it carries none. `/skills` shows who carries each built-in.
+
 The prompt carries the essentials, read on every call; the skill carries the
 depth, read when the work needs it. `fe` is the first specialist rewritten
 this way. It reads the project before building (framework, styling, component
@@ -222,6 +242,7 @@ You are a frontend specialist. …
 | `description` | One line. This is what the orchestrator sees; write it to be chosen from |
 | `tools` | Tool surface. Filtered twice, as roles are today: never advertised, and refused if called anyway |
 | `tier` | Optional model tier, see below |
+| `skills` | Built-in skills it carries (`ui`, `code`, `writing`); none when absent |
 
 Project definitions override user ones by name, matching how skills already
 resolve.

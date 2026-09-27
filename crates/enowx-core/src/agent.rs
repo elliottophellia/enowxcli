@@ -444,7 +444,7 @@ impl Agent {
         }
         if let Some(extra) = self
             .discovery
-            .system_prompt_with_disabled(&self.config.ui.disabled_skills)
+            .system_prompt_for(&self.config.ui.disabled_skills, Some(&agent.skills))
         {
             prompt.push('\n');
             prompt.push_str(&extra);
@@ -876,7 +876,14 @@ impl Agent {
         self.start_mcp();
         self.wait_for_mcp(MCP_GRACE).await;
         let tools_registry = self.tools.read().await;
-        let mut schemas = tools_registry.schemas_for_agent(&active.tools, Some(&self.discovery));
+        // `skill_read` only for an agent with a skill to read: a built-in one
+        // it carries, or one found on disk.
+        let readable = self
+            .discovery
+            .skills_for(&self.config.ui.disabled_skills, &active.skills)
+            .next()
+            .is_some();
+        let mut schemas = tools_registry.schemas_for_agent(&active.tools, readable);
         if active.delegation != crate::agent_def::Delegation::None {
             // The orchestrator hands the conversation to anyone. A specialist
             // holding the user's conversation may only give it back to the
@@ -927,6 +934,7 @@ impl Agent {
             }
         });
         let tool_ctx = ToolCtx {
+            skills: active.skills.clone(),
             workspace,
             shell_timeout: Duration::from_secs(self.config.agent.shell_timeout_secs),
             cancel: cancel.clone(),

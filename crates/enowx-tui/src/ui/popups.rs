@@ -130,14 +130,31 @@ fn draw_skills(frame: &mut Frame, app: &mut App) {
             };
             let scope = row.scope.label();
             let desc = row.description.split('\n').next().unwrap_or("");
+            // A built-in skill is offered only to the agents that carry it,
+            // so the row says which.
+            let carriers: Vec<&str> = if row.scope == enowx_core::discovery::SkillScope::Builtin {
+                app.discovery
+                    .agents
+                    .iter()
+                    .filter(|agent| agent.skills.iter().any(|s| s == &row.name))
+                    .map(|agent| agent.name.as_str())
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let desc = if carriers.is_empty() {
+                desc.to_owned()
+            } else {
+                format!("for {} · {desc}", carriers.join(", "))
+            };
             // The dot is this row's marker, on the marker column; the name
             // starts on the text column like every other list.
             ListItem::new(Line::from(vec![
                 Span::styled(format!("{mark} "), Style::default().fg(colour)),
                 Span::styled(format!("{:<28}", row.name), name_style),
-                Span::styled(format!(" {scope:<8}"), Style::default().fg(t.muted)),
+                Span::styled(format!(" {scope:<9}"), Style::default().fg(t.muted)),
                 Span::styled(
-                    trim(desc, list_area.width.saturating_sub(40) as usize),
+                    trim(&desc, list_area.width.saturating_sub(41) as usize),
                     Style::default().fg(t.text),
                 ),
             ]))

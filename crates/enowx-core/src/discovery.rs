@@ -184,16 +184,39 @@ impl Discovery {
     /// the aggregate cap. Skills are advertised as an inventory only so the
     /// model can request specific ones via the `skill_read` tool.
     pub fn system_prompt_supplement(&self) -> Option<String> {
-        self.system_prompt_with_disabled(&[])
+        self.system_prompt_for(&[], None)
     }
 
-    /// System-prompt block that skips any skill whose name is in `disabled`.
-    pub fn system_prompt_with_disabled(&self, disabled: &[String]) -> Option<String> {
-        let active_skills: Vec<&SkillEntry> = self
-            .skills
-            .iter()
-            .filter(|s| !disabled.iter().any(|d| d == &s.name))
-            .collect();
+    /// The skills an agent carrying the built-ins `carried` is offered: every
+    /// skill found on disk, and of the built-in ones only those it carries;
+    /// none in `disabled`.
+    pub fn skills_for<'a>(
+        &'a self,
+        disabled: &'a [String],
+        carried: &'a [String],
+    ) -> impl Iterator<Item = &'a SkillEntry> + 'a {
+        self.skills.iter().filter(move |skill| {
+            !disabled.iter().any(|d| d == &skill.name)
+                && (skill.scope != SkillScope::Builtin || carried.iter().any(|c| c == &skill.name))
+        })
+    }
+
+    /// System-prompt block that skips any skill whose name is in `disabled`,
+    /// and for an agent (`carried` is its built-in skills) the built-in
+    /// skills it does not carry.
+    pub fn system_prompt_for(
+        &self,
+        disabled: &[String],
+        carried: Option<&[String]>,
+    ) -> Option<String> {
+        let active_skills: Vec<&SkillEntry> = match carried {
+            Some(carried) => self.skills_for(disabled, carried).collect(),
+            None => self
+                .skills
+                .iter()
+                .filter(|s| !disabled.iter().any(|d| d == &s.name))
+                .collect(),
+        };
         if self.instructions.is_empty() && active_skills.is_empty() {
             return None;
         }

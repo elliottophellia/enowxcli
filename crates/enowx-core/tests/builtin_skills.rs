@@ -115,6 +115,7 @@ async fn a_builtin_skill_reads_from_the_binary() {
         cancel: tokio_util::sync::CancellationToken::new(),
         progress: None,
         call_id: String::new(),
+        skills: vec!["ui".into()],
     };
     let tool = SkillReadTool::new(discovery.clone());
     let out = tool
@@ -134,6 +135,86 @@ async fn a_builtin_skill_reads_from_the_binary() {
         .await
         .expect("read");
     assert!(out.is_error, "a disabled built-in is not offered");
+}
+
+/// A built-in skill belongs to the agents that carry it. One that does not
+/// is refused it even by name, since a model can ask for a skill it was
+/// never shown.
+#[tokio::test]
+async fn an_agent_cannot_read_a_builtin_it_does_not_carry() {
+    let discovery = {
+        let _home = HOME.lock().unwrap_or_else(|e| e.into_inner());
+        Arc::new(Scratch::new("carry").discover())
+    };
+    let ctx = ToolCtx {
+        workspace: std::env::temp_dir(),
+        shell_timeout: std::time::Duration::from_secs(5),
+        cancel: tokio_util::sync::CancellationToken::new(),
+        progress: None,
+        call_id: String::new(),
+        skills: vec!["code".into()],
+    };
+    let tool = SkillReadTool::new(discovery);
+    let ui = tool
+        .execute(&ctx, serde_json::json!({ "name": "ui" }))
+        .await
+        .expect("read");
+    assert!(ui.is_error, "`ui` is not carried: {}", ui.content);
+    assert!(
+        ui.content.contains("not one of your skills"),
+        "{}",
+        ui.content
+    );
+    let code = tool
+        .execute(&ctx, serde_json::json!({ "name": "code" }))
+        .await
+        .expect("read");
+    assert!(!code.is_error, "`code` is carried: {}", code.content);
+}
+
+/// Who carries what: interface work gets `ui`, anything that writes code
+/// gets `code`, anything whose words people read gets `writing`, and the
+/// agents with nothing to shape carry none.
+#[test]
+fn each_agent_carries_the_skills_for_its_work() {
+    let roster = enowx_core::builtin_agents();
+    let carried = |name: &str| -> Vec<String> {
+        roster
+            .iter()
+            .find(|agent| agent.name == name)
+            .unwrap_or_else(|| panic!("{name} ships"))
+            .skills
+            .clone()
+    };
+    assert_eq!(carried("fe"), ["ui", "code", "writing"]);
+    assert_eq!(carried("review"), ["ui", "code", "writing"]);
+    assert_eq!(carried("mobile"), ["ui", "code"]);
+    assert_eq!(carried("docs"), ["writing"]);
+    for name in ["be", "db", "devops", "systems", "test", "perf"] {
+        assert_eq!(carried(name), ["code"], "{name}");
+    }
+    for name in [
+        "orchestrator",
+        "librarian",
+        "research",
+        "security",
+        "compactor",
+    ] {
+        assert!(carried(name).is_empty(), "{name} carries none");
+    }
+}
+
+/// An agent written as a file names the built-in skills it carries.
+#[test]
+fn an_agent_file_names_its_skills() {
+    let mut front = std::collections::BTreeMap::new();
+    front.insert("name".to_owned(), "landing".to_owned());
+    front.insert("skills".to_owned(), "ui, Writing".to_owned());
+    let agent = enowx_core::AgentDef::from_parts(&front, "Build landing pages.").unwrap();
+    assert_eq!(agent.skills, ["ui", "writing"]);
+    front.remove("skills");
+    let bare = enowx_core::AgentDef::from_parts(&front, "Build landing pages.").unwrap();
+    assert!(bare.skills.is_empty(), "none unless named");
 }
 
 /// The built-ins hold to their own rules: no em dash, and nothing a

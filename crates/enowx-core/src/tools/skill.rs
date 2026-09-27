@@ -53,13 +53,19 @@ impl Tool for SkillReadTool {
             "additionalProperties":false
         })
     }
-    async fn execute(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutput> {
+    async fn execute(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput> {
         let name = string_arg(&args, "name")?;
         let Some(entry) = self.find(name) else {
             return Ok(ToolOutput::error(format!(
                 "no skill named `{name}` was discovered"
             )));
         };
+        if entry.scope == SkillScope::Builtin && !ctx.skills.iter().any(|s| s == &entry.name) {
+            return Ok(ToolOutput::error(format!(
+                "`{}` is not one of your skills",
+                entry.name
+            )));
+        }
         let body = match entry.scope {
             SkillScope::Builtin => crate::discovery::skills::builtin_source(&entry.name)
                 .map(str::to_owned)

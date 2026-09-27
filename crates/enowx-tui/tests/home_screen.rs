@@ -43,10 +43,32 @@ fn a_new_conversation_opens_on_the_home_screen() {
     assert!(app.is_home());
     assert!(app.side_area().is_none(), "no side column: {rows:#?}");
     assert!(find(&rows, LETTERS).is_some(), "the wordmark: {rows:#?}");
+    let keys = rows.last().expect("the status bar");
     assert!(
-        rows.last().is_some_and(|row| row.contains("READY")),
-        "the status bar stays: {rows:#?}"
+        keys.contains("Ctrl+P"),
+        "the keys stay where they are: {keys}"
     );
+    assert!(
+        !keys.contains("READY"),
+        "the state moved to the middle: {keys}"
+    );
+}
+
+/// The status bar's state, agent and model sit in the middle with the
+/// composer, starting under its `❯`, rather than alone in the corner.
+#[test]
+fn the_state_agent_and_model_sit_under_the_composer() {
+    let mut app = settled(ready());
+    let rows = app.render_to_text(W, H);
+    let (prompt_x, _) = find(&rows, "❯").expect("the composer's prompt");
+    let (_, box_bottom) = find(&rows, "╰").expect("the composer's bottom edge");
+    let under = &rows[box_bottom + 1];
+    for part in ["READY", "orchestrator", "deepseek-flash"] {
+        assert!(under.contains(part), "{part}: {under}");
+    }
+    // The badge's own padding is a coloured space before the word.
+    let (ready_x, _) = find(&rows[box_bottom + 1..box_bottom + 2], "READY").unwrap();
+    assert_eq!(ready_x, prompt_x + 1, "{under}");
 }
 
 /// The wordmark and the composer share a centre, and the composer sits
@@ -112,7 +134,7 @@ fn what_to_set_up_is_said_under_the_composer() {
     let mut app = settled(TestApp::new());
     let rows = app.render_to_text(W, H);
     let (_, box_y) = find(&rows, "╰").expect("the composer's bottom edge");
-    let under = &rows[box_y + 1];
+    let under = &rows[box_y + 2];
     assert!(under.contains("Choose a model · /model"), "{under}");
 }
 
@@ -121,7 +143,7 @@ fn a_ready_app_names_the_workspace_and_version() {
     let mut app = settled(ready());
     let rows = app.render_to_text(W, H);
     let (_, box_y) = find(&rows, "╰").expect("the composer's bottom edge");
-    let under = &rows[box_y + 1];
+    let under = &rows[box_y + 2];
     assert!(under.contains("/ws"), "the workspace, by its end: {under}");
     assert!(
         under

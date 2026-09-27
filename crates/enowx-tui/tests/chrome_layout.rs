@@ -190,7 +190,7 @@ fn the_selected_tab_is_marked_on_the_strip() {
 /// in the same place every time rather than somewhere in a sentence.
 #[test]
 fn the_status_bar_leads_with_the_state() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     let idle = app.status_bar(W, H);
     assert!(idle.trim_start().starts_with("READY"), "idle: {idle}");
     assert!(
@@ -367,7 +367,7 @@ fn the_box_grows_with_a_multi_line_message() {
 /// they sit together in the status bar.
 #[test]
 fn the_model_sits_beside_the_agent() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     let bar = app.status_bar(W, H);
     let agent = bar.find("orchestrator").expect("the agent") + "orchestrator".len();
     let model = bar.find("no model").expect("the model");
@@ -386,7 +386,7 @@ fn the_model_sits_beside_the_agent() {
 /// They are one block, not one word.
 #[test]
 fn the_agent_and_model_are_separated() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     let bar = app.status_bar(W, H);
     assert!(
         bar.contains("orchestrator · no model"),
@@ -399,7 +399,7 @@ fn the_agent_and_model_are_separated() {
 /// from a long tool call.
 #[test]
 fn the_model_stays_beside_the_agent_while_working() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     app.start_fake_turn();
     let bar = app.status_bar(W, H);
     assert!(bar.contains("WORKING"), "the state leads: {bar}");

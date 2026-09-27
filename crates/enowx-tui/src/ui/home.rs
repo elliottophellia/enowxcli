@@ -1,10 +1,11 @@
 //! The home screen: what a new conversation opens on.
 //!
 //! No sidebar and no transcript box. Until the first message there is
-//! nothing for them to show, so the window holds the wordmark, the composer
-//! in the middle, and one line under it: where the agent will work, or what
-//! to set up before it can. The status bar stays, so sending the first
-//! message only adds the conversation around it.
+//! nothing for them to show, so the window holds the wordmark and the
+//! composer in the middle, with two lines under it: the state, agent and
+//! model the status bar shows everywhere else, then where the agent will
+//! work, or what to set up before it can. The status bar keeps only its keys,
+//! on the columns they have in the chat layout.
 
 use super::*;
 use ratatui::style::Color;
@@ -65,8 +66,7 @@ pub(super) fn draw_home(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let status = Rect::new(area.x, area.bottom().saturating_sub(1), area.width, 1);
     let body = Rect::new(area.x, area.y, area.width, area.height.saturating_sub(1));
-    // Nothing to show yet, so the session's figures stay out of the status bar.
-    draw_footer(frame, app, status, false);
+    draw_keys(frame, app, status);
 
     const FRAME: u16 = 2;
     let box_w = body
@@ -78,14 +78,16 @@ pub(super) fn draw_home(frame: &mut Frame, app: &mut App, area: Rect) {
     let ih = (input.len().clamp(1, 8) as u16 + FRAME).min((body.height / 2).max(FRAME + 1));
 
     // The wordmark goes first when space runs out; the composer never does.
-    let show_logo = body.width >= LOGO_W + 2 && body.height >= LOGO_H + FRAME + 7;
+    let show_logo = body.width >= LOGO_W + 2 && body.height >= LOGO_H + FRAME + 8;
     let logo_rows = if show_logo { LOGO_H + 1 } else { 0 };
     // Placed for a one-line composer, a little above the middle where the
     // eye expects it. A composer growing with the message grows down, so the
     // wordmark stays put, and moves up only when it would pass the bottom.
-    let block = logo_rows + FRAME + 1 + 1;
+    // The composer, then its two lines.
+    const UNDER: u16 = 2;
+    let block = logo_rows + FRAME + 1 + UNDER;
     let top = (body.y + body.height.saturating_sub(block) * 2 / 5)
-        .min(body.bottom().saturating_sub(logo_rows + ih + 1))
+        .min(body.bottom().saturating_sub(logo_rows + ih + UNDER))
         .max(body.y);
 
     if show_logo {
@@ -115,20 +117,29 @@ pub(super) fn draw_home(frame: &mut Frame, app: &mut App, area: Rect) {
             let rect = Rect::new(boxed.x, boxed.y - h, boxed.width, h);
             draw_palette(frame, app, rect, &matches);
         }
-    } else if below > 0 {
-        // On the composer's own text columns, so the line reads as belonging
-        // to the field above it.
+    } else {
+        // On the composer's own text columns, so the lines read as belonging
+        // to the field above them: the state badge starts under the `❯`.
         let inset = 1 + PAD_X;
-        draw_context_line(
-            frame,
-            app,
+        let line = |offset: u16| {
             Rect::new(
                 boxed.x + inset,
-                boxed.bottom(),
+                boxed.bottom() + offset,
                 boxed.width.saturating_sub(2 * inset),
                 1,
-            ),
-        );
+            )
+        };
+        if below > 0 {
+            draw_split_line(
+                frame,
+                Line::from(status_spans(app)),
+                Line::default(),
+                line(0),
+            );
+        }
+        if below > 1 {
+            draw_context_line(frame, app, line(1));
+        }
     }
 }
 

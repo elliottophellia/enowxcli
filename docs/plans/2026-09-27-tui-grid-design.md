@@ -65,11 +65,11 @@ into it. `App::is_home` is the rule.
 
 | Region | Rule |
 | --- | --- |
-| Wordmark | `enowX`, 41 × 5, in half blocks. Dropped below 43 columns or 15 rows |
+| Wordmark | `enowX`, 41 × 5, in half blocks. Dropped below 43 columns or 16 rows |
 | Composer | 57 columns (the wordmark plus eight each side), narrower windows minus four; grows downward |
-| Under the composer | The workspace, read from its end, and the version; or what to set up (`/provider`, `/model`) |
+| Under the composer | The status bar's state, agent and model, the badge under the `❯`; then the workspace, read from its end, and the version, or what to set up (`/provider`, `/model`) |
 | Command list | Under the composer; over the wordmark only when there is no room below |
-| Status bar | As in the grid, without the session figures: there are none yet |
+| Status bar | Only its keys, on the columns they have in the grid |
 
 The block sits two fifths of the way down, placed for a one-line composer, so
 the wordmark does not move while a message grows.

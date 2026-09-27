@@ -10,7 +10,11 @@ const H: u16 = 36;
 fn a_new_session_talks_to_the_orchestrator() {
     let mut app = TestApp::new();
     assert_eq!(app.active_agent(), "orchestrator");
-    assert!(app.status_bar(W, H).contains("orchestrator"));
+    // Under the home screen's composer, where a new session starts.
+    assert!(app
+        .render_to_text(W, H)
+        .iter()
+        .any(|row| row.contains("READY  orchestrator")));
 }
 
 /// The old name still works where a user might type it.

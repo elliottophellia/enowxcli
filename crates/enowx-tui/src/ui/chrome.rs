@@ -313,6 +313,37 @@ pub(super) fn draw_footer(frame: &mut Frame, app: &App, area: Rect, show_figures
         draw_split_line(frame, Line::from(left_spans), right, area);
         return;
     }
+    let figures = show_figures && area.width >= 66 && app.context_window > 0;
+    left_spans.extend(status_spans(app));
+    draw_split_line(
+        frame,
+        Line::from(left_spans),
+        Line::from(key_spans(app, figures)),
+        area,
+    );
+}
+
+/// The status bar with only its keys, on the columns it always has them.
+/// The home screen shows the rest of it under its composer.
+pub(super) fn draw_keys(frame: &mut Frame, app: &App, area: Rect) {
+    let inset = 1 + PAD_X;
+    if area.width < 2 * inset + 4 {
+        return;
+    }
+    let area = Rect::new(area.x + inset, area.y, area.width - 2 * inset, area.height);
+    draw_split_line(
+        frame,
+        Line::default(),
+        Line::from(key_spans(app, false)),
+        area,
+    );
+}
+
+/// The state, the agent and its model, and a command's last message: the
+/// status bar's left side, and the line under the home screen's composer.
+pub(super) fn status_spans(app: &App) -> Vec<Span<'static>> {
+    let t = app.theme;
+    let mut left_spans: Vec<Span<'static>> = Vec::new();
     // Segments rather than a sentence. Each block is one fact, read at a
     // glance and in a fixed place: state, then agent, then what the session
     // has cost. A run-on line of "· ·" separators makes the reader parse it.
@@ -371,12 +402,18 @@ pub(super) fn draw_footer(frame: &mut Frame, app: &App, area: Rect, show_figures
             Style::default().fg(t.muted),
         ));
     }
+    left_spans
+}
 
-    // RIGHT: the session's figures when no card is showing them, then the
-    // keys. `draw_split_line` drops the whole right side rather than
-    // truncating it, so the figures only come along when there is room.
+/// The status bar's right side: the session's figures when `figures`, then
+/// the keys that apply right now.
+fn key_spans(app: &App, figures: bool) -> Vec<Span<'static>> {
+    let t = app.theme;
+    // The session's figures when no card is showing them, then the keys.
+    // `draw_split_line` drops the whole right side rather than truncating
+    // it, so the figures only come along when there is room.
     let mut right_spans: Vec<Span<'static>> = Vec::new();
-    if show_figures && area.width >= 66 && app.context_window > 0 {
+    if figures {
         let pct = (app.context_tokens as u64 * 100 / app.context_window.max(1) as u64).min(999);
         right_spans.push(Span::styled(
             format!("ctx {pct}%"),
@@ -409,8 +446,7 @@ pub(super) fn draw_footer(frame: &mut Frame, app: &App, area: Rect, show_figures
             Style::default().fg(t.faint),
         ));
     }
-
-    draw_split_line(frame, Line::from(left_spans), Line::from(right_spans), area);
+    right_spans
 }
 
 pub(super) fn draw_split_line(frame: &mut Frame, left: Line, right: Line, area: Rect) {

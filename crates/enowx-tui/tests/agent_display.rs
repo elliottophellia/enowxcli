@@ -137,7 +137,7 @@ fn the_roster_flows_names_across_rows() {
 
 #[test]
 fn the_footer_names_the_active_agent() {
-    let mut app = TestApp::new();
+    let mut app = TestApp::in_conversation();
     let active = app.active_agent();
     let rows = screen(&mut app);
     // The footer is the last row inside the frame; searched from the bottom

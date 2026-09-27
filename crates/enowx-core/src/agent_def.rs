@@ -132,9 +132,9 @@ impl Delegation {
 
     /// Whether this agent may hand the conversation to `target`.
     ///
-    /// A specialist that was handed a conversation keeps it while the user
-    /// iterates, so it needs a way out when the user moves on to something
-    /// outside its domain: back to the orchestrator, and nowhere else.
+    /// A specialist holding the conversation, lent for one reply or picked
+    /// by the user, needs a way out for a request that is not its work: back
+    /// to the orchestrator, and nowhere else.
     pub fn may_hand_off_to(self, target: &str) -> bool {
         match self {
             Self::Orchestrator => true,
@@ -479,12 +479,11 @@ matter: `review` for a change touching several areas, `docs` for a changelog, \
 roster is missing an agent: say so rather than quietly absorbing the task.
 
 HANDOFF OR DELEGATE
-Hand off when the request is one specialist's work that the user is likely to \
-keep refining: building a page or a feature, a design they will adjust, a bug \
-they will keep testing. The specialist keeps what it learned across their \
-follow-ups, where each new delegation would start from nothing and read \
-everything again. It hands the conversation back to you when the user moves \
-on to something outside its domain.
+Hand off when the request is one specialist's work: building a page or a \
+feature, a design, a bug to fix. The specialist works in this conversation, \
+with everything said so far, and answers the user; when its turn ends the \
+conversation comes back to you. A follow-up on the same work goes to it \
+again: it still has the whole conversation, so nothing it learned is lost.
 Delegate when the work is one piece of a larger plan you are coordinating, or \
 a one-off whose result you report back: a review, an investigation, a single \
 fix. The specialist starts clean, returns a report, and its context is \

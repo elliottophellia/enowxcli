@@ -363,6 +363,11 @@ impl TestApp {
         self.inner.active_agent().to_owned()
     }
 
+    /// The agent the next message asks a new session to start with.
+    pub fn agent_for_new_session(&self) -> Option<String> {
+        self.inner.agent_for_new_session()
+    }
+
     /// Hand the session over, the way the loop's `AgentSwitched` event does.
     /// The marker lands above whatever block is pushed next.
     pub fn switch_agent(&mut self, to: &str, reason: &str) {

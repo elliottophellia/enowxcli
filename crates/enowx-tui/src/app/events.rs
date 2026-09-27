@@ -55,6 +55,7 @@ impl App {
             prompt: clean_prompt,
             role: self.role,
             attachments,
+            agent: self.agent_for_new_session(),
         };
         self.task = Some(tokio::spawn(async move {
             // Report the failure rather than dropping it. Without this the
@@ -69,6 +70,17 @@ impl App {
                     .await;
             }
         }));
+    }
+
+    /// The agent a message starts a new session with. One picked with
+    /// `/agent` before the first message had no session to be saved in, and
+    /// without this the session the message creates began with the
+    /// orchestrator while the status bar named the pick.
+    pub(crate) fn agent_for_new_session(&self) -> Option<String> {
+        self.session_id
+            .is_none()
+            .then(|| self.agent_name.clone())
+            .filter(|name| name != enowx_core::agent_def::ORCHESTRATOR)
     }
 
     /// A `Done` still owed by a stopped turn arrives on the channel that

@@ -582,7 +582,9 @@ pub fn routing_schemas(hand_off: HandOff) -> Vec<serde_json::Value> {
                         "description":
                             "Hand the conversation back to the orchestrator when the \
                              user asks for something outside your domain. It carries on \
-                             from here and routes the request to the right specialist.",
+                             from here and routes the request to the right specialist. \
+                             Not needed to finish: when the orchestrator handed you the \
+                             conversation, it goes back by itself once you have answered.",
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -607,11 +609,11 @@ pub fn routing_schemas(hand_off: HandOff) -> Vec<serde_json::Value> {
             "function": {
                 "name": "handoff",
                 "description":
-                    "Give the conversation to a specialist. It inherits it and keeps \
-                     it while the user refines the work, and hands it back to you when \
-                     the user moves on. Use this when the request is one specialist's \
-                     work the user will iterate on; for a piece of a larger plan, or a \
-                     one-off result, delegate instead.",
+                    "Give the conversation to a specialist for this request. It \
+                     inherits everything said so far, does the work and answers the \
+                     user, and the conversation comes back to you when its turn ends. \
+                     Use this when the request is one specialist's work; for a piece \
+                     of a larger plan, or a one-off result, delegate instead.",
                 "parameters": {
                     "type": "object",
                     "properties": {

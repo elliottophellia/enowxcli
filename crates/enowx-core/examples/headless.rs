@@ -56,6 +56,7 @@ async fn main() -> anyhow::Result<()> {
         session_id: None,
         role: Role::Orchestrator,
         attachments: Vec::new(),
+        agent: None,
     };
     let cancel = tokio_util::sync::CancellationToken::new();
     let handle = tokio::spawn(async move { agent.run(request, tx, cancel).await });

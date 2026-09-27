@@ -107,6 +107,7 @@ async fn main() -> anyhow::Result<()> {
             session_id: session_id.clone(),
             role: Role::Orchestrator,
             attachments: Vec::new(),
+            agent: None,
         };
         let cancel = tokio_util::sync::CancellationToken::new();
         let runner = agent.clone();

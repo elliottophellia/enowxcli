@@ -218,6 +218,10 @@ pub struct RunRequest {
     pub role: Role,
     /// Images the user attached to this message.
     pub attachments: Vec<Attachment>,
+    /// The agent a new session starts with, when the user picked one before
+    /// the first message. Ignored when `session_id` names a session, which
+    /// keeps its own.
+    pub agent: Option<String>,
 }
 
 /// Summary row shown by the TUI for one proxied MCP tool.
@@ -601,6 +605,7 @@ impl Agent {
             session_id: Some(branch.id.clone()),
             role: parent.role,
             attachments: Vec::new(),
+            agent: None,
         };
         parent.delegations.push(crate::session::DelegationRecord {
             agent: delegation.to.clone(),
@@ -699,24 +704,37 @@ impl Agent {
             let Some(session_id) = next else {
                 return Ok(());
             };
+            // A turn that ends anywhere but its own end still gives the
+            // conversation back: stopped before the incoming agent began,
+            // or failed partway through its work.
             if cancel.is_cancelled() {
+                self.give_back_saved(&session_id, events).await;
                 return Ok(());
             }
-            next = self
+            let turn = self
                 .run_turn(
                     RunRequest {
                         prompt: String::new(),
-                        session_id: Some(session_id),
+                        session_id: Some(session_id.clone()),
                         role,
                         attachments: Vec::new(),
+                        agent: None,
                     },
                     events,
                     cancel.clone(),
                 )
-                .await?;
+                .await;
+            next = match turn {
+                Ok(next) => next,
+                Err(error) => {
+                    self.give_back_saved(&session_id, events).await;
+                    return Err(error);
+                }
+            };
         }
         // Still handing over after four turns is a loop, not progress.
-        if next.is_some() {
+        if let Some(session_id) = next {
+            self.give_back_saved(&session_id, events).await;
             let _ = events
                 .send(Event::Notice {
                     message: "Agents kept handing over to each other; stopping.".into(),
@@ -774,6 +792,12 @@ impl Agent {
             None => {
                 let mut session = Session::new(request.role);
                 session.workspace = workspace.clone();
+                if let Some(agent) = &request.agent {
+                    session.switch_agent(
+                        crate::agent_def::canonical_name(agent),
+                        crate::session::USER_SWITCH_REASON,
+                    );
+                }
                 session
             }
         };
@@ -782,6 +806,10 @@ impl Agent {
         // the question already in the session, under its own prompt.
         if !continuing {
             session.push(Message::user(prompt).with_attachments(request.attachments.clone()));
+            // A new message goes to the orchestrator even when the last turn
+            // never reached its end to give the conversation back: the
+            // process was killed, or the session predates the rule.
+            self.give_back(&mut session, events).await?;
         }
         self.store.save(&session)?;
 
@@ -1225,8 +1253,45 @@ impl Agent {
         if stop_reason == "handoff" {
             return Ok(Some(session.id.clone()));
         }
+        // Sent before `Done`, which is what the interface treats as the end
+        // of the reply.
+        self.give_back(&mut session, events).await?;
         let _ = events.send(Event::Done { stop_reason }).await;
         Ok(None)
+    }
+
+    /// Give the conversation back to the orchestrator when a specialist holds
+    /// it on the orchestrator's behalf.
+    ///
+    /// A handoff lends the conversation for one reply. Left with the
+    /// specialist, the user's next message landed with whichever agent spoke
+    /// last, which then answered things outside its domain. The specialist's
+    /// answer stands and no model is called: only the holder changes.
+    async fn give_back(&self, session: &mut Session, events: &mpsc::Sender<Event>) -> Result<()> {
+        if !session.lent_by_orchestrator() {
+            return Ok(());
+        }
+        session.switch_agent(
+            crate::agent_def::ORCHESTRATOR,
+            crate::session::RETURN_REASON,
+        );
+        self.store.save(session)?;
+        let _ = events
+            .send(Event::AgentSwitched {
+                to: crate::agent_def::ORCHESTRATOR.into(),
+                reason: crate::session::RETURN_REASON.into(),
+            })
+            .await;
+        Ok(())
+    }
+
+    /// [`Self::give_back`] for a turn that did not reach its end. Best effort:
+    /// the turn has already failed or been stopped, and a new message gives
+    /// the conversation back anyway.
+    async fn give_back_saved(&self, session_id: &str, events: &mpsc::Sender<Event>) {
+        if let Ok(mut session) = self.store.load(session_id) {
+            let _ = self.give_back(&mut session, events).await;
+        }
     }
 }
 

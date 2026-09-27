@@ -29,23 +29,26 @@ A specialist is one definition used two ways:
 HANDOFF                                 SUB-AGENT
 orchestrator ──hands over──▶ fe         orchestrator ──calls──▶ fe   (branch)
                              │                                  │ briefing only
-    same session,            │ keeps it while                   │ works
-    full history             │ the user refines                 │
+    same session,            │ answers                          │ works
+    full history             │ the user                         │
                              ▼                                  ▼
-    fe ──hands back──▶ orchestrator     orchestrator ◀──report── done
-    (when the user moves on)            orchestrator keeps leading
+    fe ──gives back──▶ orchestrator     orchestrator ◀──report── done
+    (when its reply ends)               orchestrator keeps leading
 ```
 
 | | Handoff | Sub-agent |
 |---|---|---|
 | Context in | Full history, same session | Briefing only, clean start |
-| On finish | Keeps the conversation; hands it back when the user moves on | Returns a report |
+| On finish | Answers the user, then the conversation goes back to the orchestrator | Returns a report |
 | Session | One, the agent changes | Branches, then rejoins |
 
-Handoff suits one specialist's work that the user will keep refining: a page,
-a feature, a bug they keep testing. Each follow-up then costs no re-reading. A
-sub-agent suits a piece of a larger plan, or a one-off result: it is the
-cheaper of the two for that, see [Cost](#cost).
+Handoff suits one specialist's work: a page, a feature, a bug. The specialist
+answers the user itself, and when its reply ends the conversation returns to
+the orchestrator, so the next message is routed afresh. A follow-up on the
+same work is handed to it again, and it still has the whole conversation, so
+it need not re-read what it already read. A sub-agent suits a piece of a
+larger plan, or a one-off result: it is the cheaper of the two for that, see
+[Cost](#cost).
 
 ## Why this is cheaper, not more expensive
 
@@ -230,7 +233,11 @@ auto_switch = true    # switch without asking
 - `false` — a prompt appears first: *"hand over to fe?"*
 
 Either way the user can force a switch (`/agent fe`), and forcing overrides
-whatever the orchestrator had decided.
+whatever the orchestrator had decided. A specialist picked this way keeps the
+conversation until the user picks again: only a handover the orchestrator
+made is given back. A pick made before the first message goes with that
+message (`RunRequest::agent`), so the session it creates starts with the
+pick.
 
 ## What was built
 
@@ -598,15 +605,23 @@ task.
 The first version defaulted to delegation. In practice a request like "build
 me a page" is followed by "make the header smaller", "now the footer", and
 each follow-up started a fresh sub-agent that read everything again. So the
-choice now turns on whether the user will iterate:
+second version preferred handoff for work the user would iterate on, and the
+specialist kept the conversation until the user moved on.
+
+That left the conversation with whichever agent spoke last (changed on
+2026-09-28): the user's next message, about anything, went to the specialist.
+Now a handoff lends the conversation for one reply. The specialist answers,
+the conversation goes back to the orchestrator (`↳ fe → orchestrator ·
+finished`), and the next message is routed afresh. A follow-up on the same
+work is handed over again, to a specialist that still has the whole
+conversation. Giving it back calls no model; only the holder changes.
 
 ```
-Hand off when the request is one specialist's work that the user is likely
-to keep refining: building a page or a feature, a design they will adjust,
-a bug they will keep testing. The specialist keeps what it learned across
-their follow-ups, where each new delegation would start from nothing and
-read everything again. It hands the conversation back to you when the user
-moves on to something outside its domain.
+Hand off when the request is one specialist's work: building a page or a
+feature, a design, a bug to fix. The specialist works in this conversation,
+with everything said so far, and answers the user; when its turn ends the
+conversation comes back to you. A follow-up on the same work goes to it
+again: it still has the whole conversation, so nothing it learned is lost.
 
 Delegate when the work is one piece of a larger plan you are coordinating,
 or a one-off whose result you report back: a review, an investigation, a
@@ -614,10 +629,18 @@ single fix. The specialist starts clean, returns a report, and its context
 is discarded.
 ```
 
-Handing back is what makes this safe. A specialist that holds the user's
-conversation gets a `handoff` tool that can name only the orchestrator; one
-working in a delegated branch gets none, since it reports back instead.
-`Delegation::may_hand_off_to` and `routing::HandOff` hold the rule.
+`Session::lent_by_orchestrator` holds the rule. The conversation goes back
+when the orchestrator made the last handover, never when the user picked the
+specialist with `/agent`, and never inside a delegated branch. It goes back
+when the reply ends, and also when the reply failed or was stopped. A session
+left with a specialist anyway (the process was killed, or the session was
+saved before this rule) goes back when the next message arrives.
+
+A specialist holding the conversation still gets a `handoff` tool that can
+name only the orchestrator, for a request that turns out not to be its work;
+the orchestrator then answers in the same reply. One working in a delegated
+branch gets none, since it reports back instead.
+`Delegation::may_hand_off_to` and `routing::HandOff` hold that rule.
 
 ### 3. Which tier
 

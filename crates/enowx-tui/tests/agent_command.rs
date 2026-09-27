@@ -66,3 +66,30 @@ fn the_name_is_case_insensitive() {
     app.run_command("/agent FE").expect("switch");
     assert_eq!(app.active_agent(), "fe");
 }
+
+/// Picked before the first message, the agent has no session to be saved in.
+/// The message that creates one carries the pick, or the session would start
+/// with the orchestrator while the status bar names the pick.
+#[test]
+fn a_pick_before_the_first_message_goes_with_it() {
+    let mut app = TestApp::new();
+    assert_eq!(app.agent_for_new_session(), None, "nothing picked");
+    app.run_command("/agent fe").expect("switch");
+    assert_eq!(app.agent_for_new_session().as_deref(), Some("fe"));
+    app.run_command("/agent orchestrator").expect("back");
+    assert_eq!(
+        app.agent_for_new_session(),
+        None,
+        "the default needs no pick"
+    );
+}
+
+/// Once a session exists it holds its own agent; the message names none.
+#[test]
+fn a_session_keeps_its_own_agent() {
+    let mut app = TestApp::new();
+    app.resume_with_switches(&[("user", "hi"), ("assistant", "hello")], &[])
+        .expect("resume");
+    app.run_command("/agent fe").expect("switch");
+    assert_eq!(app.agent_for_new_session(), None);
+}

@@ -88,6 +88,7 @@ async fn first_token_after(agent: &std::sync::Arc<Agent>) -> f64 {
         session_id: None,
         role: Role::Orchestrator,
         attachments: Vec::new(),
+        agent: None,
     };
     let runner = agent.clone();
     let started = Instant::now();

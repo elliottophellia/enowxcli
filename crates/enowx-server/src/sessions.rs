@@ -94,6 +94,7 @@ pub(super) async fn chat(
             prompt: request.message,
             role: request.role,
             attachments: Vec::new(),
+            agent: None,
         };
         if let Err(error) = agent.run(request, tx, cancel).await {
             tracing::warn!(%error, "turn failed");

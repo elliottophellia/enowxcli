@@ -494,13 +494,13 @@ impl App {
         // the session is created.
         if let Some(id) = self.session_id.clone() {
             if let Ok(mut session) = self.store.load(&id) {
-                session.switch_agent(&name, "switched by the user");
+                session.switch_agent(&name, enowx_core::session::USER_SWITCH_REASON);
                 let _ = self.store.save(&session);
             }
         }
         self.push(
             crate::session::TranscriptKind::Notice,
-            format!("→ {name} · switched by the user"),
+            format!("→ {name} · {}", enowx_core::session::USER_SWITCH_REASON),
         );
         self.agent_name = name.clone();
         self.status = format!("agent: {name}");

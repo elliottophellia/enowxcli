@@ -78,6 +78,14 @@ pub struct DelegationRecord {
     pub failed: bool,
 }
 
+/// The reason recorded when the user picks an agent with `/agent`. The
+/// orchestrator only takes back what it handed over, never the user's choice.
+pub const USER_SWITCH_REASON: &str = "switched by the user";
+
+/// The reason recorded when a specialist's turn ends and the conversation
+/// goes back to the orchestrator.
+pub const RETURN_REASON: &str = "finished";
+
 /// One handover, recorded so the transcript can show who answered what.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AgentSwitch {
@@ -124,6 +132,23 @@ impl Session {
             Role::Researcher => "research",
         }
         .to_owned()
+    }
+
+    /// Whether the orchestrator lent this conversation to the specialist now
+    /// holding it, so it goes back when the specialist's turn ends.
+    ///
+    /// Only the user's own session (a delegated branch reports instead), and
+    /// only when the last handover was the orchestrator's: a specialist the
+    /// user chose with `/agent` keeps the conversation.
+    pub fn lent_by_orchestrator(&self) -> bool {
+        let holder = self.agent_or_default();
+        self.parent.is_none()
+            && holder != crate::agent_def::ORCHESTRATOR
+            && self.switches.last().is_some_and(|switch| {
+                switch.from == crate::agent_def::ORCHESTRATOR
+                    && switch.to == holder
+                    && switch.reason != USER_SWITCH_REASON
+            })
     }
 
     /// Record a handover. Does nothing when the agent is unchanged, so a
@@ -891,6 +916,29 @@ mod agent_tests {
         assert_eq!(loaded.switches.len(), 1);
         assert_eq!(loaded.switches[0].reason, "ui work");
         assert_eq!(loaded.parent.as_deref(), Some("parent-id"));
+    }
+
+    /// Lent: the orchestrator's handover. Kept: the user's pick, anything in
+    /// a delegated branch, and the orchestrator itself.
+    #[test]
+    fn only_the_orchestrators_handover_is_lent() {
+        let mut handed = Session::new(Role::Orchestrator);
+        handed.switch_agent("fe", "frontend work");
+        assert!(handed.lent_by_orchestrator());
+
+        let mut picked = Session::new(Role::Orchestrator);
+        picked.switch_agent("fe", USER_SWITCH_REASON);
+        assert!(!picked.lent_by_orchestrator(), "the user's pick stays");
+
+        let mut returned = handed.clone();
+        returned.switch_agent(crate::agent_def::ORCHESTRATOR, RETURN_REASON);
+        assert!(!returned.lent_by_orchestrator(), "already back");
+
+        let mut branch = handed.clone();
+        branch.parent = Some("parent-id".into());
+        assert!(!branch.lent_by_orchestrator(), "a branch reports instead");
+
+        assert!(!Session::new(Role::Orchestrator).lent_by_orchestrator());
     }
 
     /// Every session file on disk today predates these fields.

@@ -154,6 +154,7 @@ async fn cancelling_the_turn_does_not_kill_a_running_sub_agent() {
         session_id: None,
         role: Role::Orchestrator,
         attachments: Vec::new(),
+        agent: None,
     };
     let watch = cancel.clone();
     let handle = tokio::spawn(async move { agent.run(request, tx, cancel).await });
@@ -210,6 +211,7 @@ async fn cancelling_still_stops_the_turn_itself() {
         session_id: None,
         role: Role::Orchestrator,
         attachments: Vec::new(),
+        agent: None,
     };
     let watch = cancel.clone();
     let handle = tokio::spawn(async move { agent.run(request, tx, cancel).await });
@@ -263,6 +265,7 @@ async fn the_parent_session_records_its_delegation() {
         session_id: None,
         role: Role::Orchestrator,
         attachments: Vec::new(),
+        agent: None,
     };
     let handle = tokio::spawn(async move { agent.run(request, tx, cancel).await });
     let mut events = Vec::new();

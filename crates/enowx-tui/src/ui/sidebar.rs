@@ -556,13 +556,19 @@ fn detail_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usi
                 // row and carried by the grouping instead.
                 let mut project: Vec<&str> = Vec::new();
                 let mut user: Vec<&str> = Vec::new();
+                let mut builtin: Vec<&str> = Vec::new();
                 for skill in skills.iter() {
                     match skill.scope {
                         enowx_core::SkillScope::Project => project.push(&skill.name),
                         enowx_core::SkillScope::User => user.push(&skill.name),
+                        enowx_core::SkillScope::Builtin => builtin.push(&skill.name),
                     }
                 }
-                for (title, group) in [("THIS PROJECT", project), ("GLOBAL", user)] {
+                for (title, group) in [
+                    ("THIS PROJECT", project),
+                    ("GLOBAL", user),
+                    ("BUILT-IN", builtin),
+                ] {
                     if group.is_empty() {
                         continue;
                     }

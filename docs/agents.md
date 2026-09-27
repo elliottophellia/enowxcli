@@ -127,6 +127,40 @@ migrations reversible and tries them on a scratch database, `devops` runs the
 build rather than trusting a file that looks right, `test` makes a new test
 fail for the stated reason before making it pass.
 
+### Work that does not look generated
+
+Left to its defaults a model builds the same thing every time: a dark page
+with a blue-to-purple gradient hero over three identical cards, emoji for
+icons, invented numbers and testimonials, one file holding everything, a
+comment above every line, and copy that "unlocks" and "empowers". The prompts
+and three built-in skills are there to stop that (2026-09-28).
+
+| Skill | For |
+|---|---|
+| `ui` | Direction, layout, spacing, type, colour, icons, components, states, responsive, accessibility, content |
+| `code` | Reading the codebase first, structure, names, types, errors, dependencies, frontend specifics, comments, hygiene |
+| `writing` | Specific over generic, words to drop, sentences, interface copy, errors and empty states, docs, voice |
+
+They ship inside the binary (`crates/enowx-core/skills/`), so every install
+has them, and are listed with the scope `built-in`. A project or user skill of
+the same name replaces one, so a team with its own design system writes its
+own `ui`.
+
+The prompt carries the essentials, read on every call; the skill carries the
+depth, read when the work needs it. `fe` is the first specialist rewritten
+this way. It reads the project before building (framework, styling, component
+library, icon set, tokens, `DESIGN.md`), sets a direction in one line when
+there is none rather than falling back to the generated look, keeps one icon
+set imported per icon, builds components for named concepts and repeated
+markup on tokens, gives every data view empty, loading and error states, uses
+real content or labelled placeholders, and reports the direction, stack and
+icon set it chose. It reads `ui` before designing a page, `writing` before a
+page's copy, and `code` before a new component or module.
+
+The shared rule used to allow one skill per task, which stopped agents loading
+six skills before any work. It now reads: the skill the agent's instructions
+name for the work, or the one that applies, never every skill listed.
+
 `librarian` and `research` are both read-only and are easy to confuse. The
 difference is the output: librarian returns **raw material, filtered** —
 quotes, paths, line numbers — while research returns **an answer**. Librarian

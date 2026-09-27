@@ -1,6 +1,10 @@
 //! Discover `SKILL.md` files across every known layout and dedup them by name.
 
-use std::{collections::HashSet, fs, path::Path};
+use std::{
+    collections::HashSet,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use super::{
     parse_frontmatter, user_home, walk_up, Discovery, SkillEntry, SkillScope, MAX_SKILL_ENTRIES,
@@ -57,6 +61,38 @@ pub fn collect(workspace: &Path, discovery: &mut Discovery) {
             scan_root(&home.join(suffix), SkillScope::User, discovery, &mut seen);
         }
     }
+
+    // Last, so a project or user skill of the same name replaces one.
+    for (name, source) in BUILTIN {
+        if !seen.insert(name.to_owned()) {
+            continue;
+        }
+        let (front, _) = parse_frontmatter(source);
+        discovery.skills.push(SkillEntry {
+            name: name.to_owned(),
+            description: front.get("description").cloned().unwrap_or_default(),
+            allowed_tools: Vec::new(),
+            path: PathBuf::from(format!("built-in/{name}/SKILL.md")),
+            scope: SkillScope::Builtin,
+        });
+    }
+}
+
+/// Skills compiled into enx, as `(name, SKILL.md)`: how to design an
+/// interface, write code and write prose without the marks of generated
+/// work. The specialists' prompts name the one to read for each kind of task.
+const BUILTIN: [(&str, &str); 3] = [
+    ("ui", include_str!("../../skills/ui/SKILL.md")),
+    ("code", include_str!("../../skills/code/SKILL.md")),
+    ("writing", include_str!("../../skills/writing/SKILL.md")),
+];
+
+/// The whole `SKILL.md` of a built-in skill.
+pub fn builtin_source(name: &str) -> Option<&'static str> {
+    BUILTIN
+        .iter()
+        .find(|(builtin, _)| *builtin == name)
+        .map(|(_, source)| *source)
 }
 
 fn scan_root(

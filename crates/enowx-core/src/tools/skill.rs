@@ -1,5 +1,5 @@
 use super::{string_arg, Tool, ToolCtx, ToolOutput};
-use crate::discovery::{Discovery, SkillEntry};
+use crate::discovery::{Discovery, SkillEntry, SkillScope};
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -60,7 +60,12 @@ impl Tool for SkillReadTool {
                 "no skill named `{name}` was discovered"
             )));
         };
-        let body = std::fs::read_to_string(&entry.path)?;
+        let body = match entry.scope {
+            SkillScope::Builtin => crate::discovery::skills::builtin_source(&entry.name)
+                .map(str::to_owned)
+                .ok_or_else(|| anyhow::anyhow!("built-in skill `{}` is missing", entry.name))?,
+            _ => std::fs::read_to_string(&entry.path)?,
+        };
         Ok(ToolOutput::ok(format!(
             "# {} ({})\n{}",
             entry.name,

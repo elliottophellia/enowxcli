@@ -98,6 +98,20 @@ pub struct SkillEntry {
 pub enum SkillScope {
     Project,
     User,
+    /// Compiled into enx, so every install has it. A project or user skill
+    /// of the same name replaces it.
+    Builtin,
+}
+
+impl SkillScope {
+    /// How the interface names the scope.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Project => "project",
+            Self::User => "user",
+            Self::Builtin => "built-in",
+        }
+    }
 }
 
 /// One agent-instruction file. Body is already trimmed to `MAX_INSTRUCTION_BYTES`.
@@ -187,14 +201,7 @@ impl Discovery {
         if !self.instructions.is_empty() {
             let mut used = 0usize;
             for file in &self.instructions {
-                let header = format!(
-                    "\n## {} ({})\n",
-                    file.path.display(),
-                    match file.scope {
-                        SkillScope::Project => "project",
-                        SkillScope::User => "user",
-                    }
-                );
+                let header = format!("\n## {} ({})\n", file.path.display(), file.scope.label());
                 let cost = header.len() + file.body.len() + 1;
                 if used + cost > MAX_INSTRUCTION_TOTAL_BYTES {
                     out.push_str("\n[additional instruction files omitted for context budget]\n");
@@ -212,7 +219,8 @@ impl Discovery {
             out.push_str("\n## Available skills\n");
             out.push_str(
                 "Read a skill with the `skill_read` tool only when the task needs the instructions \
-                 it holds, and only that one. Most tasks need none.\n",
+                 it holds: the one your instructions name for the work, or the one that \
+                 applies. Most tasks need none, and none needs every one.\n",
             );
             for skill in &active_skills {
                 let one_liner = skill.description.split('\n').next().unwrap_or("");

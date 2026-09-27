@@ -5,7 +5,7 @@
 use super::*;
 use crate::app::mcp_ui::McpRow;
 use crate::modal::{McpFormField, MCP_FORM_FIELDS, MCP_FORM_LABELS};
-use enowx_core::discovery::{McpTransport, SkillScope};
+use enowx_core::discovery::McpTransport;
 
 /// Dispatch for the three new popups. `pickers::draw_modal` still owns every
 /// legacy modal; this only handles the ones the composer commands opened.
@@ -128,10 +128,7 @@ fn draw_skills(frame: &mut Frame, app: &mut App) {
             } else {
                 ("○", t.muted, Style::default().fg(t.muted))
             };
-            let scope = match row.scope {
-                SkillScope::Project => "project",
-                SkillScope::User => "user",
-            };
+            let scope = row.scope.label();
             let desc = row.description.split('\n').next().unwrap_or("");
             // The dot is this row's marker, on the marker column; the name
             // starts on the text column like every other list.
@@ -201,10 +198,7 @@ fn draw_mcp(frame: &mut Frame, app: &mut App) {
                     McpTransport::Http => "http",
                     McpTransport::Sse => "sse",
                 };
-                let scope = match scope {
-                    SkillScope::Project => "project",
-                    SkillScope::User => "user",
-                };
+                let scope = scope.label();
                 ListItem::new(Line::from(vec![
                     Span::styled(format!("{mark} "), Style::default().fg(colour)),
                     Span::styled(format!("{name:<24}"), name_style),

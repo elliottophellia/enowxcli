@@ -68,6 +68,7 @@ impl Grid {
 pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
     app.composer_palette = None;
     app.composer_palette_rows.clear();
+    app.question_rows.clear();
     app.sidebar_area = None;
     app.sidebar_tabs.clear();
     app.sidebar_pages_area = None;
@@ -347,7 +348,9 @@ pub(super) fn status_spans(app: &App) -> Vec<Span<'static>> {
     // Segments rather than a sentence. Each block is one fact, read at a
     // glance and in a fixed place: state, then agent, then what the session
     // has cost. A run-on line of "· ·" separators makes the reader parse it.
-    let (state_label, state_colour) = if app.busy {
+    let (state_label, state_colour) = if app.question.is_some() {
+        ("QUESTION", t.accent2)
+    } else if app.busy {
         ("WORKING", t.yellow)
     } else if app.status == "failed" {
         ("FAILED", t.red)
@@ -428,7 +431,9 @@ fn key_spans(app: &App, figures: bool) -> Vec<Span<'static>> {
     // The keys that apply right now, where the tip used to rotate. A tip is
     // read once; a key is looked up, and looking it up is the reason to keep
     // a row of chrome at all.
-    let hints: &[(&str, &str)] = if app.busy {
+    let hints: &[(&str, &str)] = if app.question.is_some() {
+        &[("Enter", "answer"), ("Esc", "stop")]
+    } else if app.busy {
         &[("Ctrl+C", "stop")]
     } else {
         &[("Ctrl+P", "commands"), ("/", "run one")]

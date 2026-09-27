@@ -101,6 +101,31 @@ cargo run -q -p enowx-tui --example snapshot -- 100 30 home        # settled
 cargo run -q -p enowx-tui --example snapshot -- 100 30 home@0.35   # mid-opening
 ```
 
+## Questions
+
+When the agent asks (see `docs/agents.md`, Asking the user), a QUESTION box
+opens between the chat box and the composer, where the command list goes,
+and stays fixed there while the transcript scrolls. It has the keyboard:
+
+| Key | Does |
+| --- | --- |
+| ↑ ↓ | Move between the options and the "Other" row |
+| 1–9 | Choose that row: answers a single choice, ticks a multiple one |
+| Space | Tick or untick, when several may be chosen |
+| n | Write a note on the highlighted option; Enter keeps it, Esc drops it |
+| typing | On the "Other" row, the answer in the user's own words |
+| ← → / Tab | Previous or next question, when there are several |
+| Enter | Answer this question and go to the next; on the last, send them all |
+| Esc | Stop the turn, as it does whenever one runs |
+
+The last row is always "Other". Several questions show "QUESTION 2 OF 3" in
+the top edge and a strip of their names inside, ticked once answered. The
+bottom edge holds the keys that apply to the row the highlight is on. The
+composer shows "Answer the question above" and does not take keys. The
+status bar reads QUESTION, "waiting for your answer". A click on an option
+chooses it. In the transcript the call reads `ask` with the question, and
+the answer under it.
+
 ## Contrast
 
 `theme.border` was 1.22–1.31:1 against `panel` in all five themes, so no box

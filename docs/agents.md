@@ -580,6 +580,32 @@ branch (`Session::delegations`), so a resumed session can still open the work
 behind a report; `routing::report_message` and `parse_report_message` are the
 one place the report message's format is written and read.
 
+## Asking the user
+
+Added on 2026-09-28. Until then no agent ever asked the user anything: the
+shared rules told every agent to choose a default rather than stop to ask,
+and there was no way to ask. Now the agent holding the user's conversation
+(the orchestrator, or a specialist it handed the conversation to) has an
+`ask` tool (`ask.rs`).
+
+- **When.** Before something that cannot be undone, or when a choice changes
+  what gets built and neither the request nor the project settles it.
+  Otherwise the agent still chooses and says what it chose.
+- **Shape.** One question, or a few related ones (at most five), each with
+  up to five options, the recommended one first. The model never adds an
+  "Other" option: the interface always offers one.
+- **Answer.** The turn waits on it; the answer comes back as the tool's
+  result, question by question: the options chosen, an answer in the user's
+  own words, and any note the user wrote on an option.
+- **Who cannot ask.** A delegated sub-agent: the user cannot see it, so its
+  questions go in its report for the agent that called it. A host where no
+  one can answer (the HTTP server, the headless example by default) does not
+  offer the tool (`Agent::asking_user` turns it on), so no run waits on a
+  question nobody will see. The headless example turns it on and answers
+  every question with its first option.
+- **Stopping.** Stopping the turn is the way out of a question; the agent is
+  told the user stopped instead of answering.
+
 ## Handoff carries a summary, not the raw history
 
 A handoff keeps the session, so the obvious question is whether the previous

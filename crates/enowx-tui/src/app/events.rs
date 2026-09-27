@@ -91,6 +91,10 @@ impl App {
     }
 
     pub(crate) fn interrupt(&mut self) {
+        // Stopping the turn is also the way out of a question: the agent
+        // is told the user stopped instead of answering.
+        self.question = None;
+        self.question_rows.clear();
         let Some(cancel) = self.cancel.take() else {
             self.status = "nothing running".into();
             return;
@@ -178,12 +182,28 @@ impl App {
                     String::new(),
                 );
             }
+            Event::Question {
+                id,
+                agent,
+                questions,
+            } => {
+                self.question = Some(crate::app::question::PendingQuestion::new(
+                    id, agent, questions,
+                ));
+                self.set_activity(Activity::Asking);
+                self.auto_scroll = true;
+            }
             Event::ToolResult {
                 id,
                 content,
                 is_error,
                 ..
             } => {
+                // Answered here or not, the question is over once its call
+                // has a result.
+                if self.question.as_ref().is_some_and(|q| q.id == id) {
+                    self.question = None;
+                }
                 if let Some(block) = self.conversation_mut().iter_mut().rev().find(|block| {
                     matches!(&block.kind, TranscriptKind::Tool { id: block_id, .. } if block_id == &id)
                 }) {
@@ -403,6 +423,7 @@ impl App {
                 self.logs
                     .push(crate::logs::LogKind::Problem, message.clone());
                 self.push(TranscriptKind::Error, message);
+                self.question = None;
                 self.busy = false;
                 self.cancel = None;
                 self.set_activity(Activity::Idle);
@@ -417,6 +438,7 @@ impl App {
                     self.abandoned -= 1;
                     return;
                 }
+                self.question = None;
                 self.busy = false;
                 self.cancel = None;
                 self.set_activity(Activity::Idle);

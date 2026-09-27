@@ -21,6 +21,7 @@ mod events;
 mod keys;
 pub(crate) mod mcp_ui;
 mod navigation;
+pub(crate) mod question;
 mod sessions;
 mod settings_keys;
 mod skills;
@@ -187,6 +188,13 @@ pub(crate) struct App {
     /// wheel and for clicks.
     pub(crate) composer_palette: Option<Rect>,
     pub(crate) composer_palette_rows: Vec<(Rect, usize)>,
+    /// A question the agent holding the conversation is waiting on.
+    pub(crate) question: Option<question::PendingQuestion>,
+    /// On-screen rows of the question's options, so a click answers.
+    pub(crate) question_rows: Vec<(Rect, usize)>,
+    /// The last answer sent, for tests: the agent it went to keeps no
+    /// record a test can read.
+    pub(crate) last_answer: Option<enowx_core::ask::Answer>,
     pub(crate) settings: SettingsDraft,
     pub(crate) field_cursor: usize,
     pub(crate) discovering_models: bool,
@@ -280,7 +288,9 @@ impl App {
         let show_sidebar = config.ui.show_sidebar;
         let context_window = config.model.context_window;
         let workspace = config.workspace();
-        let agent = Arc::new(Agent::new(config.clone()));
+        // The interface can put a question to the user, so the agent
+        // holding the conversation may ask one.
+        let agent = Arc::new(Agent::new(config.clone()).asking_user());
         // Started at launch, in the background: the first message used to
         // wait for every MCP server in turn, 33 seconds with one that hung.
         agent.start_mcp();
@@ -340,6 +350,9 @@ impl App {
             palette_offset: 0,
             composer_palette: None,
             composer_palette_rows: Vec::new(),
+            question: None,
+            question_rows: Vec::new(),
+            last_answer: None,
             field_cursor: 0,
             discovering_models: false,
             model_events: None,
@@ -554,7 +567,7 @@ impl App {
         self.settings = SettingsDraft::from_config(&config);
         self.context_window = config.model.context_window;
         self.config = config.clone();
-        self.agent = Arc::new(Agent::new(config));
+        self.agent = Arc::new(Agent::new(config).asking_user());
         // MCP servers start now, in the background, so the next message
         // does not wait on them.
         self.agent.start_mcp();

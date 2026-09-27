@@ -255,6 +255,15 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
                 body: ToolBody::Plain(body),
             }
         }
+        "ask" => {
+            // The question in the row, the answer under it.
+            let question = str_arg(&parsed, "question").unwrap_or("").trim();
+            ToolRender::Detail {
+                header: RowParts::new("ask", question.to_owned(), ""),
+                subtitle: None,
+                body: ToolBody::Plain(result),
+            }
+        }
         "edit" => {
             let path = str_arg(&parsed, "path").unwrap_or("").to_string();
             let old = str_arg(&parsed, "old_text").unwrap_or("").to_string();
@@ -1523,6 +1532,8 @@ pub(crate) fn opens_by_default(name: &str, master_toggle: bool) -> bool {
         // file and how long, and the file itself is a click away. Open, a
         // page of HTML per write pushed the conversation off the screen.
         "write" => false,
+        // A question and its answer are part of the conversation.
+        "ask" => true,
         // Everything else — a diff, a file being written, a todo list, an
         // MCP payload — is the reason the call was made.
         _ => master_toggle,

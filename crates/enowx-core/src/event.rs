@@ -71,6 +71,13 @@ pub enum Event {
         to: String,
         reason: String,
     },
+    /// The agent asked the user one question or a few and waits for the
+    /// answers, given with `Agent::answer` and this `id`.
+    Question {
+        id: String,
+        agent: String,
+        questions: Vec<crate::ask::Question>,
+    },
     /// A sub-agent started. Carries the branch session id so the interface
     /// can offer to open its transcript while it is still running — a
     /// delegation that only reports when it finishes is indistinguishable

@@ -29,7 +29,10 @@ pub(super) fn draw_main_column(frame: &mut Frame, app: &mut App, area: Rect) {
             0
         }
     };
-    let chat_h = area.height.saturating_sub(ih + ph);
+    // A question the agent waits on sits where the command list would, and
+    // like it shortens the chat box rather than covering it.
+    let qh = question_height(app, area.width).min(area.height.saturating_sub(ih + 3));
+    let chat_h = area.height.saturating_sub(ih + ph + qh);
     draw_chat_box(frame, app, Rect::new(area.x, area.y, area.width, chat_h));
     if ph > 0 {
         draw_palette(
@@ -39,14 +42,25 @@ pub(super) fn draw_main_column(frame: &mut Frame, app: &mut App, area: Rect) {
             &matches,
         );
     }
+    if qh > 0 {
+        draw_question(
+            frame,
+            app,
+            Rect::new(area.x, area.y + chat_h + ph, area.width, qh),
+        );
+    }
+    // While questions wait, the panel above has the keyboard.
     let look = ComposerLook {
         fill: app.theme.subtle,
-        placeholder: None,
+        placeholder: app
+            .question
+            .is_some()
+            .then_some("Answer the question above"),
     };
     draw_composer_box(
         frame,
         app,
-        Rect::new(area.x, area.y + chat_h + ph, area.width, ih),
+        Rect::new(area.x, area.y + chat_h + ph + qh, area.width, ih),
         &input,
         row,
         col,
@@ -211,7 +225,7 @@ pub(super) fn draw_composer_box(
     let label: Option<(String, ratatui::style::Color)> =
         if let Some(error) = app.attach_error.as_deref() {
             Some((error.to_owned(), t.red))
-        } else if app.busy {
+        } else if app.busy && app.question.is_none() {
             Some(("QUEUED".to_owned(), t.yellow))
         } else if !app.attachments.is_empty() {
             Some(("WITH IMAGES".to_owned(), t.accent2))
@@ -279,7 +293,7 @@ pub(super) fn draw_composer_box(
             .collect()
     };
     frame.render_widget(Paragraph::new(painted), field);
-    if app.modal == Modal::None && field.height > 0 && field.width > 0 {
+    if app.modal == Modal::None && app.question.is_none() && field.height > 0 && field.width > 0 {
         frame.set_cursor_position((
             field.x + (col as u16).min(field.width - 1),
             field.y + ((row - offset) as u16).min(field.height - 1),

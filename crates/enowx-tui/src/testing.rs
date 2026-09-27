@@ -854,6 +854,46 @@ impl TestApp {
     pub fn input_text(&self) -> String {
         self.inner.input.clone()
     }
+
+    /// The agent asks the user something, as `Event::Question` does, in a
+    /// turn that is running.
+    pub fn deliver_question(&mut self, id: &str, agent: &str, questions: serde_json::Value) {
+        let questions = enowx_core::ask::parse(&questions).expect("questions");
+        self.inner.busy = true;
+        self.inner.apply_event(enowx_core::Event::Question {
+            id: id.into(),
+            agent: agent.into(),
+            questions,
+        });
+    }
+
+    /// Type text key by key, the way a user does, rather than inserting it
+    /// into the composer.
+    pub fn type_keys(&mut self, text: &str) {
+        for c in text.chars() {
+            self.press(crossterm::event::KeyCode::Char(c), false)
+                .expect("a key");
+        }
+    }
+
+    /// Whether a question is waiting on the user.
+    pub fn question_open(&self) -> bool {
+        self.inner.question.is_some()
+    }
+
+    /// The last answer the user sent.
+    pub fn last_answer(&self) -> Option<enowx_core::ask::Answer> {
+        self.inner.last_answer.clone()
+    }
+
+    /// Where the question's options were drawn, as (x, y) of each row.
+    pub fn question_option_rows(&self) -> Vec<(u16, u16)> {
+        self.inner
+            .question_rows
+            .iter()
+            .map(|(rect, _)| (rect.x, rect.y))
+            .collect()
+    }
 }
 
 impl TestApp {

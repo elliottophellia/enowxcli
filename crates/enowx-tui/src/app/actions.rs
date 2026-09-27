@@ -353,7 +353,12 @@ impl App {
     }
 
     pub(crate) fn command_matches(&self) -> Vec<(&'static str, &'static str)> {
-        if !self.input.starts_with('/') || self.input.contains(char::is_whitespace) {
+        // While a question waits, what is typed is the answer, commands
+        // included.
+        if self.question.is_some()
+            || !self.input.starts_with('/')
+            || self.input.contains(char::is_whitespace)
+        {
             return Vec::new();
         }
         COMMANDS

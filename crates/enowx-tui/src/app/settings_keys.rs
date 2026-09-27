@@ -38,6 +38,9 @@ impl App {
     /// tested: the branch that used to decide this listed the form modals by
     /// hand, and a form missing from that list silently dropped every paste.
     pub(crate) fn paste(&mut self, text: &str) {
+        if self.modal == Modal::None && self.paste_into_question(text) {
+            return;
+        }
         if self.modal.is_form() {
             self.paste_into_form(text);
         } else if self.modal == Modal::None {

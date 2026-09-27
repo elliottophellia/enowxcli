@@ -3,6 +3,7 @@
 
 pub mod agent;
 pub mod agent_def;
+pub mod ask;
 pub mod catalog;
 pub mod compact;
 pub mod config;

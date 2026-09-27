@@ -98,6 +98,17 @@ impl App {
                     self.palette_cursor = index;
                     return self.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
                 }
+                // An option of the question the agent waits on: a click
+                // answers it, or ticks it when several may be chosen.
+                if let Some(index) = self
+                    .question_rows
+                    .iter()
+                    .find(|(rect, _)| rect.contains(position))
+                    .map(|(_, index)| *index)
+                {
+                    self.pick_row(index);
+                    return Ok(());
+                }
                 // Composer field: click positions the cursor.
                 if let Some(field) = self.composer_field {
                     if field.contains(position) {

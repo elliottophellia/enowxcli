@@ -8,6 +8,10 @@
 //! This calls the configured provider and costs what the run costs. The
 //! workspace defaults to a fresh temporary directory; MCP servers are not
 //! started, and sessions are stored beside the workspace, not in ~/.enx.
+//!
+//! There is no one to answer questions, so each question an agent asks is
+//! answered with its first option: the one the agents are told to put first
+//! as their recommendation.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -44,7 +48,9 @@ async fn main() -> anyhow::Result<()> {
             .unwrap_or_default()
     ));
     let store = SessionStore::new(sessions.clone());
-    let agent = Agent::with_discovery(config.clone(), store.clone(), discovery);
+    let agent = std::sync::Arc::new(
+        Agent::with_discovery(config.clone(), store.clone(), discovery).asking_user(),
+    );
 
     println!("workspace {}", workspace.display());
     println!("sessions  {}", sessions.display());
@@ -59,7 +65,8 @@ async fn main() -> anyhow::Result<()> {
         agent: None,
     };
     let cancel = tokio_util::sync::CancellationToken::new();
-    let handle = tokio::spawn(async move { agent.run(request, tx, cancel).await });
+    let runner = agent.clone();
+    let handle = tokio::spawn(async move { runner.run(request, tx, cancel).await });
 
     let mut session_id: Option<String> = None;
     let mut reply = String::new();
@@ -72,6 +79,26 @@ async fn main() -> anyhow::Result<()> {
                 name, arguments, ..
             } => println!("  {name:<10} {}", short(&arguments)),
             Event::AgentSwitched { to, reason } => println!("→ {to}: {reason}"),
+            Event::Question { id, questions, .. } => {
+                let mut replies = Vec::new();
+                for question in &questions {
+                    println!("? {}", question.question);
+                    for choice in &question.options {
+                        println!("    - {}", choice.label);
+                    }
+                    let first = question.options.first().map(|o| o.label.clone());
+                    println!(
+                        "  answered: {}",
+                        first.as_deref().unwrap_or("(nothing offered)")
+                    );
+                    replies.push(enowx_core::ask::Reply {
+                        chosen: first.into_iter().collect(),
+                        other: String::new(),
+                        notes: Vec::new(),
+                    });
+                }
+                agent.answer(&id, enowx_core::ask::Answer { replies });
+            }
             Event::DelegationStarted { agent, task, .. } => {
                 println!("delegate → {agent}: {}", first_line(&task))
             }

@@ -100,7 +100,7 @@ Effort and tools:\n\
 - Leave nothing running: no servers or background processes (`&`, nohup) that outlive the command that started them.\n\
 - `todo` is for work of four or more steps. Set the list once and mark finished steps together; skip it for small tasks.\n\
 - Read a skill only when the task needs its instructions: the one your instructions name for the work, or the one that applies. Never every skill listed.\n\
-- When a detail is open and a sensible default exists, choose it and say what you chose, rather than stopping to ask.\n\
+- When a detail is open and a sensible default exists, choose it and say what you chose. Ask the user (the `ask` tool, when you have it) before something that cannot be undone, or when a choice changes what you build and neither the request nor the project settles it: one question at a time, with options, the one you recommend first.\n\
 - Stop when the request is met. Do not add files, features or polish nobody asked for.\n";
 
 /// Build the tool registry with skill discovery. MCP servers are spawned lazily
@@ -277,6 +277,14 @@ pub struct Agent {
     /// `None` unless a TypeSafe key is configured, in which case small typed
     /// judgements are available to the harness.
     system_one: Option<crate::systemone::SystemOne>,
+    /// Whether the host can put a question to the user and send the answer
+    /// back. Off unless the host says so, so an agent run where no one can
+    /// answer (the HTTP server, a script) is never left waiting.
+    asks_user: bool,
+    /// Questions waiting on the user, by the id of the call that asked.
+    questions: std::sync::Mutex<
+        std::collections::HashMap<String, tokio::sync::oneshot::Sender<crate::ask::Answer>>,
+    >,
 }
 
 impl Agent {
@@ -315,6 +323,65 @@ impl Agent {
             mcp_started_at: Arc::new(std::sync::OnceLock::new()),
             mcp_failures: Arc::new(std::sync::Mutex::new(std::collections::BTreeMap::new())),
             system_one,
+            asks_user: false,
+            questions: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    /// Let the agent holding the conversation ask the user questions. The
+    /// host shows each `Event::Question` and answers it with `answer`.
+    pub fn asking_user(mut self) -> Self {
+        self.asks_user = true;
+        self
+    }
+
+    /// Answer the question asked with `id`. False when nothing is waiting on
+    /// it: already answered, or the turn was stopped.
+    pub fn answer(&self, id: &str, answer: crate::ask::Answer) -> bool {
+        let waiting = self.questions.lock().expect("questions").remove(id);
+        waiting.is_some_and(|reply| reply.send(answer).is_ok())
+    }
+
+    /// Put the questions to the user and wait for the answers, or for the
+    /// turn to be stopped.
+    async fn ask_user(
+        &self,
+        id: &str,
+        agent: &str,
+        args: &serde_json::Value,
+        holds_conversation: bool,
+        events: &mpsc::Sender<Event>,
+        cancel: &CancellationToken,
+    ) -> ToolOutput {
+        if !self.asks_user || !holds_conversation {
+            return ToolOutput::error(
+                "There is no user to ask here. Decide, and say what you decided and why.",
+            );
+        }
+        let questions = match crate::ask::parse(args) {
+            Ok(questions) => questions,
+            Err(why) => return ToolOutput::error(why),
+        };
+        let (reply, answer) = tokio::sync::oneshot::channel();
+        self.questions
+            .lock()
+            .expect("questions")
+            .insert(id.to_owned(), reply);
+        let _ = events
+            .send(Event::Question {
+                id: id.to_owned(),
+                agent: agent.to_owned(),
+                questions: questions.clone(),
+            })
+            .await;
+        let answer = tokio::select! {
+            answer = answer => answer.ok(),
+            _ = cancel.cancelled() => None,
+        };
+        self.questions.lock().expect("questions").remove(id);
+        match answer {
+            Some(answer) => ToolOutput::ok(crate::ask::answer_message(&questions, &answer)),
+            None => ToolOutput::error("The user stopped the turn instead of answering."),
         }
     }
 
@@ -884,6 +951,11 @@ impl Agent {
             .next()
             .is_some();
         let mut schemas = tools_registry.schemas_for_agent(&active.tools, readable);
+        // Only the agent holding the user's conversation can ask them, and
+        // only where the host can put the question to them.
+        if self.asks_user && session.parent.is_none() {
+            schemas.push(crate::ask::schema());
+        }
         if active.delegation != crate::agent_def::Delegation::None {
             // The orchestrator hands the conversation to anyone. A specialist
             // holding the user's conversation may only give it back to the
@@ -1111,6 +1183,19 @@ impl Agent {
                     ))
                 } else {
                     match serde_json::from_str::<serde_json::Value>(&call.arguments) {
+                        Ok(args @ serde_json::Value::Object(_))
+                            if call.name == crate::ask::TOOL =>
+                        {
+                            self.ask_user(
+                                &call.id,
+                                &active.name,
+                                &args,
+                                session.parent.is_none(),
+                                events,
+                                &cancel,
+                            )
+                            .await
+                        }
                         Ok(args @ serde_json::Value::Object(_))
                             if crate::routing::is_routing_tool(&call.name) =>
                         {

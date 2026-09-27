@@ -1,6 +1,7 @@
 //! Render the whole app at any terminal size, as plain text, to check the
 //! grid without a terminal. Scenarios: session (default), empty, busy,
-//! palette, detail, rich, delegate, work, home, home-palette, and home@SECS
+//! palette, detail, rich, delegate, work, question, question-many,
+//! questions, question-note, home, home-palette, and home@SECS
 //! for the home screen that far into its opening.
 //! Run: cargo run -q -p enowx-tui --example snapshot -- 120 36 rich
 use enowx_tui::testing::TestApp;
@@ -75,6 +76,39 @@ fn scenario(name: &str) -> TestApp {
         opening if opening.starts_with("home@") => {
             let mut app = ready();
             app.home_at(opening[5..].parse().expect("home@SECONDS"));
+            app
+        }
+        "question" | "question-many" | "questions" | "question-note" => {
+            let mut app = session();
+            let clinic = serde_json::json!({
+                "question": "Halaman ini untuk siapa terutama?",
+                "header": "Untuk siapa",
+                "multiple": name == "question-many",
+                "options": [
+                    {"label": "Pasien baru (recommended)", "description": "yang belum pernah datang dan mencari info dasar"},
+                    {"label": "Pasien lama", "description": "yang ingin booking ulang dengan cepat"},
+                    {"label": "Dokter perujuk", "description": "yang mencari cara merujuk pasien"}
+                ]
+            });
+            let questions = if name == "questions" {
+                serde_json::json!({"questions": [
+                    clinic,
+                    {"question": "Bahasa apa yang dipakai?", "header": "Bahasa",
+                     "options": [{"label": "Indonesia (recommended)"}, {"label": "Indonesia dan Inggris"}]},
+                    {"question": "Booking lewat apa?", "header": "Booking",
+                     "options": [{"label": "WhatsApp (recommended)"}, {"label": "Formulir di halaman"}]}
+                ]})
+            } else {
+                serde_json::json!({"questions": [clinic]})
+            };
+            app.deliver_question("q-1", "orchestrator", questions);
+            if name == "questions" {
+                app.press_key(crossterm::event::KeyCode::Enter).unwrap();
+            }
+            if name == "question-note" {
+                app.press_key(crossterm::event::KeyCode::Char('n')).unwrap();
+                app.type_keys("banyak yang lansia, huruf besar");
+            }
             app
         }
         "busy" => {

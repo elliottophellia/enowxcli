@@ -351,6 +351,12 @@ impl App {
             }
         }
 
+        // A question from the agent takes Enter, the arrows and the digits
+        // while it waits; anything else types the user's own answer.
+        if self.question.is_some() && self.question_key(key) {
+            return Ok(());
+        }
+
         let matches = self.command_matches();
         if !matches.is_empty() {
             match key.code {

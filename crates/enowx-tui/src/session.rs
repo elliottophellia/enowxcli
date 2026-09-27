@@ -64,6 +64,8 @@ pub(crate) enum Activity {
     Thinking,
     Writing,
     Tool(String),
+    /// The agent asked the user something and waits for the answer.
+    Asking,
 }
 
 impl Activity {
@@ -74,6 +76,7 @@ impl Activity {
             Activity::Thinking => "thinking",
             Activity::Writing => "writing",
             Activity::Tool(name) => name,
+            Activity::Asking => "waiting for your answer",
         }
     }
 }

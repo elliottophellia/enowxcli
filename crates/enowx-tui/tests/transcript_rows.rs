@@ -59,6 +59,13 @@ fn streaming_thinking_shows_its_latest_sentence() {
         text.contains("✻ Thinking… Now check that every class exists in the CSS"),
         "{text}"
     );
+    // A sentence still being written does not replace the finished one.
+    app.deliver_reasoning(" But wait");
+    let text = app.main_column(W, H).join("\n");
+    assert!(
+        text.contains("✻ Thinking… Now check that every class exists in the CSS"),
+        "{text}"
+    );
     // Once the answer starts, it has finished: it says how long it took.
     app.deliver_assistant_text("Done.");
     let text = app.main_column(W, H).join("\n");

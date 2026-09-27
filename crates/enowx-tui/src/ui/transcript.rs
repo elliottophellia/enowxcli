@@ -1121,14 +1121,37 @@ fn thinking_row(label: &str, chevron: Option<&str>, width: usize, theme: &Theme)
     ])
 }
 
-/// The last complete thought in streaming text: its last line, cut back to
-/// the start of its last sentence.
+/// The latest finished sentence in streaming text, so the live row reads
+/// as a thought rather than whatever fragment the stream stopped on ("But
+/// wait"). Before any sentence has finished, the fragment is all there is.
 fn latest_sentence(text: &str) -> Option<String> {
-    let line = text.lines().rev().map(str::trim).find(|l| !l.is_empty())?;
-    let trimmed = line.trim_end_matches(['.', ' ']);
-    let start = trimmed.rfind(". ").map(|at| at + 2).unwrap_or(0);
-    let sentence = trimmed[start..].trim();
-    (!sentence.is_empty()).then(|| sentence.to_owned())
+    let text = text.trim();
+    let mut sentences: Vec<&str> = Vec::new();
+    let mut start = 0;
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    for (i, &(at, c)) in chars.iter().enumerate() {
+        let ends = match c {
+            '\n' => true,
+            '.' | '!' | '?' => chars
+                .get(i + 1)
+                .is_none_or(|&(_, next)| next.is_whitespace()),
+            _ => false,
+        };
+        if ends {
+            let end = at + c.len_utf8();
+            let sentence = text[start..end].trim().trim_end_matches(['.', '\n']);
+            if !sentence.trim().is_empty() {
+                sentences.push(sentence.trim());
+            }
+            start = end;
+        }
+    }
+    let fragment = text[start..].trim();
+    sentences
+        .last()
+        .copied()
+        .or((!fragment.is_empty()).then_some(fragment))
+        .map(str::to_owned)
 }
 
 /// Width of the verb column.

@@ -275,6 +275,9 @@ impl App {
         let context_window = config.model.context_window;
         let workspace = config.workspace();
         let agent = Arc::new(Agent::new(config.clone()));
+        // Started at launch, in the background: the first message used to
+        // wait for every MCP server in turn, 33 seconds with one that hung.
+        agent.start_mcp();
         let discovery = agent.discovery();
         Self {
             agent,
@@ -544,6 +547,9 @@ impl App {
         self.context_window = config.model.context_window;
         self.config = config.clone();
         self.agent = Arc::new(Agent::new(config));
+        // MCP servers start now, in the background, so the next message
+        // does not wait on them.
+        self.agent.start_mcp();
         self.refresh_discovery();
     }
 

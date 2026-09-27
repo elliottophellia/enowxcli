@@ -104,7 +104,7 @@ Effort and tools:\n\
 - Stop when the request is met. Do not add files, features or polish nobody asked for.\n";
 
 /// Build the tool registry with skill discovery. MCP servers are spawned lazily
-/// via `Agent::warm_mcp` so a synchronous `Agent::new` cannot deadlock the
+/// via `Agent::start_mcp` so a synchronous `Agent::new` cannot deadlock the
 /// tokio runtime with a nested `block_on`.
 fn build_registry(discovery: Arc<Discovery>, disabled_skills: Vec<String>) -> ToolRegistry {
     let mut registry = ToolRegistry::default();
@@ -121,28 +121,97 @@ fn build_registry(discovery: Arc<Discovery>, disabled_skills: Vec<String>) -> To
     }
     registry
 }
-async fn warm_mcp(registry: &mut ToolRegistry, discovery: &Discovery) -> Vec<Arc<McpClient>> {
-    let mut clients = Vec::new();
-    for server in discovery.mcp_servers.iter().filter(|s| s.enabled) {
-        let client = match McpClient::spawn(server).await {
-            Ok(client) => Arc::new(client),
-            Err(_) => continue,
-        };
-        // A slow server should never freeze startup; skip it instead.
-        let tools =
-            match tokio::time::timeout(std::time::Duration::from_secs(10), client.list_tools())
-                .await
-            {
-                Ok(Ok(tools)) => tools,
-                _ => Vec::new(),
-            };
-        for tool in tools {
-            registry.register(McpProxyTool::new(client.clone(), &tool));
+/// How long a turn waits for MCP servers still starting before it calls the
+/// model without their tools. They keep starting and join a later step.
+const MCP_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// A server that has not finished its handshake and listed its tools in this
+/// long is left out, and the reason recorded.
+const MCP_START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// The registry for writing, taken only when no one holds it.
+///
+/// Never queues. Tokio's lock is write-preferring, so a queued writer stops
+/// every new reader, and a turn keeps a read guard while it delegates and
+/// the sub-agent's turn takes another: a writer queued between the two would
+/// wait on the first guard while the second waited on it. Tools started in
+/// the background join between turns instead.
+async fn write_when_free(
+    tools: &tokio::sync::RwLock<ToolRegistry>,
+) -> tokio::sync::RwLockWriteGuard<'_, ToolRegistry> {
+    loop {
+        if let Ok(guard) = tools.try_write() {
+            return guard;
         }
-        clients.push(client);
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
-    clients
 }
+
+/// Start every enabled MCP server at once, registering each one's tools the
+/// moment it is ready. Servers used to start one after another before the
+/// first model call: one that never answered its handshake (a `dokploy`
+/// server whose backend was gone) held every first message for 30 seconds.
+async fn start_mcp_servers(
+    tools: Arc<tokio::sync::RwLock<ToolRegistry>>,
+    discovery: Arc<Discovery>,
+    clients: Arc<tokio::sync::Mutex<Vec<Arc<McpClient>>>>,
+    failures: Arc<std::sync::Mutex<std::collections::BTreeMap<String, String>>>,
+) {
+    use futures::stream::{FuturesUnordered, StreamExt as _};
+    let mut starting: FuturesUnordered<_> = discovery
+        .mcp_servers
+        .iter()
+        .filter(|server| server.enabled)
+        .map(|server| async move {
+            let outcome = tokio::time::timeout(MCP_START_TIMEOUT, async {
+                let client = Arc::new(McpClient::spawn(server).await?);
+                let listed = client.list_tools().await?;
+                anyhow::Ok((client, listed))
+            })
+            .await;
+            (server, outcome)
+        })
+        .collect();
+    while let Some((server, outcome)) = starting.next().await {
+        let name = server.name.clone();
+        match outcome {
+            Ok(Ok((client, listed))) => {
+                {
+                    let mut registry = write_when_free(&tools).await;
+                    for tool in listed {
+                        registry.register(McpProxyTool::new(client.clone(), &tool));
+                    }
+                }
+                clients.lock().await.push(client);
+            }
+            Ok(Err(error)) => {
+                // The cause, not the context around it: "spawning MCP server
+                // `x`" says nothing a row with the server's name does not.
+                let missing = error
+                    .chain()
+                    .filter_map(|cause| cause.downcast_ref::<std::io::Error>())
+                    .any(|io| io.kind() == std::io::ErrorKind::NotFound);
+                let reason = if missing {
+                    format!("command not found: {}", server.command_or_url)
+                } else {
+                    error.root_cause().to_string()
+                };
+                if let Ok(mut failed) = failures.lock() {
+                    failed.insert(name, reason);
+                }
+            }
+            Err(_) => {
+                if let Ok(mut failed) = failures.lock() {
+                    failed.insert(
+                        name,
+                        format!("no answer in {}s", MCP_START_TIMEOUT.as_secs()),
+                    );
+                }
+            }
+        }
+    }
+}
+
 pub struct RunRequest {
     pub session_id: Option<String>,
     pub prompt: String,
@@ -186,11 +255,21 @@ pub struct Agent {
     tools: Arc<tokio::sync::RwLock<ToolRegistry>>,
     store: SessionStore,
     discovery: Arc<Discovery>,
-    /// Kept alive so child processes survive for the agent's lifetime; set
-    /// once by `Agent::warm` and never mutated afterward.
+    /// Kept alive so child processes survive for the agent's lifetime;
+    /// filled by `Agent::start_mcp` as servers come up.
     #[allow(dead_code)]
     mcp_clients: Arc<tokio::sync::Mutex<Vec<Arc<McpClient>>>>,
     mcp_warmed: Arc<std::sync::atomic::AtomicBool>,
+    /// Set once every server has started or failed; `mcp_ready` wakes
+    /// anyone waiting on that.
+    mcp_done: Arc<std::sync::atomic::AtomicBool>,
+    mcp_ready: Arc<tokio::sync::Notify>,
+    /// When the servers began starting. The grace a turn waits for them is
+    /// counted from here, so only a message sent in the first moments after
+    /// launch waits at all.
+    mcp_started_at: Arc<std::sync::OnceLock<std::time::Instant>>,
+    /// Why each server that did not start failed, by name.
+    mcp_failures: Arc<std::sync::Mutex<std::collections::BTreeMap<String, String>>>,
     /// `None` unless a TypeSafe key is configured, in which case small typed
     /// judgements are available to the harness.
     system_one: Option<crate::systemone::SystemOne>,
@@ -227,6 +306,10 @@ impl Agent {
             discovery,
             mcp_clients: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             mcp_warmed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            mcp_done: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            mcp_ready: Arc::new(tokio::sync::Notify::new()),
+            mcp_started_at: Arc::new(std::sync::OnceLock::new()),
+            mcp_failures: Arc::new(std::sync::Mutex::new(std::collections::BTreeMap::new())),
             system_one,
         }
     }
@@ -245,14 +328,62 @@ impl Agent {
     /// Spawn every discovered MCP server on the current tokio runtime. Safe to
     /// call more than once: the second call is a no-op. Called on the first
     /// turn so `Agent::new` stays sync-friendly.
-    async fn warm_mcp_servers(&self) {
+    /// Start the MCP servers in the background, once. The interface calls
+    /// this as soon as the agent exists, so the servers are usually up
+    /// before the first message; a turn calls it too, in case nothing has.
+    /// Does nothing outside a Tokio runtime.
+    pub fn start_mcp(&self) {
         use std::sync::atomic::Ordering;
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
         if self.mcp_warmed.swap(true, Ordering::AcqRel) {
             return;
         }
-        let mut registry = self.tools.write().await;
-        let clients = warm_mcp(&mut registry, &self.discovery).await;
-        *self.mcp_clients.lock().await = clients;
+        let _ = self.mcp_started_at.set(std::time::Instant::now());
+        let tools = self.tools.clone();
+        let discovery = self.discovery.clone();
+        let clients = self.mcp_clients.clone();
+        let failures = self.mcp_failures.clone();
+        let done = self.mcp_done.clone();
+        let ready = self.mcp_ready.clone();
+        runtime.spawn(async move {
+            start_mcp_servers(tools, discovery, clients, failures).await;
+            done.store(true, Ordering::Release);
+            ready.notify_waiters();
+        });
+    }
+
+    /// Wait for the MCP servers to finish starting, until `grace` after
+    /// they began. A server that hangs is waited on once, briefly, not on
+    /// every turn until it gives up.
+    async fn wait_for_mcp(&self, grace: std::time::Duration) {
+        use std::sync::atomic::Ordering;
+        let notified = self.mcp_ready.notified();
+        if self.mcp_done.load(Ordering::Acquire) {
+            return;
+        }
+        let Some(started) = self.mcp_started_at.get() else {
+            return;
+        };
+        let Some(left) = grace.checked_sub(started.elapsed()) else {
+            return;
+        };
+        let _ = tokio::time::timeout(left, notified).await;
+    }
+
+    /// Whether the MCP servers are still starting.
+    pub fn mcp_starting(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        self.mcp_warmed.load(Ordering::Acquire) && !self.mcp_done.load(Ordering::Acquire)
+    }
+
+    /// Why a server failed to start, when it did.
+    pub fn mcp_failure(&self, server: &str) -> Option<String> {
+        self.mcp_failures
+            .lock()
+            .ok()
+            .and_then(|failed| failed.get(server).cloned())
     }
 
     /// The agent holding `session`, falling back to the orchestrator.
@@ -712,7 +843,10 @@ impl Agent {
         let mut provider_model = agent_config.model.default.clone();
         let mut ladder =
             crate::provider::ModelLadder::new(&active.name, active.tier, &provider_model);
-        self.warm_mcp_servers().await;
+        // Servers still starting after a short wait are left out of this
+        // step rather than holding the first token back.
+        self.start_mcp();
+        self.wait_for_mcp(MCP_GRACE).await;
         let tools_registry = self.tools.read().await;
         let mut schemas = tools_registry.schemas_for_agent(&active.tools, Some(&self.discovery));
         if active.delegation != crate::agent_def::Delegation::None {

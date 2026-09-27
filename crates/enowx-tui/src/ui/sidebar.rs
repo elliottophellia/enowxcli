@@ -491,14 +491,35 @@ fn detail_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usi
                 // a catalogue, read once when wiring the server up and never
                 // again, filling the pane for every session after that.
                 for server in &app.discovery.mcp_servers {
-                    if server.enabled {
-                        let count = app.agent.mcp_tools(&server.name).len();
-                        figure(&mut lines, &count.to_string(), &server.name, t);
-                    } else {
+                    if !server.enabled {
                         lines.push(Line::from(vec![
                             Span::styled(format!("{:<6}", "off"), Style::default().fg(t.faint)),
                             Span::styled(server.name.clone(), Style::default().fg(t.muted)),
                         ]));
+                        continue;
+                    }
+                    let count = app.agent.mcp_tools(&server.name).len();
+                    if count > 0 {
+                        figure(&mut lines, &count.to_string(), &server.name, t);
+                    } else if let Some(reason) = app.agent.mcp_failure(&server.name) {
+                        // Why it is missing, so a dead server is fixed or
+                        // switched off rather than left looking empty.
+                        lines.push(Line::from(vec![
+                            Span::styled(format!("{:<6}", "fail"), Style::default().fg(t.red)),
+                            Span::styled(server.name.clone(), Style::default().fg(t.text)),
+                        ]));
+                        let room = width.saturating_sub(8);
+                        lines.push(Line::styled(
+                            format!("      {}", crate::text::trim(&reason, room)),
+                            Style::default().fg(t.muted),
+                        ));
+                    } else if app.agent.mcp_starting() {
+                        lines.push(Line::from(vec![
+                            Span::styled(format!("{:<6}", "…"), Style::default().fg(t.faint)),
+                            Span::styled(server.name.clone(), Style::default().fg(t.muted)),
+                        ]));
+                    } else {
+                        figure(&mut lines, "0", &server.name, t);
                     }
                 }
             }

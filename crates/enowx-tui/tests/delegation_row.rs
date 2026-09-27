@@ -49,8 +49,9 @@ fn the_row_shows_how_it_went() {
     let mut app = TestApp::new();
     delegated(&mut app);
     let running = delegate_rows(&mut app).remove(0);
+    // `◆`, as the Agents card marks the same delegation.
     assert!(
-        running.contains('›') && running.contains("working"),
+        running.contains('◆') && running.contains("working"),
         "{running}"
     );
 

@@ -505,11 +505,16 @@ fn render_block(
             // written for the reader and is always shown.
             let expanded = tool_expanded.get(id).copied().unwrap_or(false);
             let brief_rows = block.text.lines().count();
-            let icon = match state {
-                crate::app::DelegationState::Running => ("›", theme.yellow),
-                crate::app::DelegationState::Finished => ("✓", theme.green),
-                crate::app::DelegationState::Failed => ("✗", theme.red),
-            };
+            // The marker the Agents card gives the same delegation, so the
+            // two read as one thing.
+            let icon = (
+                state.marker(),
+                match state {
+                    crate::app::DelegationState::Running => theme.yellow,
+                    crate::app::DelegationState::Finished => theme.green,
+                    crate::app::DelegationState::Failed => theme.red,
+                },
+            );
             let parts = crate::ui::tool::RowParts {
                 verb: "delegate".into(),
                 arg: agent.clone(),

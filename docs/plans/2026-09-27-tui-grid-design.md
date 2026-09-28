@@ -146,19 +146,37 @@ Separation inside boxes is still done with colour and weight, not rules.
 
 `transcript::GUTTER` reserves the two marker columns. Blocks without a marker
 render `GUTTER` narrower and shift onto the text column: `indented()` for
-assistant text, notices, reasoning and system lines; `gutter_from()` for an
-opened tool body. Lines are pushed straight into the block's own list, so the
-row numbers recorded for click targets stay correct.
+assistant text, notices and system lines. Each block renders into its own
+buffer and is appended below its handover markers, its click offsets shifted
+past them.
+
+- **An opened row is one frame** (2026-09-28): the row itself is the top
+  edge, `╭─ ✓ edit  path ──── +6 −2 ▾ ─╮`, the body sits between the walls on
+  the text column, and `╰──╯` closes it (`frame_top`, `frame_from`). Every
+  body is framed this way: diffs, files, command output, trees, an opened
+  thought, a delegation's brief. The bodies have no borders of their own; the
+  frame is the only one. A closed row stays a plain row in the list.
+- **A run of calls that only read and look** (read, glob, grep, bash,
+  fetch, skill_read, icon), two or more with the thoughts between them, is
+  one row until opened: `✓ 5 calls  read ×3 · grep · bash` (`group_roles`).
+  An edit, a write, a failed call, a non-zero exit, a running call or a
+  handover ends a run and keeps its own row.
+- **Output folds after twelve rows** into `┈ N more lines`, which opens the
+  rest and becomes `┈ show less`.
+- **A write** reads `new · 40 lines` or `+2 -2`. A replaced file opens as the
+  changed regions (up to four, two lines of context), from the old content the
+  write tool hands the interface; a new file opens as its first twelve lines.
+- **A preview** opens as the reader's report: each screenshot by its file
+  name, the row opening the image; no temporary paths, no line for the model.
 
 - **Thinking** is one row: `✻ Thinking… <its latest sentence>` while it
-  streams, then `✻ Thought for 6s`. A click opens it (the text behind a thin
-  `│` bar, muted, not italic); Ctrl+R or `/reasoning` opens every one. It
-  used to print in full, paragraphs of slanted text between the steps.
-- **A file write** is a closed row, `✓ write  index.html  151 lines ▸`,
-  whatever the tool-output toggle says. Opened, it is a card: the file name
-  and language in the top edge, the first twelve lines with faint numbers and
-  syntax colours (HTML and CSS included), the rest folded into one row. The
-  old preview was a tinted band with an accent bar and `··` for every indent.
+  streams, then `✻ Thought for 6s`. A click opens it in a frame, muted, not
+  italic; Ctrl+R or `/reasoning` opens every one. It used to print in full,
+  paragraphs of slanted text between the steps.
+- **A file write** is a closed row whatever the tool-output toggle says.
+  Opened, the first twelve lines with faint numbers and syntax colours (HTML
+  and CSS included), the rest folded into one row. The old preview was a
+  tinted band with an accent bar and `··` for every indent.
 - **Clicks on a row**: the path is a link that opens the file; the rest of
   the row opens and closes it. The whole row used to be the link, so a write
   could never be opened in place. The click uses the renderer's own default

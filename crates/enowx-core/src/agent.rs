@@ -101,7 +101,8 @@ Effort and tools:\n\
 - `todo` is for work of four or more steps. Set the list once and mark finished steps together; skip it for small tasks.\n\
 - Read a skill only when the task needs its instructions: the one your instructions name for the work, or the one that applies. Never every skill listed.\n\
 - When a detail is open and a sensible default exists, choose it and say what you chose. Ask the user (the `ask` tool, when you have it) before something that cannot be undone, or when a choice changes what you build and neither the request nor the project settles it: every question you have in one `ask`, each with options, the one you recommend first.\n\
-- Stop when the request is met. Do not add files, features or polish nobody asked for.\n";
+- Stop when the request is met. Do not add files, features or polish nobody asked for.\n\
+- When you finish and answer the user (a delegated report has its own form), keep it short: at most six bullets of one line each, saying what you did or found, how you checked it, and what is left to the user (placeholders, decisions, anything unverified). No paragraphs, no retelling of the design or the conversation, no list of every file: the rows above hold the detail.\n";
 
 /// Build the tool registry with skill discovery. MCP servers are spawned lazily
 /// via `Agent::start_mcp` so a synchronous `Agent::new` cannot deadlock the

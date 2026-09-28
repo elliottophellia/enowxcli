@@ -275,6 +275,7 @@ fn the_frontend_prompt_names_its_skills_and_essentials() {
         "empty, loading and error states",
         "Never invented",
         "DESIGN.md",
+        "at most six bullets",
     ] {
         assert!(fe.prompt.contains(needed), "missing {needed:?}");
     }

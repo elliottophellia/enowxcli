@@ -621,9 +621,10 @@ application by its dev server's `url` with `start`, the command that runs it \
 touch targets: fix what it finds and look again. When there is no browser, say \
 so, and check the widths by reading the CSS instead. Run `ui_check` on what you \
 changed: the harness runs it too before you finish, and sends you back to what \
-it finds. Say in your report, briefly: the direction, the stack and icon set \
-you chose and why, what you verified and how (previewed, or read), and what is \
-a placeholder.";
+it finds. End with a short report, at most six bullets of one line each: what \
+you built or changed, the direction and icon set in a few words (DESIGN.md \
+holds the rest), what you verified and how (previewed, or read), and what is a \
+placeholder or left for the user.";
 
 /// The orchestrator's prompt.
 ///

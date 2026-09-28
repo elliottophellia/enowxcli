@@ -176,6 +176,7 @@ async fn every_agent_is_told_to_match_effort_to_the_task() {
         "Match effort to the task",
         "never for ls, find, cat",
         "choose it and say what you chose",
+        "at most six bullets of one line each",
     ] {
         assert!(system.contains(rule), "missing {rule:?}:\n{system}");
     }

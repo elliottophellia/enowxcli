@@ -3,7 +3,10 @@
 //! run before it.
 //!
 //! cargo run -q -p enowx-core --example fe_eval -- [--case NAME]... [--agent fe]
-//!     [--jobs N] [--own-setup] [--compare FILE] [--list] [--seeds]
+//!     [--model ID] [--jobs N] [--own-setup] [--compare FILE] [--list] [--seeds]
+//!
+//! `--model` runs the agent on that model for this run only, the way
+//! `agent.models` would: run the suite once per candidate and compare.
 //!
 //! `--seeds` scores the files the seeded cases start with, without calling
 //! the model: a check that the scoring (and the browser) works.
@@ -30,6 +33,7 @@ async fn main() -> anyhow::Result<()> {
     let mut setup = Setup::BuiltIn;
     let mut compare = None;
     let mut seeds_only = false;
+    let mut model = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -37,6 +41,7 @@ async fn main() -> anyhow::Result<()> {
             "--agent" => agent = args.next().expect("--agent NAME"),
             "--jobs" => jobs = args.next().and_then(|n| n.parse().ok()).expect("--jobs N"),
             "--own-setup" => setup = Setup::Own,
+            "--model" => model = Some(args.next().expect("--model ID")),
             "--compare" => compare = Some(PathBuf::from(args.next().expect("--compare FILE"))),
             "--seeds" => seeds_only = true,
             "--list" => {
@@ -86,11 +91,19 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let config = Config::load()?;
+    let mut config = Config::load()?;
+    if let Some(model) = model {
+        config.agent.models.insert(agent.clone(), model);
+    }
+    let tier = enowx_core::builtin_agents()
+        .into_iter()
+        .find(|def| def.name == agent)
+        .map_or(enowx_core::Tier::Balanced, |def| def.tier);
+    let model = config.model_for(&agent, tier);
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
     let root = std::env::temp_dir().join(format!("enx-eval-{stamp}"));
     std::fs::create_dir_all(&root)?;
-    println!("model  {}", config.model.default);
+    println!("model  {model}");
     println!("agent  {agent}");
     println!("folder {}", root.display());
     if enowx_core::preview::find_chrome().is_none() {
@@ -120,7 +133,7 @@ async fn main() -> anyhow::Result<()> {
     let out = out_dir.join(format!("{stamp}.json"));
     let saved = serde_json::json!({
         "when": stamp,
-        "model": config.model.default,
+        "model": model,
         "agent": agent,
         "setup": if setup == Setup::Own { "own" } else { "built-in" },
         "scores": scores,

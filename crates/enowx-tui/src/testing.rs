@@ -425,6 +425,15 @@ impl TestApp {
     }
 
     /// The agent the next message asks a new session to start with.
+    /// Give `agent` a model of its own, as `agent.models` in the config does.
+    pub fn set_agent_model(&mut self, agent: &str, model: &str) {
+        self.inner
+            .config
+            .agent
+            .models
+            .insert(agent.to_owned(), model.to_owned());
+    }
+
     pub fn agent_for_new_session(&self) -> Option<String> {
         self.inner.agent_for_new_session()
     }

@@ -341,6 +341,18 @@ orchestrator will reach for `strong` every time.
 Unmapped tiers fall back to the active model rather than failing; a missing
 tier table must not make delegation stop working.
 
+One agent is given a model of its own from the command line, and an empty
+value gives it back to its tier:
+
+```sh
+enx config set agent.models.fe "cbc/claude-opus-5"
+enx config set agent.models.fe ""
+```
+
+`/agent` shows the model beside each agent that does not run on the active
+one. To choose a model for `fe`, run the interface suite once per candidate
+(`fe_eval --model <id>`, see "Measuring them") and compare.
+
 ## Control
 
 ```toml

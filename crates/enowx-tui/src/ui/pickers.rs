@@ -79,8 +79,17 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
                 // list to the title and metadata the user recognises.
                 Text::from(Line::styled(trim(description, text_width), label))
             } else {
+                let mut name = vec![Span::styled(trim(id, text_width), label)];
+                // An agent on a model of its own says which beside its name.
+                if let Some(model) = own_model(app, id) {
+                    let room = text_width.saturating_sub(id.chars().count() + 2);
+                    name.push(Span::styled(
+                        format!("  {}", trim(&model, room)),
+                        Style::default().fg(t.muted),
+                    ));
+                }
                 Text::from(vec![
-                    Line::styled(trim(id, text_width), label),
+                    Line::from(name),
                     Line::styled(trim(description, text_width), Style::default().fg(t.muted)),
                 ])
             };
@@ -91,6 +100,17 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
     let mut state = ListState::default().with_selected(Some(app.modal_cursor));
     frame.render_stateful_widget(selectable(List::new(items), &t), content, &mut state);
     register_list_rows(app, content, state.offset(), &heights);
+}
+
+/// The model `name` runs on in the agent list, when it is not the active
+/// one: its own (`agent.models`) or its tier's (`agent.tiers`).
+fn own_model(app: &App, name: &str) -> Option<String> {
+    if app.modal != Modal::Agents {
+        return None;
+    }
+    let agent = app.discovery.agents.iter().find(|a| a.name == name)?;
+    let model = app.config.model_for(name, agent.tier);
+    (!model.is_empty() && model != app.config.model.default.trim()).then_some(model)
 }
 
 /// Click targets for the rows a list drew. The list scrolls to keep the

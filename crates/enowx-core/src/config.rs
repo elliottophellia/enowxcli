@@ -577,17 +577,24 @@ impl Config {
         let slot = cursor
             .as_object_mut()
             .ok_or_else(|| anyhow::anyhow!("{key} is not a settable field"))?;
-        if !slot.contains_key(last) {
+        // `agent.models` is keyed by agent name, so its keys are new ones:
+        // `agent.models.fe` sets fe's model, and an empty value clears it.
+        let agent_model = parts.len() == 3 && parts[..2] == ["agent", "models"];
+        if agent_model && raw.trim().is_empty() {
+            slot.remove(last);
+        } else if !agent_model && !slot.contains_key(last) {
             anyhow::bail!("unknown config key: {key}");
         }
-        let parsed = if slot[last].is_string() || key == "agent.workspace" {
+        let parsed = if agent_model || slot[last].is_string() || key == "agent.workspace" {
             serde_json::Value::String(raw.to_string())
         } else if raw == "null" {
             serde_json::Value::Null
         } else {
             parse_scalar(raw)
         };
-        slot.insert(last.to_string(), parsed);
+        if !(agent_model && raw.trim().is_empty()) {
+            slot.insert(last.to_string(), parsed);
+        }
         let next: Self =
             serde_json::from_value(value).with_context(|| format!("invalid value for {key}"))?;
         next.validate()?;
@@ -755,6 +762,21 @@ mod tests {
             "tier/balanced",
             "a blank override must not mask the tier below it"
         );
+    }
+
+    #[test]
+    fn an_agent_is_given_its_own_model_by_name() {
+        let mut config = Config::default();
+        config.model.default = "active/model".into();
+        config
+            .set("agent.models.fe", "vendor/design-model")
+            .unwrap();
+        assert_eq!(config.model_for("fe", Tier::Strong), "vendor/design-model");
+        assert_eq!(config.model_for("be", Tier::Strong), "active/model");
+        config.set("agent.models.fe", "").unwrap();
+        assert!(config.agent.models.is_empty(), "an empty value clears it");
+        assert!(config.set("agent.nope", "1").is_err());
+        assert!(config.set("agent.tiers.huge", "x").is_err());
     }
 
     /// Configs written before the tier table existed have to keep loading.

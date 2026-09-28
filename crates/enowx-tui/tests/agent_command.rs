@@ -93,3 +93,18 @@ fn a_session_keeps_its_own_agent() {
     app.run_command("/agent fe").expect("switch");
     assert_eq!(app.agent_for_new_session(), None);
 }
+
+#[test]
+fn an_agent_on_its_own_model_says_which_in_the_list() {
+    let mut app = TestApp::in_conversation();
+    app.set_agent_model("fe", "vendor/design-model");
+    app.run_command("/agent").unwrap();
+    assert!(app.is_modal_open());
+    let screen = app.render_to_text(120, 60).join("\n");
+    assert!(screen.contains("vendor/design-model"), "{screen}");
+    let marked = screen
+        .lines()
+        .filter(|line| line.contains("vendor/design-model"))
+        .count();
+    assert_eq!(marked, 1, "only fe runs on it: {screen}");
+}

@@ -132,8 +132,14 @@ impl App {
                     .filter(|block| matches!(block.kind, TranscriptKind::Assistant))
                 {
                     last.text.push_str(&delta);
+                    // No em dashes on screen either, as the saved reply has
+                    // none. Cleaned whole, since a dash and its spaces can
+                    // arrive in different pieces.
+                    if last.text.contains('—') || last.text.contains(" – ") {
+                        last.text = enowx_core::dashes::strip(&last.text);
+                    }
                 } else {
-                    self.push(TranscriptKind::Assistant, delta);
+                    self.push(TranscriptKind::Assistant, enowx_core::dashes::strip(&delta));
                 }
             }
             Event::Reasoning { delta } => {

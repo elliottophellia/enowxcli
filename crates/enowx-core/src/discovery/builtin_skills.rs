@@ -203,6 +203,7 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ),
     ("code", include_str!("../../skills/code/SKILL.md")),
     ("writing", include_str!("../../skills/writing/SKILL.md")),
+    ("i18n", include_str!("../../skills/i18n/SKILL.md")),
     (
         "brainstorming",
         include_str!("../../skills/brainstorming/SKILL.md"),

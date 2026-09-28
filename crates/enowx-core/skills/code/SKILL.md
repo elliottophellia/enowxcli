@@ -32,6 +32,13 @@ runs. This is how to write code the next engineer can own.
   the boundary; pure logic inside, where it can be tested.
 - Early returns over nested conditions. Small files that each hold one thing,
   over one file that holds everything.
+- Modular by feature: a folder per feature or area (`billing/`, `auth/`,
+  `projects/`) holding its components, logic, types and tests together; the
+  truly shared pieces in one place (`components/ui`, `lib`, `utils` only for
+  what is generic). No file past a few hundred lines that could be split
+  along a real seam; no page that holds its own copies of shared parts.
+- Layers stay apart: interface, state, data access and domain logic in their
+  own modules, so each can change and be tested without the others.
 
 ## 3. Names
 
@@ -41,6 +48,15 @@ runs. This is how to write code the next engineer can own.
   abbreviations the codebase does not already use.
 - Match the codebase's casing and vocabulary, even where you would choose
   differently.
+- Names are English: files, folders, components, functions, variables,
+  types, routes, database tables and columns, i18n keys, commit messages,
+  unless the user asks for another language or the codebase already uses
+  one. Text the user reads is in their language, through i18n (the `i18n`
+  skill); the code around it stays English.
+- File names follow the ecosystem: `PascalCase` components in React and Vue
+  (`InvoiceTable.tsx`), `kebab-case` files on the web elsewhere
+  (`invoice-table.ts`), `snake_case` in Rust and Python, one component per
+  file, named as the thing it exports.
 
 ## 4. Types and data
 

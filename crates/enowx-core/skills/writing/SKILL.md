@@ -66,6 +66,9 @@ sentence tells the reader something.
   undone."
 - One term per concept everywhere: "project", not "project" on one screen,
   "workspace" on the next and "space" on a third.
+- Interface text goes through i18n, and a translation keeps the terms its
+  audience keeps in English (API key, token, webhook, email): the `i18n`
+  skill says what to translate and what to leave.
 
 ## 5. Documentation
 

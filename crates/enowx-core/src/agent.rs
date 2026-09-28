@@ -1191,7 +1191,8 @@ impl Agent {
                 .await;
             session.push(Message {
                 role: MessageRole::Assistant,
-                content: completion.text,
+                // No em dashes, whatever the model wrote.
+                content: crate::dashes::strip(&completion.text),
                 reasoning: (!completion.reasoning.is_empty()).then_some(completion.reasoning),
                 tool_calls: completion.tool_calls.clone(),
                 attachments: Vec::new(),
@@ -1304,7 +1305,10 @@ impl Agent {
                                 None => ToolOutput::error("malformed routing call"),
                             }
                         }
-                        Ok(args @ serde_json::Value::Object(_)) => {
+                        Ok(mut args @ serde_json::Value::Object(_)) => {
+                            // What an agent writes into a file has no em
+                            // dashes either.
+                            crate::dashes::strip_written(&call.name, &mut args);
                             // The contract between agents at work together:
                             // a file another agent is editing stays closed.
                             let claimed = match args["path"].as_str() {
@@ -1586,7 +1590,7 @@ fn persist_interrupted(
     reasoning: &Mutex<String>,
     error: String,
 ) -> Result<()> {
-    let content = text.lock().expect("text capture").clone();
+    let content = crate::dashes::strip(&text.lock().expect("text capture"));
     let reasoning = reasoning.lock().expect("reasoning capture").clone();
     session.push(Message {
         role: MessageRole::Assistant,

@@ -210,7 +210,12 @@ fn each_agent_carries_the_skills_for_its_work() {
     assert!(carried("mobile").iter().any(|s| s == "ui-part-sidebar"));
     assert!(!carried("mobile").iter().any(|s| s == "writing"));
     assert_eq!(carried("docs"), ["writing"]);
-    for name in ["be", "db", "devops", "systems", "test", "perf"] {
+    // Whoever writes text a user reads carries i18n.
+    for name in ["fe", "mobile", "review", "general", "be"] {
+        assert!(carried(name).iter().any(|s| s == "i18n"), "{name}");
+    }
+    assert_eq!(carried("be"), ["code", "i18n"]);
+    for name in ["db", "devops", "systems", "test", "perf"] {
         assert_eq!(carried(name), ["code"], "{name}");
     }
     assert_eq!(carried("orchestrator"), ["brainstorming"]);

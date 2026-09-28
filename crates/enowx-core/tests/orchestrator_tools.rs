@@ -194,3 +194,24 @@ async fn an_agent_that_edits_is_not_held_back() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// An em dash the model writes into a file never reaches it.
+#[tokio::test]
+async fn a_written_file_has_no_em_dashes() {
+    let (_, dir) = run(
+        "fe",
+        vec![
+            calls(
+                "write",
+                serde_json::json!({"path": "notes.md", "content": "Fast — and cheap.\nPages 10–20.\n"}),
+            ),
+            says("Done."),
+        ],
+    )
+    .await;
+    assert_eq!(
+        std::fs::read_to_string(dir.join("notes.md")).unwrap(),
+        "Fast, and cheap.\nPages 10–20.\n"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

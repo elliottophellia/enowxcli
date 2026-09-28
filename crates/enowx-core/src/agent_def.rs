@@ -293,10 +293,17 @@ pub fn builtin_agents() -> Vec<AgentDef> {
     let ui: Vec<&str> = crate::discovery::skills::builtin_names()
         .filter(|name| *name == "ui" || name.starts_with("ui-"))
         .collect();
-    let interface: Vec<&str> = ui.iter().copied().chain(["code", "writing"]).collect();
-    let mobile: Vec<&str> = ui.iter().copied().chain(["code"]).collect();
+    // Whoever writes text a user reads carries `i18n` as well.
+    let interface: Vec<&str> = ui
+        .iter()
+        .copied()
+        .chain(["code", "writing", "i18n"])
+        .collect();
+    let mobile: Vec<&str> = ui.iter().copied().chain(["code", "i18n"]).collect();
 
     const CODE: &[&str] = &["code"];
+    // The backend writes the errors and emails users read.
+    const API: &[&str] = &["code", "i18n"];
     const NONE: &[&str] = &[];
     let make = |name: &str,
                 description: &str,
@@ -341,7 +348,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             FULL,
             Tier::Balanced,
             Delegation::Librarian,
-            CODE,
+            API,
             "You are a backend specialist: APIs, services, business logic and auth.\n\
              - Trace a request end to end (route, handler, service, storage) before \
              changing any of it.\n\
@@ -542,7 +549,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             FULL,
             Tier::Balanced,
             Delegation::Librarian,
-            &["code", "writing"],
+            &["code", "writing", "i18n"],
             "You handle work that fits no specialist. Establish facts with tools before \
              acting, edit surgically, and verify what you changed with the project's own \
              build or tests.",
@@ -590,8 +597,10 @@ Before designing or restyling a page or screen, read the `ui` skill and \
 dashboard, portfolio, docs, settings, form...) and the `ui-part-*` skill for \
 each part you build (header, navigation, sidebar, hero, cards, forms, tables, \
 dialogs...): only the ones you build, as you come to them. Read `writing` \
-before writing a page's copy, and `code` before a new component or module of \
-any size.
+before writing a page's copy, `i18n` before any text a user sees (all of it \
+goes through the i18n catalogue, English names and keys, terms like API key \
+left as the audience says them), and `code` before a new component or module \
+of any size.
 An interface that already exists is audited before it is changed: to improve, \
 restyle, fix the look of or review one, run `ui_check` on it and read \
 `ui-audit` for how to judge what it finds, list the findings by priority, then \

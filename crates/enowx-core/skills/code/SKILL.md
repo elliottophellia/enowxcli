@@ -40,6 +40,26 @@ runs. This is how to write code the next engineer can own.
 - Layers stay apart: interface, state, data access and domain logic in their
   own modules, so each can change and be tested without the others.
 
+### File length
+
+- Aim for files under about 300 lines, and components under about 200. Past
+  roughly 400, a file you are writing is split along a real seam: a
+  sub-component, a hook or composable, the types, the helpers, the constants,
+  one module per route or command.
+- Longer is fine when splitting would scatter one idea: generated code,
+  migrations, a data table or fixture, one cohesive algorithm, a test file
+  with many cases, a config. Say so in a comment at the top only if a reader
+  would otherwise wonder.
+- **New code** you write is modular from the start.
+- **Existing files** are not split, moved or restructured on your own
+  initiative, however long: the owner may have reasons, and a restructure
+  mixed into a fix makes both hard to review. When a file you touch is past
+  the limit, ask first with `ask` (for example "Split `Dashboard.tsx` (820
+  lines) into `StatCards`, `LoansTable` and `TrendChart` (recommended)",
+  "Only extract what I am changing", "Leave the structure as it is"), and do
+  only what the answer allows. Without `ask` (a delegated task), leave the
+  structure, make your change, and propose the split in your report.
+
 ## 3. Names
 
 - Names say what a thing is or does, in the domain's words:

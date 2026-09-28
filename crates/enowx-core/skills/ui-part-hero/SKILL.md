@@ -18,10 +18,11 @@ on, so it carries the most specific thing you have, not the most general.
 
 1. **The claim.** One sentence only this product or person can say. Test it:
    put a competitor's name in it. If it still holds, it is not specific yet.
-   "I build agent infrastructure and local-first software" fits a thousand
-   developers; "Everything I build runs on your own machine: agents, a coding
-   CLI, crawlers, with no one else's server in between" fits one. Write it
-   from the facts you have, never from invented ones.
+   "Handmade furniture from reclaimed wood" fits a thousand workshops;
+   "Tables and benches from the teak of Jepara's demolished houses, made to
+   order in six weeks" fits one. Write it from the facts you found about this
+   subject (its readme, its work, its own words), never from invented ones,
+   and never from an example in these skills.
 2. **The proof.** What makes the claim believable, in the same screen: the
    work itself (a real screenshot, a real photograph, the first two or three
    projects), a real command and its real output, a real quote with a name.

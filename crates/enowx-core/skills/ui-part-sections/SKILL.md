@@ -53,6 +53,15 @@ container. Decide each section on its own.
   within a section, less. A change of background can mark one section that
   changes pace, once or twice on a page, not every other section.
 
+## Hierarchy
+
+- A heading outranks what it contains: a group's heading ("Agents that run
+  on your machine") is larger or heavier than the names of the items in it.
+  When the items' names are bigger than their group's heading, the page reads
+  upside down.
+- Three levels are usually enough on one page: the section, the group, the
+  item. Style each level one way everywhere.
+
 ## Items in a list
 
 - Each item says what it is for someone who has never seen it, in one or two
@@ -60,10 +69,17 @@ container. Decide each section on its own.
   replaces, how it works, who uses it. A one-line description copied from a
   repository ("Agentic Coding Tools") says nothing.
 - Metadata only when it helps a decision: the language for developers, a
-  date when recency matters, a count only when it is large enough to mean
-  something. Not a meta line under every item by habit.
+  date when recency matters, a count only when it is large enough to impress
+  a stranger (hundreds, not dozens). Not a meta line under every item by
+  habit.
 - The item's name is the link, and says where it goes: the repository, the
-  live site, a write-up.
+  live site, a write-up. A "Read more" line repeated under every item is
+  noise.
+- Items set as splits (text beside an image) alternate sides only when every
+  item has its image. An item without one becomes a text row (label column
+  and content column); a split with an empty half reads as a missing image.
+- A command example fits its column: short lines, a comment on its own line
+  rather than aligned at the end, nothing clipped at the edge on a phone.
 
 ## Avoid
 

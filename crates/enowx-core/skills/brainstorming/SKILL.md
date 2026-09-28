@@ -47,13 +47,20 @@ details, or leave them to you.
    - what it is for and who uses it
    - the first version's scope: what it must do now, and what can wait. Cut
      whatever the user did not ask for.
-   - how it should feel, for anything with an interface: a direction (calm
-     and plain, bold and editorial), not colour codes
+   - how it should feel, for anything with an interface: two or three
+     concepts drawn from the subject itself, each in a few words (for a
+     developer who builds command-line tools: "a well-made manual, with real
+     commands and their output", "a catalogue of tools by what they do", "a
+     lab notebook of experiments"), not colour codes. Never offer the
+     category's default look as an option ("dark developer / mono", "modern
+     and clean", "minimalist"): it is what the page becomes without a
+     direction (the `ui` skill names the defaults)
    - the theme, for anything with an interface, always asked when a new
      project is scaffolded: light, dark, or both with a toggle. Recommend
-     from the product and its users (a developer tool dark, a clinic's
-     booking page light), and when "both" is chosen, both themes are built
-     and checked, not one with the other left broken
+     what the concept calls for (a manual reads on paper, a night
+     photographer's work on black); "developers like dark" is the category's
+     default, not a reason. When "both" is chosen, both themes are built and
+     checked, not one with the other left broken
    - constraints: the stack, where it runs, the data it works with
    Ask only what you could not write the brief without: three to six
    questions is usual, never more than eight.

@@ -247,4 +247,6 @@ nothing about the product.
   touch targets, with a screenshot of each width. Without a browser, read
   the CSS for those widths instead, and say so.
 - Walk the keyboard path and every state.
+- A favicon, or `<link rel="icon" href="data:,">`, so the browser's request
+  for one does not end in a 404 in the console.
 - Report the direction, the icon set, and anything left as a placeholder.

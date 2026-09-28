@@ -50,8 +50,11 @@ projects runs long, so it has a back-to-top control
 - Rewrite each description for this page in plain words; do not paste the
   repository's tagline.
 - Stars, followers and language counts are not content. A star count may sit
-  in a project's meta when it is large; a table of how many repositories use
-  each language never.
+  in a project's meta when it would impress a stranger (hundreds); a table of
+  how many repositories use each language never.
+- The chosen projects are written into the page. The repositories left out
+  are one link ("All 16 repositories on GitHub"), not a second list of their
+  one-line descriptions fetched at load time.
 - Repository creation dates are not a career history: there is no timeline
   unless the user gives one.
 - Anything about the person beyond GitHub (email, employer, history, photo)

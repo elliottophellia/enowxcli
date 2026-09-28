@@ -18,7 +18,7 @@ mod shell;
 pub mod skill;
 mod todo;
 use fetch::FetchTool;
-use files::{EditTool, ReadTool, WriteTool};
+use files::{EditTool, MultiEditTool, ReadTool, WriteTool};
 use search::{GlobTool, GrepTool};
 use shell::BashTool;
 use todo::TodoTool;
@@ -96,6 +96,7 @@ impl Default for ToolRegistry {
         registry.register(ReadTool);
         registry.register(WriteTool);
         registry.register(EditTool);
+        registry.register(MultiEditTool);
         registry.register(GlobTool);
         registry.register(GrepTool);
         registry.register(BashTool);
@@ -243,9 +244,13 @@ impl ToolRegistry {
                 Some("string") => value.is_string(),
                 Some("integer") => value.is_u64(),
                 Some("boolean") => value.is_boolean(),
-                Some("array") => value
-                    .as_array()
-                    .is_some_and(|a| a.iter().all(Value::is_string)),
+                Some("array") => value.as_array().is_some_and(|a| {
+                    if property["items"]["type"] == "object" {
+                        a.iter().all(Value::is_object)
+                    } else {
+                        a.iter().all(Value::is_string)
+                    }
+                }),
                 _ => true,
             };
             if !valid {
@@ -370,6 +375,58 @@ fn display_path(root: &Path, path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn multi_edit_applies_every_edit_in_one_call() {
+        let (ctx, root) = temp_ctx();
+        std::fs::write(
+            root.join("a.css"),
+            ".a { color: red; }\n.b { color: blue; }\n",
+        )
+        .unwrap();
+        let out = ToolRegistry::default()
+            .dispatch(
+                &ctx,
+                "multi_edit",
+                serde_json::json!({"path": "a.css", "edits": [
+                    {"old_text": "red", "new_text": "var(--danger)"},
+                    {"old_text": "blue", "new_text": "var(--accent)"}
+                ]}),
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert_eq!(out.content, "Updated a.css: 2 edits, at lines 1, 2");
+        let text = std::fs::read_to_string(root.join("a.css")).unwrap();
+        assert_eq!(
+            text,
+            ".a { color: var(--danger); }\n.b { color: var(--accent); }\n"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// One edit that does not apply leaves the file as it was.
+    #[tokio::test]
+    async fn multi_edit_is_all_or_nothing() {
+        let (ctx, root) = temp_ctx();
+        std::fs::write(root.join("a.css"), ".a { color: red; }\n").unwrap();
+        let out = ToolRegistry::default()
+            .dispatch(
+                &ctx,
+                "multi_edit",
+                serde_json::json!({"path": "a.css", "edits": [
+                    {"old_text": "red", "new_text": "green"},
+                    {"old_text": "purple", "new_text": "grey"}
+                ]}),
+            )
+            .await;
+        assert!(out.is_error);
+        assert!(out.content.contains("edit 2") && out.content.contains("nothing was changed"));
+        assert_eq!(
+            std::fs::read_to_string(root.join("a.css")).unwrap(),
+            ".a { color: red; }\n"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     fn temp_ctx() -> (ToolCtx, PathBuf) {
         let root = std::env::temp_dir().join(format!("enx-tools-{}", uuid::Uuid::new_v4()));

@@ -214,7 +214,16 @@ impl AgentDef {
 /// different `fe` writes one rather than editing this table.
 pub fn builtin_agents() -> Vec<AgentDef> {
     const READ_ONLY: &[&str] = &["read", "glob", "grep", "todo"];
-    const FULL: &[&str] = &["read", "write", "edit", "glob", "grep", "bash", "todo"];
+    const FULL: &[&str] = &[
+        "read",
+        "write",
+        "edit",
+        "multi_edit",
+        "glob",
+        "grep",
+        "bash",
+        "todo",
+    ];
 
     // The built-in skills each carries: interface work gets `ui` and
     // every `ui-page-*` and `ui-part-*`, anything that writes code gets `code`, anything whose
@@ -422,7 +431,15 @@ pub fn builtin_agents() -> Vec<AgentDef> {
         make(
             "docs",
             "READMEs, changelogs, API docs, comments",
-            &["read", "write", "edit", "glob", "grep", "todo"],
+            &[
+                "read",
+                "write",
+                "edit",
+                "multi_edit",
+                "glob",
+                "grep",
+                "todo",
+            ],
             Tier::Balanced,
             Delegation::Librarian,
             &["writing"],

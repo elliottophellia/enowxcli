@@ -146,6 +146,77 @@ impl Tool for WriteTool {
     }
 }
 
+/// Several replacements in one file, in one call. Each call re-sends the
+/// whole context to the model, and a page restyled one `edit` at a time took
+/// twenty-one of them.
+pub(super) struct MultiEditTool;
+
+#[async_trait]
+impl Tool for MultiEditTool {
+    fn name(&self) -> &str {
+        "multi_edit"
+    }
+    fn description(&self) -> &str {
+        "Make several replacements in one UTF-8 file in one call: each edit is an \
+         exact, unique text block and its replacement, applied in order. Use it \
+         instead of several `edit` calls on the same file. All or nothing: if any \
+         edit fails, the file is left unchanged and the failing edit is named."
+    }
+    fn parameters(&self) -> Value {
+        json!({"type":"object","properties":{
+            "path":{"type":"string"},
+            "edits":{"type":"array","minItems":1,"items":{"type":"object","properties":{
+                "old_text":{"type":"string"},"new_text":{"type":"string"}
+            },"required":["old_text","new_text"]}}
+        },"required":["path","edits"],"additionalProperties":false})
+    }
+    async fn execute(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput> {
+        let raw = string_arg(&args, "path")?;
+        let edits = args
+            .get("edits")
+            .and_then(Value::as_array)
+            .filter(|edits| !edits.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("edits must be a non-empty list"))?;
+        let path = resolve_existing(&ctx.workspace, raw)?;
+        let mut text = std::fs::read_to_string(&path)?;
+        let mut lines = Vec::new();
+        for (index, edit) in edits.iter().enumerate() {
+            let n = index + 1;
+            let old = edit
+                .get("old_text")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow::anyhow!("edit {n} has no old_text"))?;
+            let new = edit
+                .get("new_text")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow::anyhow!("edit {n} has no new_text"))?;
+            if old.is_empty() {
+                anyhow::bail!("edit {n}: old_text must not be empty; nothing was changed");
+            }
+            match text.matches(old).count() {
+                0 => {
+                    anyhow::bail!("edit {n}: old_text was not found in {raw}; nothing was changed")
+                }
+                1 => {}
+                count => anyhow::bail!(
+                    "edit {n}: old_text matched {count} places in {raw}; include more \
+                     context. Nothing was changed"
+                ),
+            }
+            let at = text.find(old).unwrap_or(0);
+            lines.push(text[..at].bytes().filter(|b| *b == b'\n').count() + 1);
+            text = text.replacen(old, new, 1);
+        }
+        crate::config::atomic_write(&path, text.as_bytes())?;
+        let at: Vec<String> = lines.iter().map(ToString::to_string).collect();
+        Ok(ToolOutput::ok(format!(
+            "Updated {raw}: {} edits, at lines {}",
+            lines.len(),
+            at.join(", ")
+        )))
+    }
+}
+
 pub(super) struct EditTool;
 
 #[async_trait]

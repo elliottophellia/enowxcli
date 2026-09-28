@@ -80,6 +80,8 @@ pub(super) enum ToolBody<'a> {
         new: String,
         start_line: usize,
     },
+    /// A `multi_edit`: one diff per edit, each at its own line.
+    Diffs(Vec<(String, String, usize)>),
     /// File preview capped to a max number of lines; the header carries the
     /// total count so the reader knows there is more.
     Preview {
@@ -284,6 +286,42 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
                     new,
                     start_line,
                 },
+            }
+        }
+        "multi_edit" => {
+            let path = str_arg(&parsed, "path").unwrap_or("").to_string();
+            let edits = parsed
+                .get("edits")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            // The tool's result names the line each edit landed on.
+            let lines: Vec<usize> = result
+                .split("at lines ")
+                .nth(1)
+                .map(|list| list.split(", ").filter_map(|n| n.trim().parse().ok()).collect())
+                .unwrap_or_default();
+            let (mut adds, mut dels) = (0, 0);
+            let diffs: Vec<(String, String, usize)> = edits
+                .iter()
+                .enumerate()
+                .map(|(index, edit)| {
+                    let old = str_arg(edit, "old_text").unwrap_or("").to_string();
+                    let new = str_arg(edit, "new_text").unwrap_or("").to_string();
+                    let (a, d) = diff_counts(&old, &new);
+                    adds += a;
+                    dels += d;
+                    (old, new, lines.get(index).copied().unwrap_or(1))
+                })
+                .collect();
+            ToolRender::Detail {
+                header: RowParts::new(
+                    "edit",
+                    path,
+                    format!("+{adds} -{dels} · {} edits", diffs.len()),
+                ),
+                subtitle: None,
+                body: ToolBody::Diffs(diffs),
             }
         }
         "write" => {

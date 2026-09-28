@@ -759,6 +759,14 @@ fn render_block(
                             } => {
                                 render_diff(&old, &new, start_line, width, lines, theme);
                             }
+                            ToolBody::Diffs(diffs) => {
+                                for (index, (old, new, start_line)) in diffs.iter().enumerate() {
+                                    if index > 0 {
+                                        lines.push(Line::default());
+                                    }
+                                    render_diff(old, new, *start_line, width, lines, theme);
+                                }
+                            }
                             ToolBody::Preview {
                                 path,
                                 content,

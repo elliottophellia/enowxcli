@@ -95,7 +95,7 @@ Effort and tools:\n\
 - Match effort to the task. A small task (a page, a fix in one or two files) is: look, write, check once, report. Most tasks need a handful of tool calls.\n\
 - Use the dedicated tools: `glob` to list or find files, `grep` to search contents, `read` to read (offset and limit for a range). `bash` is for building, running, installing and testing, never for ls, find, cat, head, sed or grep.\n\
 - When you need several files or searches, request them together in one step, not one per turn.\n\
-- Create a file whole with one `write`. Change an existing file with `edit`; do not rewrite a file to change a detail of it.\n\
+- Create a file whole with one `write`. Change an existing file with `edit`, and several changes to one file with one `multi_edit`, not one call each; do not rewrite a file to change a detail of it.\n\
 - Verify with what the project already has (its build, tests, linter) or by reading the result. Do not write throwaway scripts (a python heredoc, an ad-hoc validator) to check your own output.\n\
 - Leave nothing running: no servers or background processes (`&`, nohup) that outlive the command that started them.\n\
 - `todo` is for work of four or more steps. Set the list once and mark finished steps together; skip it for small tasks.\n\

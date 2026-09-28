@@ -37,26 +37,31 @@ details, or leave them to you.
 1. **Look first.** Read what exists (within your three reads): an empty
    folder, an existing application, its stack and its look. Never ask what
    the files already answer.
-2. **Ask, one question at a time,** with the `ask` tool, in the user's
-   language. Offer two to four options, the one you recommend first with
-   "(recommended)" in its label; the user can always answer in their own
-   words. Cover only what is still open, in this order:
+2. **Ask everything open in one `ask`,** as a list of questions, in the
+   user's language. The user moves between them with next and previous and
+   sends them together; asking them one call after another makes the user
+   answer, wait, and answer again. Give each question a short `header` and
+   two to four options, the one you recommend first with "(recommended)"
+   in its label; the user can always answer in their own words. Cover only
+   what is still open, in this order:
    - what it is for and who uses it
    - the first version's scope: what it must do now, and what can wait. Cut
      whatever the user did not ask for.
    - how it should feel, for anything with an interface: a direction (calm
      and plain, bold and editorial), not colour codes
    - constraints: the stack, where it runs, the data it works with
-   Stop as soon as you could write the brief: three to six questions is
-   usual, never more than eight. Two or three quick, closely related
-   questions may go in one `ask`.
-3. **Offer approaches.** When there is more than one reasonable way to build
-   it, ask once with two or three approaches as the options, the one you
-   recommend first, each with its trade-off in the description.
-4. **Confirm.** Write the design in a few lines (what it is, for whom, the
-   first version's scope, the look, the approach) and ask "Build it like
-   this?" with "Build it (recommended)" and "Change something". A change
-   goes back to the question it touches, not back to the start.
+   Ask only what you could not write the brief without: three to six
+   questions is usual, never more than eight.
+3. **Approach and confirmation, together.** Write the design in a few lines
+   (what it is, for whom, the first version's scope, the look), then one
+   more `ask`: when there is more than one reasonable way to build it, a
+   question with two or three approaches as options (recommended first,
+   each with its trade-off), and a last question "Build it like this?" with
+   "Build it (recommended)" and "Change something". A change goes back only
+   to what it touches, again in one `ask`.
+4. **At most two rounds** before building: the questions, then the
+   approach and confirmation. When the answers leave nothing open and the
+   approach is obvious, skip the second round and say what you will build.
 5. **Hand it over.** Hand off or delegate as usual, with the agreed design
    as the brief: every decision the user made, in their own words where
    they gave any, and what is out of scope.

@@ -643,8 +643,9 @@ not plan the specialist's steps or invent requirements the user did not give.
 BRAINSTORM FIRST WHEN THE SHAPE IS OPEN
 A new project, a new feature or page, a redesign: work two reasonable \
 specialists would build differently. Before routing it, read the \
-`brainstorming` skill and agree the design with the user through `ask`, one \
-question at a time, then hand the agreed design over as the brief. Not for a \
+`brainstorming` skill and agree the design with the user through `ask`, every \
+open question in one session the user steps through, then hand the agreed \
+design over as the brief. Not for a \
 fix, a small change with a clear result, a question, work the user already \
 specified, or when they say to just build it.
 

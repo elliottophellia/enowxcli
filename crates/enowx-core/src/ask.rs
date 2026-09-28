@@ -18,7 +18,7 @@ pub const TOOL: &str = "ask";
 
 /// The most questions one call may carry, and the most options one question
 /// may offer. Past these it is a form to fill in, not a choice to make.
-const MAX_QUESTIONS: usize = 5;
+const MAX_QUESTIONS: usize = 8;
 const MAX_OPTIONS: usize = 5;
 
 /// One question, with the answers the agent offers.
@@ -81,8 +81,9 @@ pub fn schema() -> Value {
                 "Ask the user and wait for the answers. Ask only what changes what \
                  you do next and cannot be settled from the request or the project, \
                  or before something that cannot be undone; otherwise choose and say \
-                 what you chose. Usually one question; a few related ones may go \
-                 together, and the user moves between them. Give each two to five \
+                 what you chose. Put every question you have into one call, as a \
+                 list: the user moves between them and sends them together, where \
+                 separate calls make them answer and wait again each time. Give each two to five \
                  options with the one you recommend first, its label ending in \
                  \"(recommended)\". Do not add an \"Other\" option: the user can \
                  always write their own answer, and add a note to any option. Ask in \
@@ -230,7 +231,7 @@ mod tests {
         assert!(
             parse(&json!({"questions": [{"question": "x?", "options": [{"label": ""}]}]})).is_err()
         );
-        let many: Vec<Value> = (0..6)
+        let many: Vec<Value> = (0..9)
             .map(|i| json!({"question": format!("{i}?")}))
             .collect();
         assert!(parse(&json!({"questions": many})).is_err());

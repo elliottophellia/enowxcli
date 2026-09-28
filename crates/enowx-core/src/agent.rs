@@ -100,7 +100,7 @@ Effort and tools:\n\
 - Leave nothing running: no servers or background processes (`&`, nohup) that outlive the command that started them.\n\
 - `todo` is for work of four or more steps. Set the list once and mark finished steps together; skip it for small tasks.\n\
 - Read a skill only when the task needs its instructions: the one your instructions name for the work, or the one that applies. Never every skill listed.\n\
-- When a detail is open and a sensible default exists, choose it and say what you chose. Ask the user (the `ask` tool, when you have it) before something that cannot be undone, or when a choice changes what you build and neither the request nor the project settles it: one question at a time, with options, the one you recommend first.\n\
+- When a detail is open and a sensible default exists, choose it and say what you chose. Ask the user (the `ask` tool, when you have it) before something that cannot be undone, or when a choice changes what you build and neither the request nor the project settles it: every question you have in one `ask`, each with options, the one you recommend first.\n\
 - Stop when the request is met. Do not add files, features or polish nobody asked for.\n";
 
 /// Build the tool registry with skill discovery. MCP servers are spawned lazily

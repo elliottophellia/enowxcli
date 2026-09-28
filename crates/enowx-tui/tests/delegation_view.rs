@@ -26,9 +26,9 @@ fn the_agent_tab_lists_delegations() {
     app.select_sidebar_tab(AGENTS_TAB);
     let text = sidebar_rows(&mut app).join("\n");
     assert!(text.contains("DELEGATED"), "a section for them: {text}");
-    assert!(text.contains("fe"), "the first: {text}");
+    assert!(text.contains("Frontend"), "the first: {text}");
     assert!(text.contains("write the HTML"), "and its task: {text}");
-    assert!(text.contains("review"), "the second: {text}");
+    assert!(text.contains("Review"), "the second: {text}");
 }
 
 /// Running and finished have to look different, or a hung delegation looks
@@ -43,11 +43,11 @@ fn a_running_delegation_is_marked_apart_from_a_finished_one() {
     let rows = sidebar_rows(&mut app);
     let fe = rows
         .iter()
-        .find(|r| r.contains("fe") && (r.contains('✓') || r.contains('◆') || r.contains('✗')))
+        .find(|r| r.contains("Frontend") && (r.contains('✓') || r.contains('◆') || r.contains('✗')))
         .expect("an fe row in the sidebar");
     let review = rows
         .iter()
-        .find(|r| r.contains("review") && (r.contains('✓') || r.contains('◆') || r.contains('✗')))
+        .find(|r| r.contains("Review") && (r.contains('✓') || r.contains('◆') || r.contains('✗')))
         .expect("a review row in the sidebar");
     assert!(fe.contains('✓'), "finished: {fe}");
     assert!(review.contains('◆'), "still running: {review}");
@@ -64,7 +64,7 @@ fn two_runs_of_one_agent_are_tracked_separately() {
     app.select_sidebar_tab(AGENTS_TAB);
     let marks: Vec<char> = sidebar_rows(&mut app)
         .iter()
-        .filter(|r| r.contains("fe"))
+        .filter(|r| r.contains("Frontend"))
         .filter_map(|r| r.chars().find(|c| *c == '✓' || *c == '◆'))
         .collect();
     assert_eq!(marks, vec!['✓', '◆'], "one finished, one still running");
@@ -78,7 +78,7 @@ fn a_failed_delegation_is_shown_as_failed() {
     app.select_sidebar_tab(AGENTS_TAB);
     let row = sidebar_rows(&mut app)
         .into_iter()
-        .find(|r| r.contains("fe") && (r.contains('✓') || r.contains('◆') || r.contains('✗')))
+        .find(|r| r.contains("Frontend") && (r.contains('✓') || r.contains('◆') || r.contains('✗')))
         .expect("an fe row in the sidebar");
     assert!(row.contains('✗'), "a failure should read as one: {row}");
 }

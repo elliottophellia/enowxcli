@@ -79,10 +79,24 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
                 // list to the title and metadata the user recognises.
                 Text::from(Line::styled(trim(description, text_width), label))
             } else {
-                let mut name = vec![Span::styled(trim(id, text_width), label)];
+                // Agents by their full name, the id `/agent` takes beside it.
+                let shown = if app.modal == Modal::Agents {
+                    enowx_core::agent_def::display_name(id)
+                } else {
+                    id.clone()
+                };
+                let mut name = vec![Span::styled(trim(&shown, text_width), label)];
+                // The id only where it differs from the name: `fe`, not `docs`.
+                if app.modal == Modal::Agents && shown.to_lowercase() != *id {
+                    name.push(Span::styled(
+                        format!("  {id}"),
+                        Style::default().fg(t.faint),
+                    ));
+                }
                 // An agent on a model of its own says which beside its name.
                 if let Some(model) = own_model(app, id) {
-                    let room = text_width.saturating_sub(id.chars().count() + 2);
+                    let used: usize = name.iter().map(|span| span.content.chars().count()).sum();
+                    let room = text_width.saturating_sub(used + 2);
                     name.push(Span::styled(
                         format!("  {}", trim(&model, room)),
                         Style::default().fg(t.muted),

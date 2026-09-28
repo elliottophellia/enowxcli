@@ -31,7 +31,7 @@ fn the_chat_box_names_the_workspace() {
         "the workspace, on the edge: {edge}"
     );
     assert!(
-        !edge.contains("orchestrator"),
+        !edge.contains("Orchestrator"),
         "the agent belongs to the status bar, not both: {edge}"
     );
 }
@@ -194,7 +194,7 @@ fn the_status_bar_leads_with_the_state() {
     let idle = app.status_bar(W, H);
     assert!(idle.trim_start().starts_with("READY"), "idle: {idle}");
     assert!(
-        idle.contains("orchestrator"),
+        idle.contains("Orchestrator"),
         "and who is answering: {idle}"
     );
 
@@ -369,7 +369,7 @@ fn the_box_grows_with_a_multi_line_message() {
 fn the_model_sits_beside_the_agent() {
     let mut app = TestApp::in_conversation();
     let bar = app.status_bar(W, H);
-    let agent = bar.find("orchestrator").expect("the agent") + "orchestrator".len();
+    let agent = bar.find("Orchestrator").expect("the agent") + "Orchestrator".len();
     let model = bar.find("no model").expect("the model");
     assert!(model > agent, "the model follows the agent: {bar}");
     // Only the ` · ` separator between them (the dot is two bytes).
@@ -389,7 +389,7 @@ fn the_agent_and_model_are_separated() {
     let mut app = TestApp::in_conversation();
     let bar = app.status_bar(W, H);
     assert!(
-        bar.contains("orchestrator · no model"),
+        bar.contains("Orchestrator · no model"),
         "a separator between them: {bar}"
     );
 }
@@ -404,7 +404,7 @@ fn the_model_stays_beside_the_agent_while_working() {
     let bar = app.status_bar(W, H);
     assert!(bar.contains("WORKING"), "the state leads: {bar}");
     assert!(
-        bar.contains("orchestrator · no model"),
+        bar.contains("Orchestrator · no model"),
         "and the pair is still together: {bar}"
     );
     assert!(bar.contains(" · "), "with what the turn is doing: {bar}");

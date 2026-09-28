@@ -146,7 +146,12 @@ fn a_click_on_a_scrolled_picker_takes_the_row_under_it() {
     let rows = app.render_to_text(W, 24);
     let y = rows
         .iter()
-        .position(|row| row.contains(&format!("› {wanted}")))
+        .position(|row| {
+            row.contains(&format!(
+                "› {}",
+                enowx_core::agent_def::display_name(&wanted)
+            ))
+        })
         .unwrap_or_else(|| panic!("`{wanted}` is on screen: {rows:#?}")) as u16;
     app.mouse(click(60, y)).expect("click");
     assert_eq!(app.active_agent(), wanted);

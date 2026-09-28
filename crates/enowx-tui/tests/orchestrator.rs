@@ -14,7 +14,7 @@ fn a_new_session_talks_to_the_orchestrator() {
     assert!(app
         .render_to_text(W, H)
         .iter()
-        .any(|row| row.contains("READY  orchestrator")));
+        .any(|row| row.contains("READY  Orchestrator")));
 }
 
 /// The old name still works where a user might type it.
@@ -34,13 +34,14 @@ fn the_roster_lists_only_agents_a_request_can_go_to() {
     let mut app = TestApp::in_conversation();
     app.select_sidebar_tab(0);
     let side = app.side_column(W, H).join("\n");
-    assert!(!side.contains("compactor"), "{side}");
-    let routable = TestApp::new()
-        .roster_names()
-        .into_iter()
-        .filter(|name| name != "compactor")
-        .count();
-    assert!(side.contains(&format!("ROSTER · {routable}")), "{side}");
+    assert!(!side.contains("Compactor"), "{side}");
+    // Listed by full name, grouped by what the agents do.
+    for group in ["LEAD", "BUILD", "SUPPORT"] {
+        assert!(side.contains(group), "{side}");
+    }
+    for name in ["Orchestrator", "Frontend", "Backend", "Database", "Review"] {
+        assert!(side.contains(name), "{name}: {side}");
+    }
     assert!(app.run_command("/agent compactor").is_err());
 }
 

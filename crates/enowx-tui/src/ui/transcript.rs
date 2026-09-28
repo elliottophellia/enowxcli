@@ -954,11 +954,13 @@ fn render_block(
 /// cause reads as the model misbehaving rather than as a different agent
 /// answering. A switch recorded without one still shows the names.
 fn switch_marker_text(switch: &enowx_core::session::AgentSwitch) -> String {
+    use enowx_core::agent_def::display_name;
+    let (from, to) = (display_name(&switch.from), display_name(&switch.to));
     let reason = switch.reason.trim();
     if reason.is_empty() {
-        format!("{} → {}", switch.from, switch.to)
+        format!("{from} → {to}")
     } else {
-        format!("{} → {} · {}", switch.from, switch.to, reason)
+        format!("{from} → {to} · {reason}")
     }
 }
 

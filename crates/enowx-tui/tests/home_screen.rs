@@ -63,7 +63,7 @@ fn the_state_agent_and_model_sit_under_the_composer() {
     let (prompt_x, _) = find(&rows, "❯").expect("the composer's prompt");
     let (_, box_bottom) = find(&rows, "╰").expect("the composer's bottom edge");
     let under = &rows[box_bottom + 1];
-    for part in ["READY", "orchestrator", "deepseek-flash"] {
+    for part in ["READY", "Orchestrator", "deepseek-flash"] {
         assert!(under.contains(part), "{part}: {under}");
     }
     // The badge's own padding is a coloured space before the word.

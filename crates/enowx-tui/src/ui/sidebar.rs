@@ -405,7 +405,10 @@ fn detail_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usi
                             Style::default().fg(colour),
                         ),
                         Span::styled(
-                            trim(&delegation.agent, width.saturating_sub(4).max(1)),
+                            trim(
+                                &enowx_core::agent_def::display_name(&delegation.agent),
+                                width.saturating_sub(4).max(1),
+                            ),
                             Style::default().fg(t.text).add_modifier(Modifier::BOLD),
                         ),
                     ]));
@@ -437,12 +440,25 @@ fn detail_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usi
                 .filter(|agent| agent.is_routable())
                 .collect();
             let active = app.active_agent();
-            heading(&mut lines, &format!("ROSTER · {}", roster.len()), t);
-            let names: Vec<(String, bool)> = roster
-                .iter()
-                .map(|agent| (agent.name.clone(), agent.name == active))
-                .collect();
-            flowed_names(&mut lines, &names, width, t);
+            // Full names, grouped by what the agents do; the short id is
+            // what `/agent` takes, and the picker shows it beside the name.
+            for group in ["LEAD", "BUILD", "SUPPORT"] {
+                let names: Vec<(String, bool)> = roster
+                    .iter()
+                    .filter(|agent| enowx_core::agent_def::roster_group(&agent.name) == group)
+                    .map(|agent| {
+                        (
+                            enowx_core::agent_def::display_name(&agent.name),
+                            agent.name == active,
+                        )
+                    })
+                    .collect();
+                if names.is_empty() {
+                    continue;
+                }
+                heading(&mut lines, group, t);
+                flowed_names(&mut lines, &names, width, t);
+            }
         }
         1 => {
             let calls: usize = app.tool_counts.values().sum();

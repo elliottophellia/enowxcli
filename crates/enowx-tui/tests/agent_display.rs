@@ -4,6 +4,7 @@
 //! changes voice and the user reads it as the model misbehaving. So every
 //! assertion here is about something being VISIBLE on screen, not about state.
 
+use enowx_core::agent_def::display_name;
 use enowx_tui::testing::TestApp;
 
 /// Wide and tall enough for the sidebar to appear at all.
@@ -44,12 +45,13 @@ fn the_agent_tab_lists_the_roster() {
             roster.contains(&name.to_string()),
             "{name} should be in the roster the sidebar draws from"
         );
-        // The active agent carries a `›`; it still names the agent.
+        // By its full name; the active agent carries a `›` as well.
+        let shown = display_name(name);
         assert!(
             rows.iter().any(|row| row
                 .split_whitespace()
-                .any(|w| w.trim_start_matches('›') == name)),
-            "the Agents tab should name `{name}`"
+                .any(|w| w.trim_start_matches('›') == shown)),
+            "the Agents tab should name `{shown}` for `{name}`"
         );
     }
 }
@@ -80,7 +82,7 @@ fn the_agent_tab_marks_the_active_agent() {
     marked.dedup();
     assert_eq!(
         marked,
-        vec![active],
+        vec![display_name(&active)],
         "exactly one agent should be marked active, and it should be the active one"
     );
 }
@@ -98,11 +100,11 @@ fn the_roster_is_names_only() {
     let rows = agent_tab_rows(&mut app);
     assert!(
         rows.iter()
-            .any(|row| row.split_whitespace().any(|w| w == "fe")),
+            .any(|row| row.split_whitespace().any(|w| w == "Frontend")),
         "the roster should still name its agents: {rows:#?}"
     );
     assert!(
-        !rows.iter().any(|row| row.contains("frontend")),
+        !rows.iter().any(|row| row.contains("interface design")),
         "but not carry their descriptions: {rows:#?}"
     );
 }
@@ -118,19 +120,19 @@ fn the_roster_flows_names_across_rows() {
         .iter()
         .find(|row| {
             row.split_whitespace()
-                .any(|w| w.trim_start_matches('›') == "fe")
+                .any(|w| w.trim_start_matches('›') == "Frontend")
         })
-        .expect("the roster should name `fe`");
+        .expect("the roster should name `Frontend`");
     let names_on_row = fe
         .split_whitespace()
         .filter(|w| !w.starts_with('│'))
         .count();
     assert!(
         names_on_row > 2,
-        "fe should share its row with other agents: {fe:?}"
+        "Frontend should share its row with other agents: {fe:?}"
     );
     assert!(
-        !fe.contains("accessibility") && !fe.contains("frontend"),
+        !fe.contains("accessibility") && !fe.contains("interface design"),
         "and carry no description: {fe:?}"
     );
 }
@@ -138,7 +140,7 @@ fn the_roster_flows_names_across_rows() {
 #[test]
 fn the_footer_names_the_active_agent() {
     let mut app = TestApp::in_conversation();
-    let active = app.active_agent();
+    let active = display_name(&app.active_agent());
     let rows = screen(&mut app);
     // The footer is the last row inside the frame; searched from the bottom
     // because the roster in the sidebar names agents too.
@@ -151,10 +153,10 @@ fn the_footer_names_the_active_agent() {
         "the agent name should sit in the footer, found at row {footer} of {}",
         rows.len()
     );
-    // The legacy role label must not be what is shown.
+    // By its full name, not the id.
     assert!(
-        !rows[footer].contains("Orchestrator"),
-        "the footer should show the agent, not the role: {:?}",
+        rows[footer].contains("Orchestrator"),
+        "the footer should name the agent in full: {:?}",
         rows[footer]
     );
 }
@@ -170,7 +172,10 @@ fn the_footer_follows_a_handover() {
 
     let rows = screen(&mut app);
     assert!(
-        rows.iter().rev().take(3).any(|row| row.contains("fe")),
+        rows.iter()
+            .rev()
+            .take(3)
+            .any(|row| row.contains("Frontend")),
         "the footer should name the agent that took over: {:?}",
         &rows[rows.len().saturating_sub(3)..]
     );
@@ -187,7 +192,7 @@ fn a_handover_draws_a_marker_in_the_transcript() {
     let rows = screen(&mut app);
     let marker = rows
         .iter()
-        .position(|row| row.contains("→ fe"))
+        .position(|row| row.contains("→ Frontend"))
         .expect("a handover marker naming the new agent");
     assert!(
         rows[marker].contains("the request is about the login page"),
@@ -195,7 +200,7 @@ fn a_handover_draws_a_marker_in_the_transcript() {
         rows[marker]
     );
     assert!(
-        rows[marker].contains("orchestrator"),
+        rows[marker].contains("Orchestrator"),
         "the marker should name who handed over: {:?}",
         rows[marker]
     );
@@ -218,7 +223,7 @@ fn the_marker_sits_between_the_two_agents_work() {
             .unwrap_or_else(|| panic!("{needle} should be on screen"))
     };
     let before = find("BEFORE-THE-SWITCH");
-    let marker = find("→ fe");
+    let marker = find("→ Frontend");
     let after = find("AFTER-THE-SWITCH");
     assert!(
         before < marker && marker < after,
@@ -265,7 +270,7 @@ fn a_resumed_session_places_its_markers_by_turn() {
             .unwrap_or_else(|| panic!("{needle} should be on screen, got {rows:?}"))
     };
     let one = find("TURN-ONE-ANSWER");
-    let marker = find("→ be");
+    let marker = find("→ Backend");
     let two = find("TURN-TWO-QUESTION");
     assert!(
         one < marker && marker < two,
@@ -286,7 +291,7 @@ fn a_marker_does_not_freeze_the_render_cache() {
     app.push_assistant("first");
     let before = screen(&mut app);
     assert!(
-        !before.iter().any(|row| row.contains("→ fe")),
+        !before.iter().any(|row| row.contains("→ Frontend")),
         "no marker yet"
     );
 
@@ -297,7 +302,7 @@ fn a_marker_does_not_freeze_the_render_cache() {
     app.switch_agent("fe", "handing over");
     let warm = screen(&mut app);
     assert!(
-        warm.iter().any(|row| row.contains("→ fe")),
+        warm.iter().any(|row| row.contains("→ Frontend")),
         "the marker must appear rather than the cached frame being served again"
     );
 
@@ -313,7 +318,7 @@ fn a_marker_does_not_freeze_the_render_cache() {
     app.switch_agent("be", "and again");
     let again = screen(&mut app);
     assert!(
-        again.iter().any(|row| row.contains("→ be")),
+        again.iter().any(|row| row.contains("→ Backend")),
         "a second handover on an unchanged block must re-render it"
     );
 }

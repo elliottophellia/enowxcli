@@ -41,11 +41,12 @@ fn the_bare_command_shows_the_roster() {
     app.run_command("/agent").expect("list");
     let rows = app.render_to_text(100, 40);
     let text = rows.join("\n");
-    for name in ["fe", "be", "librarian"] {
+    // By full name, with the id `/agent` takes where it differs.
+    for name in ["Frontend  fe", "Backend  be", "Librarian"] {
         assert!(text.contains(name), "`{name}` should be listed: {text}");
     }
     assert!(
-        !text.contains("compactor"),
+        !text.contains("Compactor"),
         "the compactor is not a routing target"
     );
 }

@@ -365,7 +365,10 @@ pub(super) fn status_spans(app: &App) -> Vec<Span<'static>> {
             .add_modifier(Modifier::BOLD),
     ));
     left_spans.push(Span::styled(
-        format!(" {} ", app.active_agent()),
+        format!(
+            " {} ",
+            enowx_core::agent_def::display_name(app.active_agent())
+        ),
         Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
     ));
     // Quieter than the agent and joined to it by a dot: the pair reads as one

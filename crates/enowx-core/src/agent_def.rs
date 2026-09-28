@@ -70,6 +70,48 @@ pub const ORCHESTRATOR: &str = "orchestrator";
 /// request: not in the roster, not as a delegation target, not in `/agent`.
 const LOOP_ONLY: &[&str] = &["compactor"];
 
+/// How the interface names an agent: `Frontend` for `fe`. The short name
+/// stays the agent's id, for `/agent fe`, config keys and agent files. An
+/// agent from a file without a known name is shown capitalised.
+pub fn display_name(name: &str) -> String {
+    let known = match canonical_name(name) {
+        "orchestrator" => "Orchestrator",
+        "fe" => "Frontend",
+        "be" => "Backend",
+        "db" => "Database",
+        "devops" => "DevOps",
+        "mobile" => "Mobile",
+        "systems" => "Systems",
+        "review" => "Review",
+        "test" => "Testing",
+        "docs" => "Docs",
+        "security" => "Security",
+        "perf" => "Performance",
+        "research" => "Research",
+        "librarian" => "Librarian",
+        "general" => "General",
+        "compactor" => "Compactor",
+        other => {
+            let mut chars = other.chars();
+            return match chars.next() {
+                Some(first) => first.to_uppercase().chain(chars).collect(),
+                None => String::new(),
+            };
+        }
+    };
+    known.to_owned()
+}
+
+/// The group an agent is listed under: the one you talk to, the ones that
+/// own a part of the stack, and the ones that work across it.
+pub fn roster_group(name: &str) -> &'static str {
+    match canonical_name(name) {
+        "orchestrator" => "LEAD",
+        "fe" | "be" | "db" | "devops" | "mobile" | "systems" => "BUILD",
+        _ => "SUPPORT",
+    }
+}
+
 /// An agent's current name, for one that has since been renamed.
 pub fn canonical_name(name: &str) -> &str {
     match name.trim() {

@@ -84,7 +84,7 @@ The composer has no fill here. In the grid every box is filled, so the square
 cell behind each rounded corner is one box among others; alone on the window,
 that fill drew a square block behind the rounded edge.
 
-**The wordmark** is drawn per pixel from the brand's own (`web/public/logos`):
+**The wordmark** is drawn per pixel from the brand's own (`assets/brand/logos`):
 lowercase `enow` in two-pixel strokes and the taller X, whose long stroke takes
 `theme.accent`, short stroke `theme.accent2`, and a dot where they cross. The
 SVG's paths rasterised at this size filled the X, since its strokes are a third

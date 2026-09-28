@@ -17,7 +17,7 @@ use std::time::Instant;
 /// The enowX wordmark, one character per pixel: `#` a letter, `b` the X's
 /// long stroke, `s` its short one, `o` the dot where they cross.
 ///
-/// Drawn from the brand wordmark (`web/public/logos`) at two-pixel strokes,
+/// Drawn from the brand wordmark (`assets/brand/logos`) at two-pixel strokes,
 /// the weight the letters have at this size. The SVG's own paths rasterised
 /// at this size filled the whole X: its strokes are a third of its width.
 const WORDMARK: [&str; 10] = [

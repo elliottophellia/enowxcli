@@ -25,8 +25,7 @@ editable OpenAI-compatible endpoints. enxapi uses `https://enxapi.id/v1` and
 | Terminal interface | Framed layout, thought/tool cards, paged right sidebar, theme picker |
 | Roles | Three shipped: Orchestrator, Writer, Researcher |
 
-The default binary opens the terminal interface with five selectable palettes.
-The web dashboard is available only with the optional `web` build feature.
+The binary opens the terminal interface, with five selectable palettes.
 
 ## Roles
 
@@ -113,8 +112,7 @@ and providers.
 ## Build
 
 ```sh
-cargo build --release                     # terminal only
-cargo build --release --features web      # adds the optional `enx serve` dashboard
+cargo build --release
 cargo test --workspace
 ```
 
@@ -137,9 +135,6 @@ enx tui --session <id>      # resume a session directly
 Run `enx dev` from this checkout. It watches `crates/` and `Cargo.toml`,
 keeps the interface in the foreground, and on each save rebuilds and relaunches
 it while resuming the newest session in this workspace.
-
-For the optional dashboard, `bun run dev` in `web/` provides hot module
-replacement and proxies `/api` to `enx serve` on port 8787.
 
 ## Licence
 

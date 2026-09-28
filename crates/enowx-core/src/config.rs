@@ -30,7 +30,6 @@ pub fn sessions_dir() -> PathBuf {
 pub struct Config {
     pub model: ModelConfig,
     pub provider: ProviderConfig,
-    pub server: ServerConfig,
     pub agent: AgentConfig,
     pub ui: UiConfig,
     pub typesafe: TypeSafeConfig,
@@ -172,22 +171,6 @@ pub struct ProviderConfig {
     pub models_url: String,
     /// API key. `ENX_API_KEY` overrides this.
     pub api_key: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ServerConfig {
-    pub port: u16,
-    pub host: String,
-}
-
-impl Default for ServerConfig {
-    fn default() -> Self {
-        Self {
-            port: 8787,
-            host: "127.0.0.1".to_string(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -473,11 +456,6 @@ impl Config {
         if let Ok(v) = std::env::var("ENX_MODEL") {
             self.model.default = v;
         }
-        if let Ok(v) = std::env::var("ENX_PORT") {
-            if let Ok(port) = v.parse() {
-                self.server.port = port;
-            }
-        }
         if let Ok(v) = std::env::var("ENX_THEME") {
             self.ui.theme = v;
         }
@@ -554,7 +532,7 @@ impl Config {
         })
     }
 
-    /// Write a dotted key. Numbers and booleans are parsed so `server.port=9000`
+    /// Write a dotted key. Numbers and booleans are parsed so `agent.shell_timeout_secs=90`
     /// stays an integer in the file.
     pub fn set(&mut self, key: &str, raw: &str) -> Result<()> {
         // Changing the model changes everything scoped to it. Route through
@@ -698,8 +676,8 @@ mod tests {
     #[test]
     fn set_keeps_scalar_types() {
         let mut config = Config::default();
-        config.set("server.port", "9100").unwrap();
-        assert_eq!(config.server.port, 9100);
+        config.set("agent.shell_timeout_secs", "90").unwrap();
+        assert_eq!(config.agent.shell_timeout_secs, 90);
         config.set("model.default", "zai/glm-4.6").unwrap();
         assert_eq!(config.model.default, "zai/glm-4.6");
         assert!(config.set("model.nope", "x").is_err());

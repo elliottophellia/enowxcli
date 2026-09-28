@@ -3,8 +3,6 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use enowx_core::Config;
-#[cfg(feature = "web")]
-use tracing_subscriber::EnvFilter;
 
 mod dev;
 
@@ -37,16 +35,6 @@ enum Command {
         #[arg(long)]
         session: Option<String>,
     },
-    /// Run the API and embedded dashboard in the foreground.
-    #[cfg(feature = "web")]
-    Serve {
-        #[arg(long)]
-        port: Option<u16>,
-        #[arg(long)]
-        host: Option<String>,
-        #[arg(long)]
-        workspace: Option<PathBuf>,
-    },
     /// Read or change ~/.enx/config.toml.
     Config {
         #[command(subcommand)]
@@ -66,9 +54,7 @@ enum ConfigCommand {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // The alternate-screen TUI owns stdout. Server mode initializes tracing
-    // below, so logs never corrupt the terminal interface.
-
+    // The alternate-screen TUI owns stdout, so nothing here logs to it.
     let cli = Cli::parse();
     match cli.command.unwrap_or(Command::Tui {
         workspace: None,
@@ -82,31 +68,6 @@ async fn main() -> Result<()> {
             enowx_tui::run(config, session).await
         }
         Command::Dev { workspace, session } => dev::run(workspace, session),
-        #[cfg(feature = "web")]
-        Command::Serve {
-            port,
-            host,
-            workspace,
-        } => {
-            tracing_subscriber::fmt()
-                .with_env_filter(
-                    EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| EnvFilter::new("enx=info")),
-                )
-                .compact()
-                .init();
-            let mut config = Config::load()?;
-            if let Some(port) = port {
-                config.server.port = port;
-            }
-            if let Some(host) = host {
-                config.server.host = host;
-            }
-            if workspace.is_some() {
-                config.agent.workspace = workspace;
-            }
-            enowx_server::serve(config).await
-        }
         Command::Config { command } => {
             let mut config = Config::load()?;
             match command {

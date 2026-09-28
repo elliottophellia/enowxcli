@@ -238,10 +238,10 @@ section { min-height: 1000px; padding: 16px; }
 <body>
 <header><a href="#one">One</a> <a href="#two">Two</a></header>
 <main><h1>A long page</h1>
-<section id="one"><p>First part.</p></section>
-<section id="two"><p>Second part.</p></section>
+<section id="one"><h2>First part</h2><p>What the first part says.</p></section>
+<section id="two"><p>Second part.</p><ul><li>One point.</li></ul></section>
 <section><p>Third part.</p></section>
-<section><p>Fourth part.</p></section>
+<section><blockquote>Fourth part.</blockquote></section>
 </main>
 <a class="to-top" href="#top" aria-label="Back to top">&uarr;</a>
 <script>
@@ -283,5 +283,68 @@ async fn a_long_page_keeps_its_bar_in_view_and_a_way_back_up() {
     // Put back at the top for the screenshot, where the control hides.
     let shot = std::fs::read(reports[0].screenshot.as_ref().unwrap()).unwrap();
     assert!(shot.starts_with(b"\x89PNG"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn entries_page(uniform: bool, headline: &str) -> String {
+    let entry = |n: usize, big: bool| {
+        if big {
+            format!("<article class=\"entry\"><h2>Project {n}</h2><p>What it does, in two plain sentences for someone new.</p><pre>run it --now</pre></article>")
+        } else {
+            format!(
+                "<li class=\"row\"><a href=\"#p{n}\">Project {n}</a> <span>one line</span></li>"
+            )
+        }
+    };
+    let body: String = if uniform {
+        (1..=5).map(|n| entry(n, true)).collect()
+    } else {
+        format!(
+            "{}<ul class=\"rows\">{}</ul>",
+            entry(1, true),
+            (2..=5).map(|n| entry(n, false)).collect::<String>()
+        )
+    };
+    format!(
+        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Entries</title>
+<style>body {{ margin: 0; font: 16px/1.5 system-ui; color: #1a1a1a; background: #fff; }} main {{ max-width: 900px; margin: 0 auto; padding: 16px; }}
+.entry {{ min-height: 180px; border-bottom: 1px solid #ccc; }} .rows a {{ display: inline-block; min-height: 44px; padding: 10px 0; color: #1a1a1a; }}</style></head>
+<body><main><h1>{headline}</h1>{body}<p id="p2"></p><p id="p3"></p><p id="p4"></p><p id="p5"></p></main></body></html>"##
+    )
+}
+
+#[tokio::test]
+async fn one_module_repeated_down_the_page_is_reported() {
+    if no_chrome() {
+        return;
+    }
+    let dir = folder(&entries_page(true, "Tools that run on your own machine"));
+    let reports = preview::preview(&dir, Target::File(dir.clone()), None, &dir.join("shots"))
+        .await
+        .unwrap();
+    let text = preview::report("index.html", &reports);
+    let wide = reports.last().unwrap();
+    assert_eq!(
+        wide.repeated_blocks.as_deref(),
+        Some("article.entry ×5"),
+        "{text}"
+    );
+    assert!(
+        text.contains("the same block repeated down the page"),
+        "{text}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // A lead entry and the rest as compact rows is what the skills ask for.
+    let long = "Local-first developer tools: a self-hosted AI agent, a terminal coding CLI, and the memory and coordination they need";
+    let dir = folder(&entries_page(false, long));
+    let reports = preview::preview(&dir, Target::File(dir.clone()), None, &dir.join("shots"))
+        .await
+        .unwrap();
+    let text = preview::report("index.html", &reports);
+    let wide = reports.last().unwrap();
+    assert_eq!(wide.repeated_blocks, None, "{text}");
+    assert_eq!(wide.long_headline, Some(18), "{text}");
+    assert!(text.contains("the headline has 18 words"), "{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -49,6 +49,8 @@ projects runs long, so it has a back-to-top control
   grouped by what they do.
 - Rewrite each description for this page in plain words; do not paste the
   repository's tagline.
+- The lead projects (one to three) show an image when their README has one:
+  a screenshot or a diagram, with a caption. The rest are compact rows.
 - Stars, followers and language counts are not content. A star count may sit
   in a project's meta when it would impress a stranger (hundreds); a table of
   how many repositories use each language never.
@@ -58,7 +60,9 @@ projects runs long, so it has a back-to-top control
 - Repository creation dates are not a career history: there is no timeline
   unless the user gives one.
 - Anything about the person beyond GitHub (email, employer, history, photo)
-  is a visible placeholder until the user gives it.
+  is a visible placeholder until the user gives it. The placeholder reads as
+  one ("[your email]"); how to fill it in goes in the README, never as a note
+  on the page.
 
 ## The default to avoid
 

@@ -47,8 +47,11 @@ container. Decide each section on its own.
 
 - Vary the compositions: a feature, then a list, then prose beside a quote.
   The same heading, subtitle and list three times over is a template.
-- Vary the density: the lead item larger and with its evidence, the rest
-  compact rows.
+- Vary the density: only the lead items (one to three) get the full
+  treatment, their description, their evidence (a screenshot when there is
+  one) and their details; the rest are compact rows of a name, one sentence
+  and a link. Four or more tall blocks built the same way, one after
+  another, is a template, and `preview` reports it.
 - Space between sections 96 to 128px on wide screens, 64 to 80px on phones;
   within a section, less. A change of background can mark one section that
   changes pace, once or twice on a page, not every other section.

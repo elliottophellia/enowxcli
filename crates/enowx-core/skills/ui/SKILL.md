@@ -188,6 +188,8 @@ nothing about the product.
 - Every control does something real: links go to pages or sections that
   exist, buttons act, forms submit and confirm. A control that cannot work
   yet is removed, or visibly labelled "Coming soon".
+- A placeholder reads as a placeholder ("[your email]"). The note on how to
+  fill it in goes in the README, never on the page where visitors read it.
 - Forms: a visible label for each field, the error beside the field in words,
   a submit button that says what it does and shows progress while it works.
 - Long pages: the top bar sticks, so the navigation is always in reach

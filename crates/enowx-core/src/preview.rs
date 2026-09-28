@@ -57,6 +57,12 @@ pub struct WidthReport {
     /// A page longer than three screens with no visible way back to the top
     /// from halfway down.
     pub no_back_to_top: bool,
+    /// Four or more tall blocks in a row built the same way: the same module
+    /// repeated down the page, e.g. `article.project ×7`.
+    pub repeated_blocks: Option<String>,
+    /// The words in the page's first `h1`, when there are too many for a
+    /// headline.
+    pub long_headline: Option<usize>,
     pub console_errors: Vec<String>,
     pub screenshot: Option<PathBuf>,
 }
@@ -75,6 +81,8 @@ impl WidthReport {
             + usize::from(!self.viewport_meta)
             + usize::from(self.header_scrolls_away)
             + usize::from(self.no_back_to_top)
+            + usize::from(self.repeated_blocks.is_some())
+            + usize::from(self.long_headline.is_some())
     }
 }
 
@@ -318,8 +326,14 @@ impl Cdp {
         self.events.clear();
         self.call("Page.navigate", json!({"url": url}), Some(session))
             .await?;
-        self.wait_for("Page.loadEventFired", session, Duration::from_secs(30))
-            .await;
+        // Measuring before the page loaded would measure the blank page it
+        // replaced, and report its missing heading as the page's.
+        if !self
+            .wait_for("Page.loadEventFired", session, Duration::from_secs(45))
+            .await
+        {
+            bail!("{url} did not finish loading within 45 seconds at {width}px");
+        }
         // Late scripts and web fonts settle before anything is measured.
         tokio::time::sleep(Duration::from_millis(600)).await;
         let result = self
@@ -357,6 +371,8 @@ impl Cdp {
             screens: found["screens"].as_f64().unwrap_or(0.0),
             header_scrolls_away: found["header_scrolls_away"].as_bool().unwrap_or(false),
             no_back_to_top: found["no_back_to_top"].as_bool().unwrap_or(false),
+            repeated_blocks: found["repeated_blocks"].as_str().map(str::to_owned),
+            long_headline: found["long_headline"].as_u64().map(|n| n as usize),
             console_errors: self.console_errors(session),
             screenshot: None,
         };
@@ -541,6 +557,19 @@ pub fn report(target: &str, reports: &[WidthReport]) -> String {
                 r.screens
             ));
         }
+        if let Some(blocks) = &r.repeated_blocks {
+            out.push_str(&format!(
+                "  the same block repeated down the page ({blocks}): give the lead one \
+                 more room and its evidence, and set the rest as compact rows \
+                 (ui-part-sections)\n"
+            ));
+        }
+        if let Some(words) = r.long_headline {
+            out.push_str(&format!(
+                "  the headline has {words} words: a headline says one thing, in about \
+                 twelve or fewer (ui-part-hero)\n"
+            ));
+        }
         if r.h1_count != 1 {
             out.push_str(&format!("  {} h1 elements; a page has one\n", r.h1_count));
         }
@@ -695,6 +724,34 @@ const CHECK_SCRIPT: &str = r#"(async () => {
         return describe(el) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + 'px';
       });
   }
+  // The same tall block stacked four or more times: one module repeated
+  // down the page. Blocks are compared by their tag, classes and the tags
+  // of their children, which is what a template repeats.
+  out.repeated_blocks = null;
+  let worst = 0;
+  const shape = el => el.tagName + '.' + [...el.classList].sort().join('.') + '>'
+    + [...el.children].map(c => c.tagName).join(',');
+  for (const parent of document.querySelectorAll('body *')) {
+    const kids = [...parent.children].filter(el => {
+      const r = el.getBoundingClientRect();
+      return r.height > 120 && r.width > W * 0.4;
+    });
+    let run = 1;
+    for (let i = 1; i <= kids.length; i++) {
+      if (i < kids.length && shape(kids[i]) === shape(kids[i - 1])) { run++; continue; }
+      if (run >= 4 && run > worst) {
+        worst = run;
+        const el = kids[i - 1];
+        const kind = el.tagName.toLowerCase()
+          + (el.classList.length ? '.' + [...el.classList].slice(0, 2).join('.') : '');
+        out.repeated_blocks = kind + ' ×' + run;
+      }
+      run = 1;
+    }
+  }
+  const h1 = document.querySelector('h1');
+  const words = h1 ? h1.textContent.trim().split(/\s+/).filter(Boolean).length : 0;
+  out.long_headline = words > 14 ? words : null;
   // A long page, scrolled: whether the top bar stays in view, and whether
   // there is a way back to the top from halfway down. Measured by scrolling
   // rather than read from the CSS, so a sticky bar that a wrapper's overflow

@@ -22,7 +22,9 @@ on, so it carries the most specific thing you have, not the most general.
    "Tables and benches from the teak of Jepara's demolished houses, made to
    order in six weeks" fits one. Write it from the facts you found about this
    subject (its readme, its work, its own words), never from invented ones,
-   and never from an example in these skills.
+   and never from an example in these skills. Keep it to twelve words or
+   fewer: a list of everything the person makes is the supporting line's
+   job, not the headline's.
 2. **The proof.** What makes the claim believable, in the same screen: the
    work itself (a real screenshot, a real photograph, the first two or three
    projects), a real command and its real output, a real quote with a name.

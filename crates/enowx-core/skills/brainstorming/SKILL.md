@@ -107,6 +107,10 @@ details, or leave them to you.
   questions.
 - Options are real alternatives: short, and meaning something different
   from each other. Never add "Other"; the interface adds it.
+- The option you recommend is the one a good designer would pick, not the
+  one that includes the most: a portfolio shows the strongest few pieces
+  (four to eight), not every repository; a landing page leads with one
+  action; a first version keeps the scope small.
 - Say why you ask when it is not obvious: "The layout depends on this."
 - Never ask the same thing twice, and never ask what you can read.
 - When the user says "you decide", decide, say what you decided, and move

@@ -113,6 +113,10 @@ pub struct Score {
     /// At some width, a page of more than three screens had no way back to
     /// the top from halfway down.
     pub no_back_to_top: bool,
+    /// The same tall block repeated four or more times down the page.
+    pub repeated_blocks: bool,
+    /// A headline of more than fourteen words.
+    pub long_headline: bool,
     pub design_md: bool,
     pub skills_read: Vec<String>,
     pub tools: BTreeMap<String, usize>,
@@ -140,7 +144,9 @@ pub fn points(score: &Score) -> i64 {
         + score.small_targets
         + 4 * score.console_errors
         + 3 * usize::from(score.header_scrolls_away)
-        + 3 * usize::from(score.no_back_to_top);
+        + 3 * usize::from(score.no_back_to_top)
+        + 5 * usize::from(score.repeated_blocks)
+        + 3 * usize::from(score.long_headline);
     if score.preview_skipped.is_none() && !score.page_missing {
         lost += 3 * usize::from(score.h1_count != 1) + 5 * usize::from(!score.viewport_meta);
     }
@@ -209,6 +215,8 @@ pub async fn measure(workspace: &Path, page: &str, case: &str) -> Score {
             score.viewport_meta = reports.first().is_some_and(|r| r.viewport_meta);
             score.header_scrolls_away = reports.iter().any(|r| r.header_scrolls_away);
             score.no_back_to_top = reports.iter().any(|r| r.no_back_to_top);
+            score.repeated_blocks = reports.iter().any(|r| r.repeated_blocks.is_some());
+            score.long_headline = reports.iter().any(|r| r.long_headline.is_some());
         }
         Err(error) => score.preview_skipped = Some(format!("{error:#}")),
     }
@@ -437,6 +445,12 @@ pub fn table(scores: &[Score], previous: &[Score]) -> String {
             }
             if score.no_back_to_top {
                 parts.push("no back-to-top".to_owned());
+            }
+            if score.repeated_blocks {
+                parts.push("repeated blocks".to_owned());
+            }
+            if score.long_headline {
+                parts.push("long headline".to_owned());
             }
             if parts.is_empty() {
                 "clean".to_owned()

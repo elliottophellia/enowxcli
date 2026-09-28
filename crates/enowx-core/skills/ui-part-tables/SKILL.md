@@ -22,8 +22,9 @@ icons, states, accessibility) are in the `ui` skill, the measures in
     repeated inside the card that holds it.
   - Text left-aligned, numbers right-aligned with `font-variant-numeric:
     tabular-nums`, units in the header.
-  - A sticky header on long tables; sortable columns marked with
-    `aria-sort`.
+  - A sticky header on long tables, set below the top bar (`top` equal to
+    its height), with a solid background; the first column sticky too when
+    the table scrolls sideways. Sortable columns marked with `aria-sort`.
   - Row actions that exist: visible when there are one or two, as quiet
     ghost or outline buttons, in a labelled menu when more. Never the page's
     filled primary button repeated on every row.

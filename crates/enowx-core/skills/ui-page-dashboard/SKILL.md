@@ -30,6 +30,24 @@ the order of those questions.
 - **Content** padded 24 to 32px (16px on phones), fluid up to about 1440 to
   1600px then centred; a grid of 12 columns with 16 to 24px gutters.
 
+## 2a. What sticks
+
+Stick what the user needs while scrolling through the work, and nothing
+else:
+
+- the sidebar (full height, its own scroll) and the top bar;
+- a long table's header row, and its first column when the table scrolls
+  sideways;
+- the filter and search bar above a long list;
+- the bulk-action bar that appears when rows are selected;
+- the Save and Cancel bar of a long form or settings page.
+
+Figures, charts and a short page header scroll away. The sticky layers
+together stay under about 120px on a wide screen and about 64px on a phone
+(on a phone, only the top bar, or the filter bar in its place), each
+stacked below the one above (`top` set to the height above it) with a
+solid background.
+
 ## 3. The overview, row by row
 
 A composition that works for most overviews; cut the rows the questions do

@@ -70,6 +70,10 @@ fn every_workspace_has_the_builtin_skills() {
         "code",
         "writing",
         "brainstorming",
+        "backend",
+        "backend-api",
+        "backend-data",
+        "backend-stack-next",
     ] {
         let skill = discovery
             .skills
@@ -206,7 +210,14 @@ fn each_agent_carries_the_skills_for_its_work() {
     assert!(carried("fe").iter().any(|s| s == "ui-part-hero"));
     assert!(carried("fe").iter().any(|s| s == "ui-page-dashboard"));
     assert!(carried("fe").iter().any(|s| s == "writing"));
-    assert_eq!(carried("review"), carried("fe"));
+    // The reviewer judges interface and server work alike.
+    for skill in carried("fe").iter().chain(
+        carried("be")
+            .iter()
+            .filter(|s| s.starts_with("backend")),
+    ) {
+        assert!(carried("review").contains(skill), "review lacks {skill}");
+    }
     assert!(carried("mobile").iter().any(|s| s == "ui-part-sidebar"));
     assert!(!carried("mobile").iter().any(|s| s == "writing"));
     assert_eq!(carried("docs"), ["writing"]);
@@ -214,7 +225,19 @@ fn each_agent_carries_the_skills_for_its_work() {
     for name in ["fe", "mobile", "review", "general", "be"] {
         assert!(carried(name).iter().any(|s| s == "i18n"), "{name}");
     }
-    assert_eq!(carried("be"), ["code", "i18n"]);
+    for skill in [
+        "backend",
+        "backend-api",
+        "backend-data",
+        "backend-auth",
+        "backend-stack-next",
+        "backend-stack-laravel",
+        "code",
+        "i18n",
+    ] {
+        assert!(carried("be").iter().any(|s| s == skill), "be lacks {skill}");
+    }
+    assert!(!carried("be").iter().any(|s| s.starts_with("ui")));
     for name in ["db", "devops", "systems", "test", "perf"] {
         assert_eq!(carried(name), ["code"], "{name}");
     }
@@ -251,6 +274,10 @@ fn the_builtin_skills_follow_their_own_rules() {
         "code",
         "writing",
         "brainstorming",
+        "backend",
+        "backend-api",
+        "backend-data",
+        "backend-stack-next",
     ] {
         let source = builtin_source(name).expect("built in");
         assert!(!source.contains('—'), "`{name}` has an em dash");
@@ -285,6 +312,34 @@ fn the_frontend_prompt_names_its_skills_and_essentials() {
         assert!(fe.prompt.contains(needed), "missing {needed:?}");
     }
     assert!(!fe.prompt.contains('—'), "the prompt has an em dash");
+}
+
+/// The backend specialist is told which skill to read for which part, and
+/// carries the essentials itself.
+#[test]
+fn the_backend_prompt_names_its_skills_and_essentials() {
+    let be = enowx_core::builtin_agents()
+        .into_iter()
+        .find(|agent| agent.name == "be")
+        .expect("be ships");
+    for needed in [
+        "`backend` skill",
+        "`backend-stack-*`",
+        "`backend-api`",
+        "`backend-auth`",
+        "`backend-data`",
+        "`backend-testing`",
+        "`i18n`",
+        "THE CONTRACT",
+        "conditional update",
+        "a query in a",
+        ".env.example",
+        "never plausible guesses",
+        "at most six bullets",
+    ] {
+        assert!(be.prompt.contains(needed), "missing {needed:?}");
+    }
+    assert!(!be.prompt.contains('\u{2014}'), "the prompt has an em dash");
 }
 
 /// Every directory under `skills/` is compiled in: a skill added there and
@@ -330,6 +385,9 @@ fn a_part_is_turned_off_with_its_parent() {
     assert_eq!(builtin_parent("ui-part-hero"), Some("ui"));
     assert_eq!(builtin_parent("ui-layout"), Some("ui"));
     assert_eq!(builtin_parent("ui-stack-next"), Some("ui"));
+    assert_eq!(builtin_parent("backend-stack-next"), Some("backend"));
+    assert_eq!(builtin_parent("backend-api"), Some("backend"));
+    assert_eq!(builtin_parent("backend"), None);
     for parent in ["ui", "code", "writing", "brainstorming"] {
         assert_eq!(builtin_parent(parent), None, "{parent}");
     }

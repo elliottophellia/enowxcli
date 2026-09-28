@@ -24,6 +24,25 @@ it, and write it as one line in your report:
 
 Hold it on every screen. A direction you cannot state in a line is not one.
 
+A mood and a palette are not yet a direction; they leave the page to fall
+back on the default for its category. Give it a **concept**: one idea taken
+from the subject itself that decides the layout, the type and the details.
+
+- A developer who builds local-first command-line tools: the page as a
+  well-made manual. Dense and typographic, sections set like a manual's
+  headings, real commands with their real output as the images.
+- A wedding photographer: the photographs full-bleed and in sequence, text
+  small and sparse, the layout following the pictures' own proportions.
+- A neighbourhood bakery: warm paper and a menu board's structure, prices in
+  their own column, this week's bake as the headline.
+
+Every category has a default that reads as generated. For a developer, a dark
+page with monospace labels and one amber or green accent; for a startup, a
+gradient hero over three cards; for a clinic, stock photographs of smiling
+people; for a restaurant, a full-screen food photo under a script font. Name
+the default for the category you are designing, then do something else, or
+take it further on purpose because the concept asks for it.
+
 Write it down in `DESIGN.md` at the project's root when the project has
 none, so every later change keeps to it. Keep it short, decisions not
 essays:
@@ -32,6 +51,7 @@ essays:
 # Design
 
 Direction: a booking page for a neighbourhood physio clinic, calm and plain.
+Concept: the clinic's own appointment card: one column, times in a grid.
 Audience: adults booking a first visit, many on phones.
 Theme: light only.
 Palette: paper #F6F2E9, ink #15302A, muted #4C6058, accent #0F6B4F (the one
@@ -84,8 +104,15 @@ nothing about the product.
 ## 4. Typography
 
 - One or two families, chosen for the product's character, with the reason
-  in your report. A default pick (Inter, Geist, Space Grotesk) made out of
-  habit is a tell, not a choice.
+  in your report. A default pick (Inter, Geist, Space Grotesk, IBM Plex)
+  made out of habit is a tell, not a choice.
+- Give the headline face character: a serif, a grotesk with a distinct
+  shape, a condensed or a wide face, whatever the concept asks for; pair it
+  with a plain face for text. Monospace is for code, commands and figures
+  that align, not a costume for every label.
+- Contrast in size carries the hierarchy: the largest headline at least two
+  and a half times the body size, the small print clearly smaller. A page
+  where headings, text and meta are all within a few pixels reads flat.
 - A type scale with few steps, as tokens (for example 14, 16, 20, 25, 31, 39:
   a 1.25 ratio), with `clamp()` for display sizes so they scale with the
   window.
@@ -105,8 +132,9 @@ nothing about the product.
 - Contrast is computed, not judged by eye: text 4.5:1, large text (24px, or
   19px bold) 3:1, controls, borders that identify a control, and focus
   indicators 3:1 against what surrounds them.
-- Dark by default only with a reason (a developer or media tool); otherwise
-  light, or a toggle where both themes are checked.
+- Dark by default only with a reason the concept gives (a media player, a
+  photographer of night scenes). "It is for developers" is not a reason on
+  its own. Otherwise light, or a toggle where both themes are checked.
 - Gradients, glass, glow and large shadows are accents with a purpose, on
   one or two elements, never the page's texture.
 

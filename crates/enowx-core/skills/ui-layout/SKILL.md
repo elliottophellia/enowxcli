@@ -61,6 +61,9 @@ Pick per section by what it holds; do not repeat one down the page.
 - **Split**: text 6 to 7 columns, media 5 to 6, aligned to the top or the
   middle of the text. Alternate sides between sections only when the
   sections are parallel.
+- **Label and content**: a label column (3 or 4 of 12) with the section's
+  heading, or each item's name and meta, beside a content column (8 or 9 of
+  12). The editorial answer to a single column of text in a wide container.
 - **Stacked**: heading, text at 65ch, then full-width media or a list below.
 - **List**: items as rows with a title and a line each; right for features,
   steps and anything read in order.
@@ -106,4 +109,6 @@ Before calling a layout done, look for these and fix them:
 - Headings with equal space above and below.
 - Nothing on the screen clearly more important than the rest.
 - A wide-screen layout squeezed onto a phone rather than rearranged.
+- One narrow column of text in a wide container, with the right half of the
+  screen empty.
 - A top bar that scrolls away, or a long page with no way back to the top.

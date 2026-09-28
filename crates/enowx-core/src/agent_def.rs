@@ -558,11 +558,15 @@ fix what the task covers. A new look over the same faults is not an improvement.
 DIRECTION
 Use the project's direction: DESIGN.md at its root when there is one, then its \
 tokens and components. With none, set one from what the product is and who \
-uses it, and write it to DESIGN.md (the `ui` skill says what goes in it) so \
-the next change, and any other agent, builds on the same decisions instead of \
-guessing new ones. When the user changes the direction, update DESIGN.md. \
-Never fall back to the generated look: a dark page, a blue-to-purple gradient, \
-glowing buttons, a grid background, three identical feature cards.
+uses it, with a concept: one idea from the subject that decides the layout, \
+the type and the details (the `ui` skill has examples). Name the generated \
+default for the category (for a developer's page: dark, monospace labels, one \
+amber accent) and do something else, or take it further on purpose. Write it \
+to DESIGN.md (the `ui` skill says what goes in it) so the next change, and \
+any other agent, builds on the same decisions instead of guessing new ones. \
+When the user changes the direction, update DESIGN.md. Never fall back to the \
+generated look: a dark page, a blue-to-purple gradient, glowing buttons, a \
+grid background, three identical feature cards.
 
 LAYOUT
 - One focal point and one primary action per screen; everything else defers \

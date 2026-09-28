@@ -63,6 +63,12 @@ pub struct WidthReport {
     /// The words in the page's first `h1`, when there are too many for a
     /// headline.
     pub long_headline: Option<usize>,
+    /// A side column (a sidebar or a nav) whose background stops before the
+    /// bottom of the window, as `aside.sidebar ends at 900px`.
+    pub short_side: Option<String>,
+    /// The same filled button repeated down the page, as `5 filled buttons
+    /// in #e08a70`: the page's one primary action on every row.
+    pub repeated_primary: Option<String>,
     /// The page background, when it sits in the grey middle ground: a dark
     /// theme that is charcoal rather than dark, or a light one that is dull
     /// grey. As `#1e1e1e, 12% light`.
@@ -88,6 +94,8 @@ impl WidthReport {
             + usize::from(self.repeated_blocks.is_some())
             + usize::from(self.long_headline.is_some())
             + usize::from(self.grey_background.is_some())
+            + usize::from(self.short_side.is_some())
+            + usize::from(self.repeated_primary.is_some())
     }
 }
 
@@ -379,6 +387,8 @@ impl Cdp {
             repeated_blocks: found["repeated_blocks"].as_str().map(str::to_owned),
             long_headline: found["long_headline"].as_u64().map(|n| n as usize),
             grey_background: found["grey_background"].as_str().map(str::to_owned),
+            short_side: found["short_side"].as_str().map(str::to_owned),
+            repeated_primary: found["repeated_primary"].as_str().map(str::to_owned),
             console_errors: self.console_errors(session),
             screenshot: None,
         };
@@ -576,6 +586,18 @@ pub fn report(target: &str, reports: &[WidthReport]) -> String {
                  twelve or fewer (ui-part-hero)\n"
             ));
         }
+        if let Some(side) = &r.short_side {
+            out.push_str(&format!(
+                "  the side column stops short ({side}): a sidebar runs the full height of \
+                 the window (sticky, 100dvh) (ui-part-sidebar)\n"
+            ));
+        }
+        if let Some(buttons) = &r.repeated_primary {
+            out.push_str(&format!(
+                "  {buttons}: one filled primary action per view; actions in rows are \
+                 quiet (ghost, outline or a menu) (ui-page-dashboard)\n"
+            ));
+        }
         if let Some(background) = &r.grey_background {
             out.push_str(&format!(
                 "  the page background is {background}: a dark theme sits at 3 to 8% \
@@ -761,6 +783,29 @@ const CHECK_SCRIPT: &str = r#"(async () => {
       run = 1;
     }
   }
+  // A side column with its own background, looked at again once the page
+  // is scrolled: one that stops short leaves the window's side empty.
+  out.short_side = null;
+  const side = W < 1024 ? null : [...document.querySelectorAll('aside, nav, [class*=sidebar]')].find(el => {
+    const r = el.getBoundingClientRect();
+    const bg = parse(getComputedStyle(el).backgroundColor);
+    return r.left <= 8 && r.top <= 8 && r.width >= 120 && r.width <= W * 0.4 && bg && bg.a >= 0.5;
+  });
+  // The same saturated filled button, again and again.
+  out.repeated_primary = null;
+  const fills = {};
+  for (const el of document.querySelectorAll('button, a[href], [role=button]')) {
+    if (!visible(el) || readerOnly(el)) continue;
+    const c = parse(getComputedStyle(el).backgroundColor);
+    if (!c || c.a < 0.9) continue;
+    const max = Math.max(c.r, c.g, c.b), min = Math.min(c.r, c.g, c.b);
+    if (max === 0 || (max - min) / max < 0.25) continue;
+    const key = '#' + [c.r, c.g, c.b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+    fills[key] = (fills[key] || 0) + 1;
+  }
+  for (const [colour, count] of Object.entries(fills)) {
+    if (count >= 5) out.repeated_primary = count + ' filled buttons in ' + colour;
+  }
   // The page's background, as the reader sees it behind the content.
   out.grey_background = null;
   const pageBg = [document.body, document.documentElement]
@@ -799,6 +844,13 @@ const CHECK_SCRIPT: &str = r#"(async () => {
     if (header) {
       const r = header.getBoundingClientRect();
       out.header_scrolls_away = r.bottom <= 1 || r.top >= screen;
+    }
+    if (side) {
+      const r = side.getBoundingClientRect();
+      if (r.bottom < screen - 2) {
+        const kind = side.tagName.toLowerCase() + (side.classList.length ? '.' + [...side.classList].slice(0, 2).join('.') : '');
+        out.short_side = kind + ' covers ' + Math.max(0, Math.round(r.bottom)) + ' of ' + screen + 'px once scrolled';
+      }
     }
     if (out.screens > 3) {
       const named = /\bto\s+(the\s+)?top\b|^\s*top\s*$|\bke atas\b/i;

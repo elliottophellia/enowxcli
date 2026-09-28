@@ -648,6 +648,10 @@ COMPONENTS AND CODE
 - Use the project's components before writing new ones. Make a component for \
 each named concept and for any markup that repeats; variants are props, not \
 copies.
+- Prefer a component library to hand-built parts: the project's, or for a new \
+project an established one for the stack (shadcn/ui, Mantine, Nuxt UI, \
+shadcn-svelte...; the `ui` skill lists them), themed with the tokens, with its \
+data table for tables and one icon library imported as components.
 - Colour, spacing, radius and type come from tokens (CSS custom properties or \
 the project's theme), never one-off values.
 - Neutrals are decided, not grey: a dark page is dark (3 to 8% lightness, such \

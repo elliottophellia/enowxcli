@@ -61,6 +61,11 @@ details, or leave them to you.
      photographer's work on black); "developers like dark" is the category's
      default, not a reason. When "both" is chosen, both themes are built and
      checked, not one with the other left broken
+   - for anything with an interface and no existing component library: the
+     component library and icon set, as options for the chosen stack with
+     the recommendation first (for React with Tailwind: "shadcn/ui with
+     Lucide (recommended)", "Mantine with Tabler", "Radix Themes"); the `ui`
+     skill lists the choices per stack
    - constraints: the stack, where it runs, the data it works with. How
      the data is fetched, cached or deployed is the specialist's to decide;
      ask about it only when the user raised it

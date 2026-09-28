@@ -381,3 +381,49 @@ async fn a_charcoal_dark_theme_is_reported_and_a_real_dark_one_is_not() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+fn dashboard(sticky_side: bool, loud_rows: bool) -> String {
+    let side = if sticky_side {
+        "position: sticky; top: 0; height: 100dvh;"
+    } else {
+        "height: 100vh;"
+    };
+    let action = if loud_rows { "loud" } else { "quiet" };
+    let rows: String = (1..=6)
+        .map(|n| format!("<li class=\"row\"><span>Item {n}</span> <button class=\"{action}\">Return</button></li>"))
+        .collect();
+    format!(
+        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Desk</title>
+<style>body {{ margin: 0; font: 15px/1.5 system-ui; background: #fafaf7; color: #16150f; }}
+.shell {{ display: grid; grid-template-columns: 240px 1fr; align-items: start; }}
+aside {{ {side} background: #f0efe9; border-right: 1px solid #ddd; }}
+aside a {{ display: block; padding: 12px; min-height: 44px; color: #16150f; }}
+main {{ padding: 24px; min-height: 3000px; }}
+button {{ min-height: 44px; min-width: 44px; padding: 0 12px; font: inherit; border: 1px solid #999; }}
+.loud {{ background: #b3401f; color: #fff; border: 0; }} .quiet {{ background: transparent; color: #16150f; }}
+.primary {{ background: #b3401f; color: #fff; border: 0; }}
+.row {{ padding: 8px 0; }}</style></head>
+<body><div class="shell"><aside><nav><a href="#m">Overview</a></nav></aside>
+<main id="m"><h1>Today</h1><button class="primary">New loan</button><ul>{rows}</ul></main></div></body></html>"##
+    )
+}
+
+#[tokio::test]
+async fn a_short_sidebar_and_a_primary_on_every_row_are_reported() {
+    if no_chrome() {
+        return;
+    }
+    for (sticky, loud, expect_side, expect_loud) in
+        [(false, true, true, true), (true, false, false, false)]
+    {
+        let dir = folder(&dashboard(sticky, loud));
+        let reports = preview::preview(&dir, Target::File(dir.clone()), None, &dir.join("shots"))
+            .await
+            .unwrap();
+        let text = preview::report("index.html", &reports);
+        let wide = reports.last().unwrap();
+        assert_eq!(wide.short_side.is_some(), expect_side, "{text}");
+        assert_eq!(wide.repeated_primary.is_some(), expect_loud, "{text}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

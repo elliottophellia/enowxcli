@@ -199,6 +199,29 @@ page in charcoal grey (`#1e1e1e`, `#27272a`), a light page in dull grey
   page its skeleton in a `ui-page-*` skill. Read only the ones you build.
 - Reuse first: search the project for the component (Button, Input, Dialog,
   Card, Tabs) and use or extend it.
+- **Prefer a component library to hand-built parts.** A hand-rolled table,
+  select, dialog or date picker is where generated interfaces break: focus
+  that escapes, a menu that cannot be closed from the keyboard, a table with
+  ragged columns. Use the project's library when it has one. For a new
+  project, pick an established one for the stack, themed with the direction's
+  tokens rather than left at its default look:
+  - React or Next with Tailwind: shadcn/ui (Radix underneath); without
+    Tailwind: Mantine, or Radix Themes
+  - Vue or Nuxt: Nuxt UI, or shadcn-vue; PrimeVue for data-heavy screens
+  - Svelte: shadcn-svelte (Bits UI underneath), or Skeleton
+  - Angular: Angular Material, or Spartan
+  - React Native: Tamagui, or React Native Paper; Flutter: Material 3
+  - Plain HTML: Web Awesome (Shoelace), or Pico CSS for a simple page
+  Tables with sorting, filtering or many rows use TanStack Table (the
+  library's data table is usually built on it); charts use the library's
+  chart kit or Recharts, Chart.js, or ECharts, not hand-drawn bars.
+- **One icon library, imported as components**, the one that ships with the
+  component library when it has one (Lucide with shadcn, Tabler with
+  Mantine, Heroicons with Tailwind UI, Material Symbols with Material).
+  Navigation items, actions and statuses get icons; decoration does not.
+  The `icon` tool is for a page with no package manager.
+- Ask the user which library when it is open and the project is new (the
+  brainstorm does), with the recommendation for the stack first.
 - A component for each named concept, and wherever the same markup repeats
   with different content. Variants through props (`variant`, `size`), never
   copies. Pass native attributes through, so a Button stays a button.

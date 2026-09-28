@@ -41,12 +41,24 @@ Build it:
   fills it, not zeroes. Loading keeps the layout (skeletons matching the
   real blocks); errors sit on the block that failed, not the whole page.
 - **Navigation.** A sidebar only when there are more than five places to
-  go (`ui-part-sidebar`); otherwise a top bar (`ui-part-header`).
+  go (`ui-part-sidebar`); otherwise a top bar (`ui-part-header`). A sidebar
+  runs the full height of the window (`position: sticky; top: 0; height:
+  100dvh`, its own scroll when long), never a panel that stops halfway down.
+  Each item has an icon and a label, the current one marked.
+- **Built from the component library** (the `ui` skill): its data table,
+  badge, button, dropdown menu, card and chart components, themed with the
+  tokens, not hand-drawn copies.
+- **Actions in rows are quiet.** The page has one primary action, in its
+  header. A row's action is a ghost or outline button, or sits in a
+  labelled menu when there are several; the same filled accent button on
+  every row makes the whole list shout.
 - **On a phone.** The attention strip first, then the list as rows, then
   the figures; charts shrink to their headline number with the chart behind
   a tap.
 
-Avoid: the default admin shell (sidebar, four stat cards with invented
+Avoid: numbered section headings ("01 Perlu tindakan"), a sentence under
+every heading explaining the section, a heading left alone in a card, the
+accent colour on every button and badge, the default admin shell (sidebar, four stat cards with invented
 numbers and green deltas, a line chart titled "Overview", a recent activity
 feed of made-up people, a table of Name/Status/Date/Actions), gradients on
 cards, a greeting ("Welcome back, John!") taking the top of the screen.

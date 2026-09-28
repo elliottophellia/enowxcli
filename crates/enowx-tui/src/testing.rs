@@ -1398,6 +1398,20 @@ impl TestApp {
         self.inner.delegation_rects.len()
     }
 
+    /// Where the delegation list is on screen, as `(x, y)` of its first row.
+    pub fn delegation_list_at(&self) -> Option<(u16, u16)> {
+        self.inner.delegation_list_area.map(|area| (area.x, area.y))
+    }
+
+    /// The "earlier" and "more" rows on screen, as `(x, y, step)`.
+    pub fn delegation_slide_rows(&self) -> Vec<(u16, u16, isize)> {
+        self.inner
+            .delegation_slide_rects
+            .iter()
+            .map(|(rect, step)| (rect.x, rect.y, *step))
+            .collect()
+    }
+
     pub fn viewing_agent(&self) -> Option<String> {
         self.inner.viewing.as_ref().map(|v| v.agent.clone())
     }

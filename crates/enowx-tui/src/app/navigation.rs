@@ -164,6 +164,13 @@ impl App {
                     let default = self.opens_by_default(&id);
                     let current = self.tool_expanded.get(&id).copied().unwrap_or(default);
                     self.tool_expanded.insert(id, !current);
+                } else if let Some(step) = self
+                    .delegation_slide_rects
+                    .iter()
+                    .find(|(rect, _)| rect.contains(position))
+                    .map(|(_, step)| *step)
+                {
+                    self.slide_delegations(step);
                 } else if let Some(index) = self
                     .delegation_rects
                     .iter()
@@ -252,6 +259,18 @@ impl App {
                         );
                         return Ok(());
                     }
+                }
+                // Over a delegation list longer than it shows, the wheel
+                // slides the list, one delegation a step.
+                if self
+                    .delegation_list_area
+                    .is_some_and(|rect| rect.contains(position))
+                    && self.delegations.len() > crate::app::delegation_list::DELEGATIONS_SHOWN
+                {
+                    if !self.wheel_throttled() {
+                        self.slide_delegations(if up { -1 } else { 1 });
+                    }
+                    return Ok(());
                 }
                 // The side column pages its card, which is how it scrolls.
                 if self

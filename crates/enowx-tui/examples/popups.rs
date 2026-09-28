@@ -11,6 +11,20 @@ fn main() {
     match which.as_str() {
         "palette" => app.press(KeyCode::Char('p'), true).unwrap(),
         "custom" => app.open_custom_provider_form(),
+        "delegations" => {
+            app.begin_conversation();
+            for (n, agent) in ["fe", "fe", "fe", "fe", "be", "db", "fe", "test"]
+                .iter()
+                .enumerate()
+            {
+                app.deliver_delegation_started(
+                    agent,
+                    &format!("Build part {} of the shop", n + 1),
+                    &format!("branch-{n}"),
+                );
+            }
+            app.deliver_delegation_finished("fe", "branch-7", false);
+        }
         "providers" => {
             app.seed_key("deepseek", "sk-example");
             app.seed_provider(

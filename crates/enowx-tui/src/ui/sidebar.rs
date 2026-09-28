@@ -181,7 +181,14 @@ fn draw_detail_card(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let body = padded(inner, true);
     app.delegation_rects.clear();
-    let (lines, delegation_markers) = detail_lines(app, body.width as usize);
+    app.delegation_slide_rects.clear();
+    app.delegation_list_area = None;
+    let Detail {
+        lines,
+        delegation_markers,
+        slide_markers,
+        list_span,
+    } = detail_lines(app, body.width as usize);
     let page_size = body.height.max(1) as usize;
     app.sidebar_pages = lines.len().div_ceil(page_size).max(1);
     app.sidebar_page = app.sidebar_page.min(app.sidebar_pages - 1);
@@ -200,6 +207,24 @@ fn draw_detail_card(frame: &mut Frame, app: &mut App, area: Rect) {
     // can be clicked, so the rest are dropped rather than mapped to rows the
     // user cannot see. Two rows each: the name and the task under it.
     let first = app.sidebar_page * page_size;
+    let row_of = |line: usize| -> Option<u16> {
+        (line >= first && line < first + page_size).then(|| body.y + (line - first) as u16)
+    };
+    for (line, step) in slide_markers {
+        if let Some(y) = row_of(line) {
+            app.delegation_slide_rects
+                .push((Rect::new(body.x, y, body.width, 1), step));
+        }
+    }
+    if let Some((top, bottom)) = list_span {
+        // The part of the list on this page, clipped to it.
+        let top = top.max(first);
+        let bottom = bottom.min(first + page_size - 1);
+        if let (Some(y), true) = (row_of(top), top <= bottom) {
+            app.delegation_list_area =
+                Some(Rect::new(body.x, y, body.width, (bottom - top + 1) as u16));
+        }
+    }
     for (line, index) in delegation_markers {
         for offset in 0..2 {
             let line = line + offset;
@@ -378,8 +403,21 @@ fn flowed_names(
     }
 }
 
-fn detail_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usize)>) {
+/// A tab's lines, with where the delegation list sits in them.
+struct Detail {
+    lines: Vec<Line<'static>>,
+    /// The first line of each delegation shown, and its index.
+    delegation_markers: Vec<(usize, usize)>,
+    /// The "earlier" and "more" lines, and how far a click on each slides.
+    slide_markers: Vec<(usize, isize)>,
+    /// The first and last line of the delegation list, for the wheel.
+    list_span: Option<(usize, usize)>,
+}
+
+fn detail_lines(app: &App, width: usize) -> Detail {
     let mut delegation_markers: Vec<(usize, usize)> = Vec::new();
+    let mut slide_markers: Vec<(usize, isize)> = Vec::new();
+    let mut list_span: Option<(usize, usize)> = None;
     let t = &app.theme;
     let mut lines: Vec<Line<'static>> = Vec::new();
 
@@ -388,11 +426,33 @@ fn detail_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usi
             // Delegations first: a sixteen-agent roster is reference material,
             // while a sub-agent running right now is what someone opens this
             // tab to look at.
-            heading(&mut lines, "DELEGATED", t);
+            use crate::app::delegation_list::DELEGATIONS_SHOWN;
+            let total = app.delegations.len();
+            let running = app
+                .delegations
+                .iter()
+                .filter(|d| d.state == crate::app::DelegationState::Running)
+                .count();
+            // The count once the list is longer than what it shows, so the
+            // hidden ones are not forgotten.
+            let title = match (total > DELEGATIONS_SHOWN, running) {
+                (false, _) => "DELEGATED".to_owned(),
+                (true, 0) => format!("DELEGATED · {total}"),
+                (true, running) => format!("DELEGATED · {total}, {running} running"),
+            };
+            heading(&mut lines, &title, t);
             if app.delegations.is_empty() {
                 note(&mut lines, "Nothing delegated yet.", t);
             } else {
-                for (index, delegation) in app.delegations.iter().enumerate() {
+                let start = app.delegation_start();
+                let end = (start + DELEGATIONS_SHOWN).min(total);
+                let first_line = lines.len();
+                if start > 0 {
+                    slide_markers.push((lines.len(), -(DELEGATIONS_SHOWN as isize)));
+                    note(&mut lines, &format!("↑ {start} earlier"), t);
+                }
+                for (index, delegation) in app.delegations.iter().enumerate().take(end).skip(start)
+                {
                     delegation_markers.push((lines.len(), index));
                     let colour = match delegation.state {
                         crate::app::DelegationState::Running => t.yellow,
@@ -427,7 +487,20 @@ fn detail_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usi
                         Style::default().fg(t.faint),
                     ));
                 }
-                note(&mut lines, "click one to open · Esc returns", t);
+                if end < total {
+                    slide_markers.push((lines.len(), DELEGATIONS_SHOWN as isize));
+                    note(&mut lines, &format!("↓ {} more", total - end), t);
+                }
+                list_span = Some((first_line, lines.len().saturating_sub(1)));
+                note(
+                    &mut lines,
+                    if total > DELEGATIONS_SHOWN {
+                        "scroll to slide · click to open"
+                    } else {
+                        "click one to open · Esc returns"
+                    },
+                    t,
+                );
             }
 
             // The roster, names only and flowed, with the active agent in the
@@ -699,5 +772,10 @@ fn detail_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usi
             );
         }
     }
-    (lines, delegation_markers)
+    Detail {
+        lines,
+        delegation_markers,
+        slide_markers,
+        list_span,
+    }
 }

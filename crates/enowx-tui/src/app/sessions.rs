@@ -74,6 +74,7 @@ impl App {
         self.events = None;
         self.auto_scroll = true;
         self.delegations = self.replay_into_blocks(&session);
+        self.delegation_window = None;
         self.status = format!("resumed {}", &session.id[..8]);
         Ok(())
     }

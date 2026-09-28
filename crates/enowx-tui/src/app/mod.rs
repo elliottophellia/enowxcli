@@ -17,6 +17,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 mod actions;
 mod connection;
+pub(crate) mod delegation_list;
 mod events;
 mod keys;
 pub(crate) mod mcp_ui;
@@ -126,6 +127,13 @@ pub(crate) struct App {
     /// On-screen rows of the delegation list, so a click finds which one was
     /// hit. Rebuilt each frame from the line indices the sidebar returns.
     pub(crate) delegation_rects: Vec<(Rect, usize)>,
+    /// The first delegation the sidebar lists when it was slid back to
+    /// older ones; `None` follows the newest.
+    pub(crate) delegation_window: Option<usize>,
+    /// Where the delegation list is on screen, for the wheel to slide it.
+    pub(crate) delegation_list_area: Option<Rect>,
+    /// The "earlier" and "more" rows, and how far a click on each slides.
+    pub(crate) delegation_slide_rects: Vec<(Rect, isize)>,
     /// What has happened this session, for the LOGS tab.
     pub(crate) logs: crate::logs::Logs,
     /// Which kind the LOGS tab is showing; `None` is everything.
@@ -323,6 +331,9 @@ impl App {
             delegations: Vec::new(),
             viewing: None,
             delegation_rects: Vec::new(),
+            delegation_window: None,
+            delegation_list_area: None,
+            delegation_slide_rects: Vec::new(),
             home_started: None,
             logs: crate::logs::Logs::default(),
             log_filter: 0,
@@ -608,6 +619,7 @@ impl App {
         self.switch_markers.clear();
         // The Agents tab lists this session's sub-agents, not the last one's.
         self.delegations.clear();
+        self.delegation_window = None;
         self.adopt_agent(&enowx_core::Session::new(self.role));
         self.session_id = None;
         self.title.clear();

@@ -195,3 +195,91 @@ async fn a_server_that_fails_says_why() {
     assert!(error.contains("port 3000 is already in use"), "{error}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Sticky in the CSS, but a wrapper's overflow stops it sticking; five
+/// screens tall with no way back up.
+const LONG_SLOPPY: &str = r##"<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Long and lost</title>
+<style>
+body { margin: 0; font: 16px/1.5 system-ui; color: #1a1a1a; background: #fff; }
+.wrapper { overflow: hidden; }
+header { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #ccc; padding: 0 16px; }
+header a { display: inline-block; padding: 12px; min-height: 44px; min-width: 44px; color: #1a1a1a; }
+section { min-height: 1000px; padding: 16px; }
+</style></head>
+<body><div class="wrapper">
+<header><a href="#one">One</a> <a href="#two">Two</a></header>
+<main><h1>A long page</h1>
+<section id="one"><p>First part.</p></section>
+<section id="two"><p>Second part.</p></section>
+<section><p>Third part.</p></section>
+<section><p>Fourth part.</p></section>
+</main></div></body></html>"##;
+
+/// The same page as it should be: a bar that sticks, and a back-to-top
+/// link to `#top` (the top of the document, with no element of that id)
+/// that appears after the first screen.
+const LONG_CLEAN: &str = r##"<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Long and found</title>
+<style>
+html { scroll-padding-top: 76px; }
+body { margin: 0; font: 16px/1.5 system-ui; color: #1a1a1a; background: #fff; }
+header { position: sticky; top: 0; z-index: 10; background: #fff; border-bottom: 1px solid #ccc; padding: 0 16px; }
+header a { display: inline-block; padding: 12px; min-height: 44px; min-width: 44px; color: #1a1a1a; }
+section { min-height: 1000px; padding: 16px; }
+.to-top { position: fixed; right: 16px; bottom: 16px; z-index: 20; display: grid; place-items: center;
+  width: 48px; height: 48px; color: #1a1a1a; background: #fff; border: 1px solid #ccc; border-radius: 6px; text-decoration: none; }
+.to-top[hidden] { display: none; }
+</style></head>
+<body>
+<header><a href="#one">One</a> <a href="#two">Two</a></header>
+<main><h1>A long page</h1>
+<section id="one"><p>First part.</p></section>
+<section id="two"><p>Second part.</p></section>
+<section><p>Third part.</p></section>
+<section><p>Fourth part.</p></section>
+</main>
+<a class="to-top" href="#top" aria-label="Back to top">&uarr;</a>
+<script>
+const toTop = document.querySelector(".to-top");
+const place = () => { toTop.hidden = scrollY < innerHeight; };
+addEventListener("scroll", place, { passive: true });
+place();
+</script>
+</body></html>"##;
+
+#[tokio::test]
+async fn a_long_page_keeps_its_bar_in_view_and_a_way_back_up() {
+    if no_chrome() {
+        return;
+    }
+    let dir = folder(LONG_SLOPPY);
+    let reports = preview::preview(&dir, Target::File(dir.clone()), None, &dir.join("shots"))
+        .await
+        .unwrap();
+    let text = preview::report("index.html", &reports);
+    for report in &reports {
+        assert!(report.screens > 3.0, "{text}");
+        assert!(report.header_scrolls_away, "{text}");
+        assert!(report.no_back_to_top, "{text}");
+    }
+    assert!(text.contains("the top bar scrolls away"), "{text}");
+    assert!(text.contains("no way back to the top"), "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let dir = folder(LONG_CLEAN);
+    let reports = preview::preview(&dir, Target::File(dir.clone()), None, &dir.join("shots"))
+        .await
+        .unwrap();
+    let text = preview::report("index.html", &reports);
+    for report in &reports {
+        assert!(report.screens > 3.0, "{text}");
+        assert_eq!(report.problems(), 0, "{text}");
+    }
+    // Put back at the top for the screenshot, where the control hides.
+    let shot = std::fs::read(reports[0].screenshot.as_ref().unwrap()).unwrap();
+    assert!(shot.starts_with(b"\x89PNG"));
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -142,7 +142,7 @@ and three built-in skills are there to stop that (2026-09-28).
 | `ui-audit` | Finding the marks of generated work in an existing interface: what to search the code for, how to judge and rank each finding, the report, then the fix |
 | `ui-page-*` | One per kind of page (landing, local business, portfolio, docs, dashboard, list and detail, settings, form, sign-in): the skeleton to start from |
 | `ui-stack-*` | One per stack (plain HTML and CSS, Tailwind, React, Next, shadcn/ui, Vue, Svelte): its idioms, the generated version of it, and how to look at the result |
-| `ui-part-*` | One per part (header, navigation, sidebar, page header, footer, hero, sections, cards, social proof, pricing, FAQ, CTA, buttons, links, forms, choices, tables, lists, dialogs, drawers, menus, tooltips, notifications, badges, loading, tabs, breadcrumbs, pagination, search, images, avatars, charts): what it is for, how to build it, the generated version to avoid |
+| `ui-part-*` | One per part (header, which sticks by default, navigation, back to top, sidebar, page header, footer, hero, sections, cards, social proof, pricing, FAQ, CTA, buttons, links, forms, choices, tables, lists, dialogs, drawers, menus, tooltips, notifications, badges, loading, tabs, breadcrumbs, pagination, search, images, avatars, charts): what it is for, how to build it, the generated version to avoid |
 | `code` | Reading the codebase first, structure, names, types, errors, dependencies, frontend specifics, comments, hygiene |
 | `writing` | Specific over generic, words to drop, sentences, interface copy, errors and empty states, docs, voice |
 | `brainstorming` | When to agree a design with the user before building (a new project, feature or page, a redesign) and when not to; how: look first, ask everything open in one `ask` session (always the theme, for a new interface), offer approaches, confirm, hand the agreed design over |
@@ -208,7 +208,10 @@ and `review` has the two that only look:
   person would see: horizontal overflow and the element causing it, text
   below AA contrast, links to nowhere, controls without a name, touch
   targets under 44px on a phone, console errors, the number of h1s, a
-  missing viewport tag. It saves a screenshot of each width. An HTML file is
+  missing viewport tag. It also scrolls a long page halfway down: a top bar
+  that has left the screen (a sticky bar a wrapper's overflow stops from
+  sticking counts) and, past three screens, no visible way back to the top
+  are both reported. It saves a screenshot of each width. An HTML file is
   opened by its path; an application by its dev server's url, with the
   command that starts it, which the tool runs, waits for and stops. It talks
   to Chrome over the DevTools protocol, so nothing is installed with it.

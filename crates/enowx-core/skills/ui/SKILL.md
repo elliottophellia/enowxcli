@@ -162,6 +162,10 @@ nothing about the product.
   yet is removed, or visibly labelled "Coming soon".
 - Forms: a visible label for each field, the error beside the field in words,
   a submit button that says what it does and shows progress while it works.
+- Long pages: the top bar sticks, so the navigation is always in reach
+  (`ui-part-header`), and a page longer than about three screens on a phone
+  has a back-to-top control that appears after the first screen
+  (`ui-part-back-to-top`).
 
 ## 9. Responsive
 

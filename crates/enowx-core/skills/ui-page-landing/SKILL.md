@@ -10,7 +10,7 @@ One kind of page. The measures (container, grid, spacing, type) are in
 `ui-part-*` skill. Start from this skeleton, then cut and reorder for the
 content.
 
-1. Header: name left, three to five links, one action right.
+1. Header: name left, three to five links, one action right; it sticks.
 2. Opening: headline and one line of support on the left (7 of 12 columns),
    a real image or screenshot on the right (5 of 12); on a phone, text then
    image. Or text alone, left-aligned, when there is no real image.
@@ -23,6 +23,9 @@ content.
 6. Price or how to start, if there is one.
 7. Closing action: one line and the primary action again.
 8. Footer: contact and the links that exist.
+
+On a phone this runs well past three screens, so it has a back-to-top
+control (`ui-part-back-to-top`).
 
 Vary the sections: alternate a text-led section with a visual-led one,
 contained with full-bleed, left-weighted with right-weighted.

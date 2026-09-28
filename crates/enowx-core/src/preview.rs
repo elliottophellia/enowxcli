@@ -49,6 +49,14 @@ pub struct WidthReport {
     /// Whether the page has `<meta name="viewport">`; without it a phone
     /// lays the page out at 980px and shrinks it.
     pub viewport_meta: bool,
+    /// How many screens tall the page is at this width.
+    pub screens: f64,
+    /// A page longer than a screen and a half whose top bar leaves the
+    /// screen when it is scrolled.
+    pub header_scrolls_away: bool,
+    /// A page longer than three screens with no visible way back to the top
+    /// from halfway down.
+    pub no_back_to_top: bool,
     pub console_errors: Vec<String>,
     pub screenshot: Option<PathBuf>,
 }
@@ -65,6 +73,8 @@ impl WidthReport {
             + self.console_errors.len()
             + usize::from(self.h1_count != 1)
             + usize::from(!self.viewport_meta)
+            + usize::from(self.header_scrolls_away)
+            + usize::from(self.no_back_to_top)
     }
 }
 
@@ -344,6 +354,9 @@ impl Cdp {
             small_text: found["small_text"].as_u64().unwrap_or(0),
             h1_count: found["h1"].as_u64().unwrap_or(0),
             viewport_meta: found["viewport_meta"].as_bool().unwrap_or(true),
+            screens: found["screens"].as_f64().unwrap_or(0.0),
+            header_scrolls_away: found["header_scrolls_away"].as_bool().unwrap_or(false),
+            no_back_to_top: found["no_back_to_top"].as_bool().unwrap_or(false),
             console_errors: self.console_errors(session),
             screenshot: None,
         };
@@ -514,6 +527,20 @@ pub fn report(target: &str, reports: &[WidthReport]) -> String {
                 "  no <meta name=\"viewport\">: a phone lays the page out at 980px and shrinks it\n",
             );
         }
+        if r.header_scrolls_away {
+            out.push_str(&format!(
+                "  the top bar scrolls away on a page {} screens long: make it sticky \
+                 (ui-part-header)\n",
+                r.screens
+            ));
+        }
+        if r.no_back_to_top {
+            out.push_str(&format!(
+                "  {} screens long, and halfway down there is no way back to the top: add a \
+                 back-to-top control (ui-part-back-to-top)\n",
+                r.screens
+            ));
+        }
         if r.h1_count != 1 {
             out.push_str(&format!("  {} h1 elements; a page has one\n", r.h1_count));
         }
@@ -578,6 +605,9 @@ const CHECK_SCRIPT: &str = r#"(async () => {
   out.dead_anchors = [...document.querySelectorAll('a[href]')].filter(a => {
     const h = a.getAttribute('href');
     if (h === '#' || h === '') return true;
+    // `#top` is the top of the document by definition, with or without an
+    // element of that id.
+    if (h.toLowerCase() === '#top') return false;
     if (h.startsWith('#')) return !document.getElementById(decodeURIComponent(h.slice(1)));
     return false;
   }).slice(0, 6).map(a => (a.textContent.trim().slice(0, 30) || describe(a)) + ' -> ' + a.getAttribute('href'));
@@ -655,6 +685,52 @@ const CHECK_SCRIPT: &str = r#"(async () => {
         const r = el.getBoundingClientRect();
         return describe(el) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + 'px';
       });
+  }
+  // A long page, scrolled: whether the top bar stays in view, and whether
+  // there is a way back to the top from halfway down. Measured by scrolling
+  // rather than read from the CSS, so a sticky bar that a wrapper's overflow
+  // stops from sticking counts as scrolling away.
+  const root = document.documentElement;
+  const screen = window.innerHeight;
+  out.screens = Math.round(root.scrollHeight / screen * 10) / 10;
+  out.header_scrolls_away = false;
+  out.no_back_to_top = false;
+  if (out.screens > 1.5) {
+    const header = [...document.querySelectorAll('header, [role=banner], nav')].find(el => {
+      const r = el.getBoundingClientRect();
+      return r.height > 0 && r.top + window.scrollY < 80 && r.width > W * 0.5 && r.height < screen / 2;
+    });
+    const behaviour = root.style.scrollBehavior;
+    root.style.scrollBehavior = 'auto';
+    const settle = () => new Promise(done => setTimeout(done, 400));
+    const bottom = root.scrollHeight - screen;
+    window.scrollTo(0, Math.min(Math.max(screen, bottom / 2), bottom));
+    await settle();
+    if (header) {
+      const r = header.getBoundingClientRect();
+      out.header_scrolls_away = r.bottom <= 1 || r.top >= screen;
+    }
+    if (out.screens > 3) {
+      const named = /\bto\s+(the\s+)?top\b|^\s*top\s*$|\bke atas\b/i;
+      const atTop = el => el === document.body || el === root
+        || (el.getBoundingClientRect().top + window.scrollY < 50 && !(header && header.contains(el)));
+      out.no_back_to_top = ![...document.querySelectorAll('a[href], button, [role=button]')].some(el => {
+        const r = el.getBoundingClientRect();
+        if (!visible(el) || r.bottom <= 0 || r.top >= screen) return false;
+        if (parseFloat(getComputedStyle(el).opacity) < 0.1) return false;
+        const href = el.getAttribute('href') || '';
+        if (href.toLowerCase() === '#top') return true;
+        if (href.length > 1 && href.startsWith('#')) {
+          const target = document.getElementById(decodeURIComponent(href.slice(1)));
+          if (target && atTop(target)) return true;
+        }
+        const name = [el.getAttribute('aria-label'), el.getAttribute('title'), el.textContent].join(' ');
+        return named.test(name.trim());
+      });
+    }
+    window.scrollTo(0, 0);
+    await settle();
+    root.style.scrollBehavior = behaviour;
   }
   return out;
 })()"#;

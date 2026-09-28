@@ -274,9 +274,19 @@ fn points_fall_with_what_a_person_would_run_into() {
         ..clean.clone()
     };
     assert_eq!(eval::points(&worse), 100 - 16 - 6 - 4 - 5);
+    let long = Score {
+        header_scrolls_away: true,
+        no_back_to_top: true,
+        ..clean.clone()
+    };
+    assert_eq!(eval::points(&long), 94);
     let missing = Score {
         page_missing: true,
         ..clean
     };
     assert_eq!(eval::points(&missing), 60);
+
+    // A run saved before a field existed still loads for --compare.
+    let old: Vec<Score> = serde_json::from_str(r#"[{"case": "bakery", "points": 70}]"#).unwrap();
+    assert_eq!((old[0].points, old[0].no_back_to_top), (70, false));
 }

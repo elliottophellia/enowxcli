@@ -81,8 +81,11 @@ paragraphs or lists.
 - Side padding 16 to 20px; section spacing 48 to 64px; type one step
   smaller for headings.
 - Media full width of the container; a split becomes text then media.
-- Navigation behind a labelled "Menu" button, or a bottom bar of 3 to 5
-  labelled items in an application.
+- Navigation behind a labelled "Menu" button in a top bar that sticks and
+  stays 56px tall, or a bottom bar of 3 to 5 labelled items in an
+  application.
+- A back-to-top control once the page passes three screens, which on a
+  phone is nearly every page with sections (`ui-part-back-to-top`).
 - Tables: a scroll container with a visible edge, or one card per row.
 - The primary action within reach: full width at the end of the content, or
   sticky at the bottom in a long form.
@@ -103,3 +106,4 @@ Before calling a layout done, look for these and fix them:
 - Headings with equal space above and below.
 - Nothing on the screen clearly more important than the rest.
 - A wide-screen layout squeezed onto a phone rather than rearranged.
+- A top bar that scrolls away, or a long page with no way back to the top.

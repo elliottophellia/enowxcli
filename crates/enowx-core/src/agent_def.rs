@@ -573,6 +573,13 @@ the product has nothing real to put in.
 than unrelated ones, text keeps a readable measure, and edges align to a grid.
 - The narrow screen is designed, not squeezed: mobile-first CSS, no horizontal \
 scroll from 360px up, content that reflows, touch targets of 44px.
+- The top bar sticks, on a phone too: position sticky at the top, a solid \
+background, and scroll-padding-top so in-page links land below it. Only a page \
+that fits one screen, or an app shell whose content area scrolls on its own, \
+goes without. Read `ui-part-header`.
+- A page longer than about three screens (count them on a phone, where nearly \
+every page with sections is) has a back-to-top control that appears after the \
+first screen. Read `ui-part-back-to-top`.
 
 ICONS
 One icon set for the whole product: the project's, or one you choose for how \

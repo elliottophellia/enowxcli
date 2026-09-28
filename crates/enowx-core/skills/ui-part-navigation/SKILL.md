@@ -13,6 +13,8 @@ icons, states, accessibility) are in the `ui` skill, the measures in
   already use ("Invoices", "Clients", not "Solutions").
 - Build:
   - Order by how often each place is used, not by the org chart.
+  - On a website it lives in the header, which sticks (`ui-part-header`),
+    so it is in reach anywhere on the page.
   - Dropdowns only for real groups. They open on click, tap and Enter, close
     on Escape and on a click outside, and never exist only on hover.
   - The phone menu is a full-width panel or sheet with 44px rows, a labelled

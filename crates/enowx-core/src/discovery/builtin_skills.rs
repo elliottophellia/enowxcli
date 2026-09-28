@@ -74,6 +74,10 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
         include_str!("../../skills/ui-part-avatars/SKILL.md"),
     ),
     (
+        "ui-part-back-to-top",
+        include_str!("../../skills/ui-part-back-to-top/SKILL.md"),
+    ),
+    (
         "ui-part-badges",
         include_str!("../../skills/ui-part-badges/SKILL.md"),
     ),

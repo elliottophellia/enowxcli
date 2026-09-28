@@ -14,3 +14,7 @@ The visitor wants to know: what, where, when, how much, how to book. Put
 those in the first screen: name and what it is, the booking action, and a
 compact block with address, hours and phone. Then services with prices,
 location with a map link, and the booking steps. No slogans before facts.
+
+The header sticks with the booking action in it, so booking is one tap from
+anywhere on the page, and on a phone the page has a back-to-top control
+(`ui-part-back-to-top`).

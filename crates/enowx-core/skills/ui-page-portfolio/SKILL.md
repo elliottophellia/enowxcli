@@ -14,3 +14,7 @@ The work is the page. One line saying who and what, then the projects:
 large images, each with the problem, the role and the outcome in two or
 three lines. A project list is not a grid of equal cards: lead with the
 strongest, vary the sizes. About and contact after.
+
+The header sticks and stays slim, so it does not crop the work; a page of
+projects runs long, so it has a back-to-top control
+(`ui-part-back-to-top`).

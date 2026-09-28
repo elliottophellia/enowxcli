@@ -13,3 +13,7 @@ content.
 A list (table or rows) with filters above it; selecting opens the detail on
 its own page, or in a side panel 400 to 560px wide when comparing between
 items matters. The list keeps its scroll position when the detail closes.
+
+A list longer than three screens has a back-to-top control in its own
+scroll area (`ui-part-back-to-top`), and its filters stay reachable: sticky
+above the list, or behind the back-to-top.

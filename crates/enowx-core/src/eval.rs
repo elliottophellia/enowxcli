@@ -79,8 +79,10 @@ pub fn cases() -> Vec<Case> {
     ]
 }
 
-/// What a case left behind, and what it cost.
+/// What a case left behind, and what it cost. Fields missing from an older
+/// saved run read as their defaults, so `--compare` still loads it.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Score {
     pub case: String,
     pub points: i64,
@@ -106,6 +108,11 @@ pub struct Score {
     pub console_errors: usize,
     pub h1_count: u64,
     pub viewport_meta: bool,
+    /// At some width, a long page's top bar scrolled away.
+    pub header_scrolls_away: bool,
+    /// At some width, a page of more than three screens had no way back to
+    /// the top from halfway down.
+    pub no_back_to_top: bool,
     pub design_md: bool,
     pub skills_read: Vec<String>,
     pub tools: BTreeMap<String, usize>,
@@ -131,7 +138,9 @@ pub fn points(score: &Score) -> i64 {
         + 3 * score.missing_alt
         + 3 * score.unnamed_controls
         + score.small_targets
-        + 4 * score.console_errors;
+        + 4 * score.console_errors
+        + 3 * usize::from(score.header_scrolls_away)
+        + 3 * usize::from(score.no_back_to_top);
     if score.preview_skipped.is_none() && !score.page_missing {
         lost += 3 * usize::from(score.h1_count != 1) + 5 * usize::from(!score.viewport_meta);
     }
@@ -198,6 +207,8 @@ pub async fn measure(workspace: &Path, page: &str, case: &str) -> Score {
             score.console_errors = distinct(|r| &r.console_errors);
             score.h1_count = reports.first().map_or(0, |r| r.h1_count);
             score.viewport_meta = reports.first().is_some_and(|r| r.viewport_meta);
+            score.header_scrolls_away = reports.iter().any(|r| r.header_scrolls_away);
+            score.no_back_to_top = reports.iter().any(|r| r.no_back_to_top);
         }
         Err(error) => score.preview_skipped = Some(format!("{error:#}")),
     }
@@ -420,6 +431,12 @@ pub fn table(scores: &[Score], previous: &[Score]) -> String {
                 if n > 0 {
                     parts.push(format!("{n} {label}"));
                 }
+            }
+            if score.header_scrolls_away {
+                parts.push("bar scrolls away".to_owned());
+            }
+            if score.no_back_to_top {
+                parts.push("no back-to-top".to_owned());
             }
             if parts.is_empty() {
                 "clean".to_owned()

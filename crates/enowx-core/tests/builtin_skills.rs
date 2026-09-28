@@ -206,10 +206,7 @@ fn each_agent_carries_the_skills_for_its_work() {
     assert!(carried("fe").iter().any(|s| s == "ui-part-hero"));
     assert!(carried("fe").iter().any(|s| s == "ui-page-dashboard"));
     assert!(carried("fe").iter().any(|s| s == "writing"));
-    assert_eq!(
-        carried("review"),
-        ["ui", "ui-components", "code", "writing"]
-    );
+    assert_eq!(carried("review"), carried("fe"));
     assert!(carried("mobile").iter().any(|s| s == "ui-part-sidebar"));
     assert!(!carried("mobile").iter().any(|s| s == "writing"));
     assert_eq!(carried("docs"), ["writing"]);

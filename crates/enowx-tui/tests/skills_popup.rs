@@ -7,7 +7,7 @@ use enowx_tui::testing::TestApp;
 fn a_builtin_skill_says_which_agents_carry_it() {
     let mut app = TestApp::new();
     app.enter_skills_modal();
-    let rows = app.render_to_text(120, 30);
+    let rows = app.render_to_text(140, 90);
     let ui = rows
         .iter()
         .find(|row| row.contains(" ui ") && row.contains("built-in"))

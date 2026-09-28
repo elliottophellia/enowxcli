@@ -217,7 +217,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
     const FULL: &[&str] = &["read", "write", "edit", "glob", "grep", "bash", "todo"];
 
     // The built-in skills each carries: interface work gets `ui` and
-    // `ui-components`, anything that writes code gets `code`, anything whose
+    // every `ui-page-*` and `ui-part-*`, anything that writes code gets `code`, anything whose
     // words people read gets `writing`. The orchestrator carries
     // `brainstorming`, for agreeing a new project's design with the user
     // before routing it; the read-only gatherers and the auditor have

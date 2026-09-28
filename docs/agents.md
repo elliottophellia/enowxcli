@@ -138,7 +138,10 @@ and three built-in skills are there to stop that (2026-09-28).
 | Skill | For |
 |---|---|
 | `ui` | Direction, layout, spacing, type, colour, icons, components, states, responsive, accessibility, content |
-| `ui-components` | Each part of a page: header, navigation, sidebar, page header, footer, hero, sections, cards, social proof, pricing, FAQ, CTA band, buttons, links, forms, choices, tables, lists, dialogs, drawers, menus, tooltips, notifications, badges, loading, tabs, breadcrumbs, pagination, search, images, avatars, charts. Each says what it is for, how to build it, and the generated version to avoid |
+| `ui-layout` | The measures: container, grid, spacing rhythm, type scale; section compositions; the phone layout; checks for a generated-looking layout |
+| `ui-audit` | Finding the marks of generated work in an existing interface: what to search the code for, how to judge and rank each finding, the report, then the fix |
+| `ui-page-*` | One per kind of page (landing, local business, portfolio, docs, dashboard, list and detail, settings, form, sign-in): the skeleton to start from |
+| `ui-part-*` | One per part (header, navigation, sidebar, page header, footer, hero, sections, cards, social proof, pricing, FAQ, CTA, buttons, links, forms, choices, tables, lists, dialogs, drawers, menus, tooltips, notifications, badges, loading, tabs, breadcrumbs, pagination, search, images, avatars, charts): what it is for, how to build it, the generated version to avoid |
 | `code` | Reading the codebase first, structure, names, types, errors, dependencies, frontend specifics, comments, hygiene |
 | `writing` | Specific over generic, words to drop, sentences, interface copy, errors and empty states, docs, voice |
 | `brainstorming` | When to agree a design with the user before building (a new project, feature or page, a redesign) and when not to; how: look first, ask one question at a time with `ask`, offer approaches, confirm, hand the agreed design over |
@@ -155,8 +158,8 @@ with a skill to read.
 
 | Agent | Carries |
 |---|---|
-| `fe`, `review` | `ui`, `ui-components`, `code`, `writing` |
-| `mobile` | `ui`, `ui-components`, `code` |
+| `fe`, `review` | every `ui*` skill, `code`, `writing` |
+| `mobile` | every `ui*` skill, `code` |
 | `general` | `code`, `writing` |
 | `docs` | `writing` |
 | `be`, `db`, `devops`, `systems`, `test`, `perf` | `code` |
@@ -177,10 +180,14 @@ there is none rather than falling back to the generated look, keeps one icon
 set imported per icon, builds components for named concepts and repeated
 markup on tokens, gives every data view empty, loading and error states, uses
 real content or labelled placeholders, and reports the direction, stack and
-icon set it chose. It reads `ui` before designing a page, `ui-components`
-before building a part of one, `writing` before a page's copy, and `code`
-before a new component or module. The component catalogue is a skill of its
-own so a colour change does not read thirty components' worth of rules.
+icon set it chose. It reads `ui` and `ui-layout` before designing a page, the
+`ui-page-*` skill for the kind of page and the `ui-part-*` skill for each part
+it builds (only those), `writing` before a page's copy, and `code` before a new
+component or module. An existing interface is audited first with `ui-audit`,
+and `review` reports the same marks. The guidance is split one skill per part
+so building a hero reads the hero's rules, not thirty components' worth.
+The list of built-in skills is generated from `crates/enowx-core/skills/`, and a
+test fails when a directory there is not compiled in.
 
 The shared rule used to allow one skill per task, which stopped agents loading
 six skills before any work. It now reads: the skill the agent's instructions

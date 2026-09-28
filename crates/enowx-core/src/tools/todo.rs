@@ -33,7 +33,13 @@ impl Tool for TodoTool {
         },"required":["op"],"additionalProperties":false})
     }
     async fn execute(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutput> {
-        let op = string_arg(&args, "op")?;
+        // A call with items and no `op` is a plan being set: failing it only
+        // costs a second call that says the same thing with `op` added.
+        let op = match args.get("op").and_then(Value::as_str) {
+            Some(_) => string_arg(&args, "op")?,
+            None if args.get("items").is_some() => "set",
+            None => string_arg(&args, "op")?,
+        };
         let mut items = self.items.lock().await;
         match op {
             "set" => {
@@ -133,6 +139,18 @@ mod tests {
             call_id: String::new(),
             skills: Vec::new(),
         }
+    }
+
+    #[tokio::test]
+    async fn items_without_an_op_set_the_plan() {
+        let tool = TodoTool::default();
+        let out = tool
+            .execute(&ctx(), json!({"items":["scaffold","build"]}))
+            .await
+            .unwrap();
+        assert!(!out.is_error);
+        assert!(out.content.contains("2 remaining"), "{}", out.content);
+        assert!(tool.execute(&ctx(), json!({})).await.is_err());
     }
 
     #[tokio::test]

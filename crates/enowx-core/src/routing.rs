@@ -536,8 +536,9 @@ pub fn routing_schemas(hand_off: HandOff) -> Vec<serde_json::Value> {
                 "Give a piece of work to a specialist. It starts from your briefing \
                  alone, works in its own context, and returns a summary. Call it \
                  several times in one step to run parts at the same time, several to \
-                 the same specialist if you like; a file one agent is editing is \
-                 closed to the others until it finishes.",
+                 the same specialist if you like: parts that do not depend on each \
+                 other go out together, never one after another. A file one agent is \
+                 editing is closed to the others until it finishes.",
             "parameters": {
                 "type": "object",
                 "properties": {

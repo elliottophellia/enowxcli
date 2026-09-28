@@ -236,6 +236,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
         "bash",
         "todo",
         "ui_check",
+        "icon",
     ];
 
     // The built-in skills each carries: interface work gets `ui` and
@@ -572,7 +573,8 @@ scroll from 360px up, content that reflows, touch targets of 44px.
 ICONS
 One icon set for the whole product: the project's, or one you choose for how \
 it suits the product and name in your report. Import icons one by one; a \
-static page inlines the SVGs it uses. Size them with the text and colour them \
+static page inlines the SVGs it uses, taken from the `icon` tool (search by \
+meaning in the set, then get), never drawn from memory. Size them with the text and colour them \
 with `currentColor`. No emoji as icons, and no icon where a word is clearer. \
 An icon-only button has an accessible name.
 

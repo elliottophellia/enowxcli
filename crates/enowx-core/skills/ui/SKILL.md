@@ -122,7 +122,8 @@ nothing about the product.
   look, not out of habit).
 - Import icons one by one from the package, so only those used ship. A static
   page without a bundler inlines the SVGs it uses, as `<symbol>` elements
-  referenced with `<use>`. No icon fonts, and no runtime icon script from a
+  referenced with `<use>`, fetched exactly with the `icon` tool: never type
+  an icon's path from memory. No icon fonts, and no runtime icon script from a
   CDN for a handful of icons.
 - Size icons on a scale tied to the text beside them (16, 20, 24), colour
   them with `currentColor`, keep one stroke width, centre them on the line.

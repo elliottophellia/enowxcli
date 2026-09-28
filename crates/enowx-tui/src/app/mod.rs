@@ -1,6 +1,6 @@
 use crate::{
     commands::COMMANDS,
-    modal::{Modal, SettingsDraft, SettingsField, SETTINGS_FIELDS},
+    modal::{Modal, SettingsDraft, SettingsField},
     session::{Activity, TranscriptBlock, TranscriptKind, SPINNER},
     theme::{Theme, THEMES},
 };
@@ -9,7 +9,7 @@ mod attach;
 use enowx_core::{
     discovery::Discovery,
     provider::{ModelInfo, Provider},
-    Agent, Config, Event, MessageRole, Role, RunRequest, SessionStore, PROVIDER_PRESETS,
+    Agent, Config, Event, MessageRole, Role, RunRequest, SessionStore,
 };
 use ratatui::layout::Rect;
 use std::{collections::HashMap, sync::Arc, time::Instant};
@@ -20,6 +20,7 @@ mod connection;
 mod events;
 mod keys;
 pub(crate) mod mcp_ui;
+pub(crate) mod model_picker;
 mod navigation;
 pub(crate) mod question;
 mod sessions;
@@ -201,9 +202,12 @@ pub(crate) struct App {
     pub(crate) last_answer: Option<enowx_core::ask::Answer>,
     pub(crate) settings: SettingsDraft,
     pub(crate) field_cursor: usize,
-    pub(crate) discovering_models: bool,
-    pub(crate) model_events: Option<mpsc::Receiver<Result<Vec<ModelInfo>, String>>>,
-    pub(crate) models: Vec<ModelInfo>,
+    /// The `/model` list: each connected provider's models, and the
+    /// recent and favourite picks.
+    pub(crate) picker: model_picker::ModelPicker,
+    /// The provider id on each row of `/provider`, in order; the row after
+    /// them adds a new one.
+    pub(crate) provider_ids: Vec<String>,
     pub(crate) modal_error: String,
     pub(crate) activity: Activity,
     pub(crate) activity_since: Instant,
@@ -301,7 +305,7 @@ impl App {
         let discovery = agent.discovery();
         Self {
             agent,
-            settings: SettingsDraft::from_config(&config),
+            settings: SettingsDraft::default(),
             config,
             store: SessionStore::default(),
             blocks: Vec::new(),
@@ -359,9 +363,8 @@ impl App {
             question_rows: Vec::new(),
             last_answer: None,
             field_cursor: 0,
-            discovering_models: false,
-            model_events: None,
-            models: Vec::new(),
+            picker: model_picker::ModelPicker::default(),
+            provider_ids: Vec::new(),
             modal_error: String::new(),
             activity: Activity::Idle,
             activity_since: Instant::now(),
@@ -537,9 +540,10 @@ impl App {
         self.agent_name = session.agent_or_default();
     }
 
-    /// Model name shown in the composer footer.
+    /// Model name shown in the composer footer: the model in use, with its
+    /// provider.
     pub(crate) fn model_label(&self) -> String {
-        let m = self.config.model.default.trim();
+        let m = self.config.model.active.trim();
         if m.is_empty() {
             "no model".to_string()
         } else {
@@ -569,7 +573,6 @@ impl App {
     pub(crate) fn adopt(&mut self, config: Config) {
         self.theme = Theme::find(&config.ui.theme);
         self.show_sidebar = config.ui.show_sidebar;
-        self.settings = SettingsDraft::from_config(&config);
         self.context_window = config.model.context_window;
         self.config = config.clone();
         self.agent = Arc::new(Agent::new(config).asking_user());

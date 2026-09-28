@@ -117,10 +117,7 @@ async fn run(replies: Vec<String>, max_steps: u32, tag: &str) -> (Vec<Event>, us
     let dir = Dir::new(tag);
     let (url, bodies) = provider(replies).await;
     let mut config = Config::default();
-    config.provider.name = "test".into();
-    config.provider.base_url = url;
-    config.provider.api_key = "test-key".into();
-    config.model.default = "test-model".into();
+    config.use_endpoint("test", &url, "test-key", "test-model");
     config.agent.workspace = Some(dir.0.clone());
     config.agent.max_steps = max_steps;
     config.agent.auto_compact = false;

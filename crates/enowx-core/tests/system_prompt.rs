@@ -106,10 +106,7 @@ async fn system_prompt_sent(tag: &str) -> String {
     let dir = Dir::new(tag);
     let (base_url, bodies) = recording_provider().await;
     let mut config = Config::default();
-    config.provider.name = "test".into();
-    config.provider.base_url = base_url;
-    config.provider.api_key = "test-key".into();
-    config.model.default = "test-model".into();
+    config.use_endpoint("test", &base_url, "test-key", "test-model");
     config.agent.workspace = Some(dir.0.clone());
     config.agent.max_steps = 2;
     config.agent.auto_compact = false;
@@ -201,10 +198,7 @@ async fn sent_to(agent: &str, tag: &str) -> (String, Vec<String>) {
     let dir = Dir::new(tag);
     let (base_url, bodies) = recording_provider().await;
     let mut config = Config::default();
-    config.provider.name = "test".into();
-    config.provider.base_url = base_url;
-    config.provider.api_key = "test-key".into();
-    config.model.default = "test-model".into();
+    config.use_endpoint("test", &base_url, "test-key", "test-model");
     config.agent.workspace = Some(dir.0.clone());
     config.agent.max_steps = 2;
     config.agent.auto_compact = false;

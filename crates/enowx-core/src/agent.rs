@@ -640,14 +640,21 @@ impl Agent {
             return None;
         }
         let previous = ladder.tier();
-        let step = ladder.next(&self.config)?;
+        // A rung on a provider with no key is passed over: it would only
+        // fail again, on the key rather than the model.
+        let step = loop {
+            let step = ladder.next(&self.config)?;
+            if agent_model_unusable(agent_config, &step.model).is_none() {
+                break step;
+            }
+        };
         let drop = crate::provider::tier_drop(previous, &step, error);
         let _ = events
             .send(Event::Notice {
                 message: drop.message(),
             })
             .await;
-        agent_config.model.default = step.model.clone();
+        agent_config.use_model(&step.model);
         Provider::from_config(agent_config).ok()
     }
 
@@ -867,10 +874,13 @@ impl Agent {
         if prompt.is_empty() && !continuing {
             anyhow::bail!("the message is empty");
         }
-        anyhow::ensure!(
-            self.config.is_ready(),
-            "Configure a provider with /provider, or set ENX_BASE_URL, ENX_MODEL and ENX_API_KEY."
-        );
+        if !self.config.is_ready() {
+            anyhow::bail!(if self.config.has_connected_provider() {
+                "Choose a model with /model."
+            } else {
+                "Connect a provider with /provider, or set ENX_BASE_URL, ENX_MODEL and ENX_API_KEY."
+            });
+        }
         let workspace = std::fs::canonicalize(self.config.workspace())
             .context("resolving the configured workspace")?;
         let mut session = match &request.session_id {
@@ -961,11 +971,15 @@ impl Agent {
         let active = self.active_agent(&session);
         let model = self.config.model_for(&active.name, active.tier);
         let mut agent_config = self.config.clone();
-        if !model.is_empty() {
-            agent_config.model.default = model;
+        if !model.is_empty() && model != agent_config.model.active {
+            if let Some(notice) = agent_model_unusable(&agent_config, &model) {
+                let _ = events.send(Event::Notice { message: notice }).await;
+            } else {
+                agent_config.use_model(&model);
+            }
         }
         let mut provider = Provider::from_config(&agent_config)?;
-        let mut provider_model = agent_config.model.default.clone();
+        let mut provider_model = agent_config.model.active.clone();
         let mut ladder =
             crate::provider::ModelLadder::new(&active.name, active.tier, &provider_model);
         // Servers still starting after a short wait are left out of this
@@ -1141,7 +1155,7 @@ impl Agent {
                             {
                                 Some(next_provider) => {
                                     provider = next_provider;
-                                    provider_model = agent_config.model.default.clone();
+                                    provider_model = agent_config.model.active.clone();
                                     continue;
                                 }
                                 None => {
@@ -1687,6 +1701,26 @@ fn files_touched(branch: &Session) -> Vec<String> {
         }
     }
     out
+}
+
+/// Why an agent cannot run on `model`, its own or its tier's: a provider
+/// enx does not know, or one with no key. The agent then runs on the model
+/// in use, and the user is told, rather than every call failing on a
+/// missing key.
+fn agent_model_unusable(config: &Config, model: &str) -> Option<String> {
+    let Some(parsed) = config.parse_model(model) else {
+        return Some(format!(
+            "`{model}` names no provider enx knows; staying on {}",
+            config.model.active
+        ));
+    };
+    let connection = config.connection(&parsed.provider)?;
+    (!connection.is_connected()).then(|| {
+        format!(
+            "{} is not connected, so {parsed} cannot run; staying on {}. Connect it in /provider.",
+            connection.name, config.model.active
+        )
+    })
 }
 
 #[cfg(test)]

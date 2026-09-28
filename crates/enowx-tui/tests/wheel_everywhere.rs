@@ -67,7 +67,7 @@ fn the_wheel_moves_a_picker() {
 #[test]
 fn the_wheel_moves_between_settings_fields() {
     let mut app = TestApp::new();
-    app.open_settings();
+    app.open_custom_provider_form();
     let first = app.modal_cursor();
     step(&mut app, true, 60, 10);
     assert_eq!(app.modal_cursor(), first + 1);

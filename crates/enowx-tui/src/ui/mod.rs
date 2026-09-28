@@ -1,6 +1,6 @@
 use crate::{
     app::App,
-    modal::{Modal, SettingsField, SETTINGS_FIELDS},
+    modal::{Modal, SettingsField},
     session::TranscriptKind,
     text::{input_rows, trim},
     theme::Theme,

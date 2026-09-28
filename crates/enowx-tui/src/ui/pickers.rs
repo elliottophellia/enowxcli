@@ -27,34 +27,23 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
     );
     let per_row = if matches!(
         app.modal,
-        Modal::Agents
-            | Modal::Message
-            | Modal::TypeSafe
-            | Modal::ModelSource
-            | Modal::Providers
-            | Modal::Themes
+        Modal::Agents | Modal::Message | Modal::TypeSafe | Modal::Providers | Modal::Themes
     ) {
         2
     } else {
         1
     };
-    let body = if app.modal == Modal::Models {
-        (app.modal_items.len() as u16).max(3)
-    } else {
-        (app.modal_items.len() as u16 * per_row).min(20)
-    };
-    let hint = if app.modal != Modal::Models {
-        LIST_HINT
-    } else if app.modal_items.is_empty() {
-        "F5 retry · F2 enter an ID · Esc cancel"
-    } else {
-        "Enter uses it now · F5 refresh · Esc cancel"
-    };
-    let (_, content) = overlay(frame, app, width, body, app.modal.title(), hint);
     if app.modal == Modal::Models {
-        draw_model_list(frame, app, content);
+        draw_model_picker(frame, app, width);
         return;
     }
+    let body = (app.modal_items.len() as u16 * per_row).min(20);
+    let hint = if app.modal == Modal::Providers {
+        "Enter connect · d disconnect · Esc close"
+    } else {
+        LIST_HINT
+    };
+    let (_, content) = overlay(frame, app, width, body, app.modal.title(), hint);
     let t = app.theme;
     // The `›` marker takes two columns; text past the box ends in `…`
     // rather than stopping mid-word at the edge.
@@ -124,7 +113,7 @@ fn own_model(app: &App, name: &str) -> Option<String> {
     }
     let agent = app.discovery.agents.iter().find(|a| a.name == name)?;
     let model = app.config.model_for(name, agent.tier);
-    (!model.is_empty() && model != app.config.model.default.trim()).then_some(model)
+    (!model.is_empty() && model != app.config.model.active.trim()).then_some(model)
 }
 
 /// Click targets for the rows a list drew. The list scrolls to keep the
@@ -153,59 +142,94 @@ pub(super) fn selectable<'a>(list: List<'a>, t: &Theme) -> List<'a> {
         .highlight_style(Style::default().bg(t.active_tab))
 }
 
-pub(super) fn draw_model_list(frame: &mut Frame, app: &mut App, area: Rect) {
-    if app.discovering_models {
-        frame.render_widget(
-            Paragraph::new(format!(
-                "Asking {} for its model list…",
-                app.settings.provider
-            ))
-            .style(Style::default().fg(app.theme.muted)),
-            area,
-        );
-        return;
-    }
-    if app.modal_items.is_empty() {
-        frame.render_widget(
-            Paragraph::new(if app.modal_error.is_empty() {
-                "No models detected. Enter a model-list URL or use manual entry."
-            } else {
-                &app.modal_error
-            })
-            .wrap(ratatui::widgets::Wrap { trim: false })
-            .style(Style::default().fg(app.theme.red)),
-            area,
-        );
-        return;
-    }
+/// `/model`: a search field, then the favourite and recent models and each
+/// connected provider's, under headings.
+fn draw_model_picker(frame: &mut Frame, app: &mut App, width: u16) {
+    use crate::app::model_picker::PickerRow;
     let t = app.theme;
-    let items: Vec<ListItem> = app
-        .modal_items
+    let rows = app.picker_rows();
+    let area = frame.area();
+    // The search row and a gap, then as many rows as fit a comfortable box.
+    let body = (rows.len() as u16 + 2).clamp(5, area.height.saturating_sub(8).max(5));
+    let hint = if width < 64 {
+        "Enter use · ^F favourite · Esc"
+    } else {
+        "Enter use · Ctrl+F favourite · F2 add · F5 refresh · Esc"
+    };
+    let (_, content) = overlay(frame, app, width, body, app.modal.title(), hint);
+    if content.height < 3 {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("search  ", Style::default().fg(t.muted)),
+            Span::styled(
+                format!("{}_", app.modal_search),
+                Style::default().fg(t.text),
+            ),
+        ])),
+        Rect::new(content.x, content.y, content.width, 1),
+    );
+    let list = Rect::new(
+        content.x,
+        content.y + 2,
+        content.width,
+        content.height.saturating_sub(2),
+    );
+    if rows.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No model matches. Esc clears the search.")
+                .style(Style::default().fg(t.muted)),
+            list,
+        );
+        return;
+    }
+    let text_width = (list.width as usize).saturating_sub(2);
+    let items: Vec<ListItem> = rows
         .iter()
         .enumerate()
-        .map(|(index, (id, description))| {
-            let selected = index == app.modal_cursor;
-            let mut spans = vec![Span::styled(
-                id.clone(),
-                if selected {
+        .map(|(index, row)| match row {
+            PickerRow::Heading(name) => ListItem::new(Line::styled(
+                trim(name, text_width),
+                Style::default().fg(t.muted).add_modifier(Modifier::BOLD),
+            )),
+            PickerRow::Note(note) => ListItem::new(Line::styled(
+                trim(note, text_width),
+                Style::default().fg(t.faint),
+            )),
+            PickerRow::Model { label, detail, .. } => {
+                let selected = index == app.modal_cursor;
+                let label_style = if selected {
                     Style::default().fg(t.accent).add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(t.text)
-                },
-            )];
-            if !description.is_empty() {
-                spans.push(Span::styled(
-                    format!("  {description}"),
-                    Style::default().fg(t.muted),
-                ));
+                };
+                let label = trim(label, text_width);
+                let room = text_width.saturating_sub(label.chars().count() + 2);
+                let mut spans = vec![Span::styled(label, label_style)];
+                if !detail.is_empty() && room > 3 {
+                    spans.push(Span::styled(
+                        format!("  {}", trim(detail, room)),
+                        Style::default().fg(t.muted),
+                    ));
+                }
+                ListItem::new(Line::from(spans))
             }
-            ListItem::new(Line::from(spans))
         })
         .collect();
     let count = items.len();
     let mut state = ListState::default().with_selected(Some(app.modal_cursor));
-    frame.render_stateful_widget(selectable(List::new(items), &t), area, &mut state);
-    register_list_rows(app, area, state.offset(), &vec![1; count]);
+    frame.render_stateful_widget(selectable(List::new(items), &t), list, &mut state);
+    // Only model rows take a click; a heading or a note is not a choice.
+    let offset = state.offset();
+    for (y, (index, row)) in
+        (list.y..list.bottom()).zip(rows.iter().enumerate().skip(offset).take(count))
+    {
+        if matches!(row, PickerRow::Model { .. }) {
+            app.modal_rows
+                .push((Rect::new(list.x, y, list.width, 1), index));
+        }
+    }
 }
 
 /// The prompt being edited before it is sent again. A plain field rather than

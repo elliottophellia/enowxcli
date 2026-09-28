@@ -11,6 +11,47 @@ use ratatui::layout::Rect;
 
 pub struct TestApp {
     inner: App,
+    /// Held while this app lives: see `HomeTurn`.
+    _turn: HomeTurn,
+}
+
+/// `HOME` and `ENX_HOME` are one pair of variables for the whole process,
+/// and every app points them at its own folder, then writes keys, picks and
+/// settings there and reads them back. Tests in one binary run on threads
+/// side by side, so each app takes its turn: a second app on the same
+/// thread (a test holding two) shares the turn instead of waiting on
+/// itself.
+struct HomeTurn {
+    _guard: Option<std::sync::MutexGuard<'static, ()>>,
+}
+
+static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+thread_local! {
+    static TURNS_HELD: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+impl HomeTurn {
+    fn take() -> Self {
+        let held = TURNS_HELD.with(|held| held.get());
+        TURNS_HELD.with(|count| count.set(held + 1));
+        if held > 0 {
+            return Self { _guard: None };
+        }
+        Self {
+            _guard: Some(
+                HOME_LOCK
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            ),
+        }
+    }
+}
+
+impl Drop for HomeTurn {
+    fn drop(&mut self) {
+        TURNS_HELD.with(|count| count.set(count.get().saturating_sub(1)));
+    }
 }
 
 impl Default for TestApp {
@@ -21,6 +62,7 @@ impl Default for TestApp {
 
 impl TestApp {
     pub fn new() -> Self {
+        let turn = HomeTurn::take();
         let tmp =
             std::env::temp_dir().join(format!("enx-test-{}-{}", std::process::id(), fastrand()));
         let home_dir = tmp.join("home");
@@ -34,8 +76,15 @@ impl TestApp {
         std::env::set_var("HOME", &home_dir);
         std::env::set_var("ENX_HOME", &enx_home);
         let mut config = Config::default();
-        config.provider.name = "test".into();
-        config.provider.base_url = "http://127.0.0.1:1".into();
+        // A provider on this machine, so it needs no key, with no model
+        // chosen yet.
+        config.session_providers.insert(
+            "test".into(),
+            enowx_core::config::ProviderEntry {
+                base_url: "http://127.0.0.1:1".into(),
+                ..Default::default()
+            },
+        );
         // Pin the workspace absolutely rather than chdir-ing into it. The old
         // `set_current_dir` here was process-global: parallel tests yanked the
         // working directory out from under each other, and `canonicalize` on a
@@ -43,6 +92,7 @@ impl TestApp {
         config.agent.workspace = Some(workspace.clone());
         Self {
             inner: App::new(config),
+            _turn: turn,
         }
     }
 
@@ -606,93 +656,149 @@ impl TestApp {
     }
 }
 
-/// Provider/settings form access, so the config-preservation rules can be
-/// asserted without driving the modal through raw key events.
+/// Provider, key and model access, so the rules for keeping them can be
+/// asserted without driving every window through raw key events.
 impl TestApp {
-    #[allow(clippy::too_many_arguments)]
+    /// A custom provider `id` at `base_url` with its key stored, and `model`
+    /// in use on it when one is given.
     pub fn seed_provider(
         &mut self,
-        name: &str,
-        preset: &str,
+        id: &str,
         base_url: &str,
         models_url: &str,
         api_key: &str,
         model: &str,
-        context_window: u32,
     ) {
         let mut config = self.inner.config.clone();
-        config.provider.name = name.into();
-        config.provider.preset = preset.into();
-        config.provider.base_url = base_url.into();
-        config.provider.models_url = models_url.into();
-        config.provider.api_key = api_key.into();
-        config.model.default = model.into();
-        config.model.context_window = context_window;
+        config.provider.insert(
+            id.into(),
+            enowx_core::config::ProviderEntry {
+                base_url: base_url.into(),
+                models_url: models_url.into(),
+                ..Default::default()
+            },
+        );
+        config.save().expect("save the test config");
+        if !api_key.is_empty() {
+            config.auth.store(id, api_key).expect("store the test key");
+        }
+        if !model.is_empty() {
+            assert!(
+                config.use_model(&format!("{id}/{model}")),
+                "seed {id}/{model}"
+            );
+        }
         self.inner.adopt(config);
     }
 
-    pub fn open_settings(&mut self) {
-        self.inner.open_settings();
+    /// Store `key` for a built-in provider, as connecting it does.
+    pub fn seed_key(&mut self, provider: &str, key: &str) {
+        let mut config = self.inner.config.clone();
+        config
+            .auth
+            .store(provider, key)
+            .expect("store the test key");
+        self.inner.adopt(config);
     }
 
     pub fn open_providers(&mut self) {
         self.inner.open_providers();
     }
 
-    /// Choose the Nth entry in the provider list, as Enter on that row does.
-    pub fn select_provider_at(&mut self, index: usize) {
-        self.inner.modal_cursor = index;
+    /// The provider list as shown: each row's name and the line under it.
+    pub fn provider_rows(&self) -> Vec<(String, String)> {
+        self.inner.modal_items.clone()
+    }
+
+    fn provider_row(&self, name: &str) -> usize {
+        self.inner
+            .modal_items
+            .iter()
+            .position(|(label, _)| label == name)
+            .unwrap_or_else(|| panic!("no provider row {name}"))
+    }
+
+    /// Enter on the provider row named `name`.
+    pub fn select_provider(&mut self, name: &str) {
+        self.inner.modal_cursor = self.provider_row(name);
         self.inner.select_provider();
     }
 
+    /// Delete on the provider row named `name`.
+    pub fn disconnect_provider(&mut self, name: &str) -> anyhow::Result<()> {
+        self.inner.modal_cursor = self.provider_row(name);
+        self.inner.disconnect_provider()
+    }
+
+    /// The form for a new custom provider, as its row in `/provider` opens.
+    pub fn open_custom_provider_form(&mut self) {
+        self.inner.settings = crate::modal::SettingsDraft::default();
+        self.inner.open_form(Modal::ProviderForm);
+    }
+
     pub fn set_settings_field(&mut self, field: &str, value: &str) {
-        let draft = &mut self.inner.settings;
-        match field {
-            "provider" => draft.provider = value.into(),
-            "base_url" => draft.base_url = value.into(),
-            "api_key" => draft.api_key = value.into(),
-            "models_url" => draft.models_url = value.into(),
-            "model" => draft.model = value.into(),
-            "context_window" => draft.context_window = value.into(),
-            "theme" => draft.theme = value.into(),
-            other => panic!("unknown settings field {other}"),
-        }
+        *self.draft_field(field) = value.into();
     }
 
     pub fn settings_field(&self, field: &str) -> String {
         let draft = &self.inner.settings;
         match field {
-            "provider" => draft.provider.clone(),
+            "name" => draft.name.clone(),
             "base_url" => draft.base_url.clone(),
             "api_key" => draft.api_key.clone(),
             "models_url" => draft.models_url.clone(),
             "model" => draft.model.clone(),
             "context_window" => draft.context_window.clone(),
-            "theme" => draft.theme.clone(),
             other => panic!("unknown settings field {other}"),
         }
     }
 
-    pub fn save_settings(&mut self) -> anyhow::Result<()> {
-        self.inner.save_settings()
+    fn draft_field(&mut self, field: &str) -> &mut String {
+        let draft = &mut self.inner.settings;
+        match field {
+            "name" => &mut draft.name,
+            "base_url" => &mut draft.base_url,
+            "api_key" => &mut draft.api_key,
+            "models_url" => &mut draft.models_url,
+            "model" => &mut draft.model,
+            "context_window" => &mut draft.context_window,
+            other => panic!("unknown settings field {other}"),
+        }
     }
 
-    pub fn config_provider(&self) -> (String, String, String, String, String) {
-        let p = &self.inner.config.provider;
-        (
-            p.name.clone(),
-            p.preset.clone(),
-            p.base_url.clone(),
-            p.models_url.clone(),
-            p.api_key.clone(),
-        )
+    /// Simulate editing a settings field the way typing does: set the value,
+    /// then fire the change hook.
+    pub fn edit_settings_field(&mut self, field: &str, value: &str) {
+        self.set_settings_field(field, value);
+        self.inner.settings_changed();
     }
 
-    pub fn config_model(&self) -> (String, u32) {
-        (
-            self.inner.config.model.default.clone(),
-            self.inner.config.model.context_window,
-        )
+    /// Enter in the open form.
+    pub fn submit_form(&mut self) -> anyhow::Result<()> {
+        self.inner.settings_key(crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Enter,
+            crossterm::event::KeyModifiers::NONE,
+        ))
+    }
+
+    /// The key `auth.json` holds for `provider`.
+    pub fn stored_key(&self, provider: &str) -> Option<String> {
+        let auth = enowx_core::auth::Auth::load().ok()?;
+        auth.key(provider, &[]).map(|(key, _)| key)
+    }
+
+    /// `[provider.<id>]` in the configuration.
+    pub fn provider_entry(&self, id: &str) -> Option<enowx_core::config::ProviderEntry> {
+        self.inner.config.provider.get(id).cloned()
+    }
+
+    /// The model in use, as `provider/model`.
+    pub fn active_model(&self) -> String {
+        self.inner.config.model.active.clone()
+    }
+
+    pub fn context_window(&self) -> u32 {
+        self.inner.config.model.context_window
     }
 
     /// The model's prices (input, output, cache read) and whether it takes
@@ -705,31 +811,53 @@ impl TestApp {
     pub fn config_agent_max_steps(&self) -> u32 {
         self.inner.config.agent.max_steps
     }
-}
 
-impl TestApp {
-    pub fn connect_preset(&mut self) -> anyhow::Result<()> {
-        self.inner.connect_preset()
+    pub fn open_model_picker(&mut self) {
+        self.inner.open_model_picker(None);
     }
-}
 
-impl TestApp {
-    /// Simulate editing a settings field the way typing does: mutate the
-    /// value, then fire the change hook.
-    pub fn edit_settings_field(&mut self, field: &str, value: &str) {
-        use crate::modal::SettingsField;
-        self.set_settings_field(field, value);
-        let which = match field {
-            "provider" => SettingsField::Provider,
-            "base_url" => SettingsField::BaseUrl,
-            "api_key" => SettingsField::ApiKey,
-            "models_url" => SettingsField::ModelsUrl,
-            "model" => SettingsField::Model,
-            "context_window" => SettingsField::ContextWindow,
-            "theme" => SettingsField::Theme,
-            other => panic!("unknown settings field {other}"),
-        };
-        self.inner.settings_changed(which);
+    /// The model list's rows as text: `# heading`, `- note`, or a model's
+    /// ref, label and detail between bars.
+    pub fn picker_rows(&self) -> Vec<String> {
+        use crate::app::model_picker::PickerRow;
+        self.inner
+            .picker_rows()
+            .into_iter()
+            .map(|row| match row {
+                PickerRow::Heading(name) => format!("# {name}"),
+                PickerRow::Note(note) => format!("- {note}"),
+                PickerRow::Model {
+                    model,
+                    label,
+                    detail,
+                } => format!("{model} | {label} | {detail}"),
+            })
+            .collect()
+    }
+
+    /// The model the selection is on.
+    pub fn selected_model(&self) -> Option<String> {
+        self.inner.selected_model()
+    }
+
+    /// The recent and favourite picks in `model.json`.
+    pub fn model_state(&self) -> enowx_core::model_state::ModelState {
+        enowx_core::model_state::ModelState::load()
+    }
+
+    /// Put a provider's model list in the cache, as a fetch does.
+    pub fn seed_listing(&mut self, provider: &str, models: &[(&str, Option<u32>)]) {
+        let models: Vec<enowx_core::provider::ModelInfo> = models
+            .iter()
+            .map(|(id, window)| enowx_core::provider::ModelInfo {
+                id: (*id).into(),
+                name: None,
+                context_window: *window,
+                max_output_tokens: None,
+            })
+            .collect();
+        enowx_core::provider::detected::Detected::store(provider, &models)
+            .expect("store the listing");
     }
 }
 
@@ -886,7 +1014,10 @@ impl TestApp {
     }
 
     pub fn settings_modal_open(&self) -> bool {
-        self.inner.modal == Modal::Settings
+        matches!(
+            self.inner.modal,
+            Modal::ProviderForm | Modal::ProviderKey | Modal::ModelManual
+        )
     }
 
     pub fn set_busy(&mut self, busy: bool) {
@@ -1131,7 +1262,7 @@ impl TestApp {
     pub fn settings_field_value(&self) -> String {
         self.inner
             .settings
-            .value(crate::modal::SETTINGS_FIELDS[self.inner.modal_cursor])
+            .value(crate::modal::form_fields(self.inner.modal)[self.inner.modal_cursor])
             .to_owned()
     }
 

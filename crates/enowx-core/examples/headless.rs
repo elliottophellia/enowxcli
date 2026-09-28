@@ -54,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
 
     println!("workspace {}", workspace.display());
     println!("sessions  {}", sessions.display());
-    println!("model     {}", config.model.default);
+    println!("model     {}", config.model.active);
     let started = Instant::now();
     let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
     let request = enowx_core::agent::RunRequest {

@@ -7,7 +7,7 @@ pub(super) fn draw_welcome(frame: &mut Frame, app: &App, area: Rect) {
             "What are we working on?",
             "/resume to reopen a session · /help for commands",
         )
-    } else if app.config.provider_active() && app.config.model.default.is_empty() {
+    } else if app.config.has_connected_provider() {
         ("Choose a model", "Open /model to select a model.")
     } else {
         (

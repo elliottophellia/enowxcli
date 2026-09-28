@@ -4,6 +4,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use enowx_core::Config;
 
+mod auth;
 mod dev;
 
 #[derive(Debug, Parser)]
@@ -40,13 +41,31 @@ enum Command {
         #[command(subcommand)]
         command: ConfigCommand,
     },
+    /// Provider keys, kept in ~/.enx/auth.json.
+    Auth {
+        #[command(subcommand)]
+        command: AuthCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum AuthCommand {
+    /// List the providers enx knows and which of them are connected.
+    #[command(alias = "ls")]
+    List,
+    /// Store a provider's API key, typed at a prompt or piped in.
+    Login { provider: String },
+    /// Remove a provider's stored API key.
+    Logout { provider: String },
 }
 
 #[derive(Debug, Subcommand)]
 enum ConfigCommand {
-    /// Print a dotted key, for example `model.default`.
+    /// Print a dotted key, for example `model.active` or `provider.enowx.base_url`.
     Get { key: String },
-    /// Set and persist a dotted key.
+    /// Set and persist a dotted key: `model.default deepseek/deepseek-flash`
+    /// pins the model to start on, `provider.<id>.base_url <url>` adds a
+    /// provider.
     Set { key: String, value: String },
     /// Print the config file path.
     Path,
@@ -84,6 +103,15 @@ async fn main() -> Result<()> {
                     println!("saved {}", path.display());
                 }
                 ConfigCommand::Path => println!("{}", enowx_core::config::config_path().display()),
+            }
+            Ok(())
+        }
+        Command::Auth { command } => {
+            let mut config = Config::load()?;
+            match command {
+                AuthCommand::List => auth::list(&config),
+                AuthCommand::Login { provider } => auth::login(&mut config, &provider)?,
+                AuthCommand::Logout { provider } => auth::logout(&mut config, &provider)?,
             }
             Ok(())
         }

@@ -99,30 +99,44 @@ impl App {
                 }
             }
             if self.modal == Modal::Models {
+                let control = key.modifiers.contains(KeyModifiers::CONTROL);
                 match key.code {
                     KeyCode::Esc => {
-                        self.close_models();
-                        return Ok(());
+                        if self.modal_search.is_empty() {
+                            self.modal = Modal::None;
+                            self.picker.events = None;
+                        } else {
+                            self.search_models(String::clear);
+                        }
                     }
-                    KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        self.close_models();
-                        return Ok(());
+                    KeyCode::Char('c') if control => {
+                        self.modal = Modal::None;
+                        self.picker.events = None;
                     }
-                    KeyCode::F(5) => {
-                        self.model_events = None;
-                        self.discovering_models = false;
-                        self.modal = Modal::ModelUrl;
-                        self.modal_cursor = 3;
-                        self.field_cursor = self.settings.models_url.len();
-                        return Ok(());
+                    KeyCode::Char('f') if control => self.toggle_favorite_model()?,
+                    KeyCode::Up => self.move_picker(-1),
+                    KeyCode::Down => self.move_picker(1),
+                    KeyCode::PageUp => self.move_picker(-10),
+                    KeyCode::PageDown => self.move_picker(10),
+                    KeyCode::F(5) => self.refresh_models(),
+                    KeyCode::F(2) => self.open_manual_model(),
+                    KeyCode::Enter => {
+                        if let Some(model) = self.selected_model() {
+                            self.choose_model(&model)?;
+                        }
                     }
-                    KeyCode::F(2) => {
-                        self.close_models();
-                        return Ok(());
-                    }
-                    KeyCode::Enter if self.modal_items.is_empty() => return Ok(()),
+                    KeyCode::Backspace => self.search_models(|search| {
+                        search.pop();
+                    }),
+                    KeyCode::Char(c) if !control => self.search_models(|search| search.push(c)),
                     _ => {}
                 }
+                return Ok(());
+            }
+            if self.modal == Modal::Providers
+                && matches!(key.code, KeyCode::Delete | KeyCode::Char('d'))
+            {
+                return self.disconnect_provider();
             }
             if self.modal == Modal::Commands {
                 match key.code {

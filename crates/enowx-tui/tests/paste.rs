@@ -46,7 +46,7 @@ fn a_pasted_key_can_be_saved() {
 #[test]
 fn a_paste_reaches_the_provider_form() {
     let mut app = TestApp::new();
-    app.open_settings();
+    app.open_custom_provider_form();
     let before = app.settings_field_value();
     app.paste("some-provider-value");
     assert_eq!(
@@ -60,7 +60,7 @@ fn a_paste_reaches_the_provider_form() {
 #[test]
 fn a_paste_follows_the_selected_field() {
     let mut app = TestApp::new();
-    app.open_settings();
+    app.open_custom_provider_form();
     app.press(KeyCode::Tab, false).expect("next field");
     app.press(KeyCode::Tab, false).expect("and again");
     app.paste("sk-the-key");

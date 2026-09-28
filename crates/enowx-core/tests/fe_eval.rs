@@ -179,10 +179,7 @@ async fn a_case_runs_through_the_agent_and_is_scored() {
     ])
     .await;
     let mut config = Config::default();
-    config.provider.name = "test".into();
-    config.provider.base_url = url;
-    config.provider.api_key = "test-key".into();
-    config.model.default = "test-model".into();
+    config.use_endpoint("test", &url, "test-key", "test-model");
     config.model.price_input = 1.0;
     config.model.price_output = 2.0;
     config.agent.auto_compact = false;

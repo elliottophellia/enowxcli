@@ -1,5 +1,7 @@
 use std::{collections::BTreeMap, time::Duration};
+pub mod detected;
 mod models;
+pub mod registry;
 mod stream;
 use models::parse_models;
 pub use stream::SseDecoder;
@@ -24,14 +26,20 @@ pub struct ProviderPreset {
     pub base_url: &'static str,
     pub models_url: &'static str,
     pub key_url: &'static str,
+    /// Environment variables that hold this provider's key, read in order.
+    pub env: &'static [&'static str],
 }
-pub const PROVIDER_PRESETS: [ProviderPreset; 6] = [
+/// The providers enx knows without configuration. Any other
+/// OpenAI-compatible endpoint is added as a custom provider in
+/// `config.toml`, under `[provider.<id>]`.
+pub const PROVIDER_PRESETS: [ProviderPreset; 5] = [
     ProviderPreset {
         id: "enxapi",
         name: "enxapi",
         base_url: "https://enxapi.id/v1",
         models_url: "https://enxapi.id/v1/models",
         key_url: "https://enxapi.id",
+        env: &[],
     },
     ProviderPreset {
         id: "openai",
@@ -39,6 +47,7 @@ pub const PROVIDER_PRESETS: [ProviderPreset; 6] = [
         base_url: "https://api.openai.com/v1",
         models_url: "https://api.openai.com/v1/models",
         key_url: "https://platform.openai.com/api-keys",
+        env: &["OPENAI_API_KEY"],
     },
     ProviderPreset {
         id: "openrouter",
@@ -46,6 +55,7 @@ pub const PROVIDER_PRESETS: [ProviderPreset; 6] = [
         base_url: "https://openrouter.ai/api/v1",
         models_url: "https://openrouter.ai/api/v1/models",
         key_url: "https://openrouter.ai/settings/keys",
+        env: &["OPENROUTER_API_KEY"],
     },
     ProviderPreset {
         id: "groq",
@@ -53,6 +63,7 @@ pub const PROVIDER_PRESETS: [ProviderPreset; 6] = [
         base_url: "https://api.groq.com/openai/v1",
         models_url: "https://api.groq.com/openai/v1/models",
         key_url: "https://console.groq.com/keys",
+        env: &["GROQ_API_KEY"],
     },
     ProviderPreset {
         id: "deepseek",
@@ -60,25 +71,9 @@ pub const PROVIDER_PRESETS: [ProviderPreset; 6] = [
         base_url: "https://api.deepseek.com",
         models_url: "https://api.deepseek.com/models",
         key_url: "https://platform.deepseek.com/api_keys",
-    },
-    ProviderPreset {
-        id: "custom",
-        name: "Custom OpenAI-compatible",
-        base_url: "",
-        models_url: "",
-        key_url: "",
+        env: &["DEEPSEEK_API_KEY"],
     },
 ];
-
-/// Whether the configured provider is DeepSeek's own API: its preset, or a
-/// custom entry pointing at its host.
-pub fn is_deepseek(config: &Config) -> bool {
-    config.provider.preset == "deepseek"
-        || reqwest::Url::parse(config.provider.base_url.trim())
-            .ok()
-            .and_then(|url| url.host_str().map(|host| host == "api.deepseek.com"))
-            .unwrap_or(false)
-}
 
 pub fn provider_preset(id: &str) -> Option<ProviderPreset> {
     PROVIDER_PRESETS
@@ -149,18 +144,32 @@ pub struct Provider {
 }
 
 impl Provider {
+    /// A client for the model in use, on its provider.
     pub fn from_config(config: &Config) -> Result<Self> {
+        let model = registry::ModelRef::parse(&config.model.active);
+        let connection = model
+            .as_ref()
+            .and_then(|model| config.connection(&model.provider));
+        let mut provider = Self::for_connection(&connection.unwrap_or_default())?;
+        provider.model = model.map(|model| model.model).unwrap_or_default();
+        provider.temperature = config.model.temperature;
+        Ok(provider)
+    }
+
+    /// A client for `connection` with no model chosen: for reading its
+    /// model list.
+    pub fn for_connection(connection: &registry::Connection) -> Result<Self> {
         Ok(Self {
             http: reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(15))
                 .timeout(Duration::from_secs(600))
                 .build()?,
-            base_url: config.provider.base_url.trim_end_matches('/').to_owned(),
-            api_key: config.provider.api_key.clone(),
-            model: config.model.default.clone(),
-            temperature: config.model.temperature,
-            active: config.provider_active(),
-            pass_back_reasoning: is_deepseek(config),
+            base_url: connection.base_url.trim_end_matches('/').to_owned(),
+            api_key: connection.key.clone().unwrap_or_default(),
+            model: String::new(),
+            temperature: None,
+            active: !connection.base_url.trim().is_empty(),
+            pass_back_reasoning: connection.is_deepseek(),
         })
     }
 
@@ -361,8 +370,8 @@ impl Provider {
         if content_type.contains("text/html") {
             bail!(
                 "provider returned an HTML page, not a stream. `{}` does not look \
-                 like an API endpoint — check provider.base_url (an OpenAI-compatible \
-                 base usually ends in /v1).",
+                 like an API endpoint: check the provider's base URL in /provider (an \
+                 OpenAI-compatible base usually ends in /v1).",
                 self.base_url
             );
         }
@@ -413,7 +422,7 @@ impl Provider {
             // wrong endpoint, the second a genuine upstream fault.
             if result.text.is_empty() && calls.is_empty() {
                 bail!(
-                    "provider sent no data. Check provider.base_url (`{}`) and the API key.",
+                    "provider sent no data. Check the provider's base URL (`{}`) and its API key in /provider.",
                     self.base_url
                 );
             }
@@ -552,7 +561,7 @@ fn classify_message(raw: &str) -> FailureKind {
     // report by the whole backoff schedule while repeating the same line.
     if msg.contains("not a stream")
         || msg.contains("provider sent no data")
-        || msg.contains("check provider.base_url")
+        || msg.contains("check the provider's base url")
     {
         return FailureKind::Permanent;
     }
@@ -854,7 +863,7 @@ mod diagnosis_tests {
     fn configuration_errors_are_not_retried() {
         for message in [
             "provider returned an HTML page, not a stream. `https://ai.example.id` does not look like an API endpoint",
-            "provider sent no data. Check provider.base_url (`https://ai.example.id`) and the API key.",
+            "provider sent no data. Check the provider's base URL (`https://ai.example.id`) and its API key in /provider.",
         ] {
             assert!(
                 !is_transient(&anyhow::anyhow!(message.to_string())),
@@ -944,7 +953,7 @@ mod diagnosis_tests {
             "provider returned 404: model not found",
             "unknown model vendor/nope",
             "malformed request body",
-            "provider sent no data. Check provider.base_url (`https://x`) and the API key.",
+            "provider sent no data. Check the provider's base URL (`https://x`) and its API key in /provider.",
             "provider returned an HTML page, not a stream. `https://x` does not look like an API endpoint",
         ] {
             assert_eq!(
@@ -1020,7 +1029,7 @@ mod diagnosis_tests {
 
     fn ladder_config() -> Config {
         let mut config = Config::default();
-        config.model.default = "active/model".into();
+        config.model.active = "active/model".into();
         config.agent.tiers.strong = "tier/strong".into();
         config.agent.tiers.balanced = "tier/balanced".into();
         config.agent.tiers.cheap = "tier/cheap".into();

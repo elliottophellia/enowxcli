@@ -157,7 +157,7 @@ fn choosing_commands_open_their_own_window() {
     for (command, title) in [
         ("agent", " AGENT "),
         ("theme", " THEME "),
-        ("provider", " PROVIDER "),
+        ("provider", " PROVIDERS "),
         ("skills", " SKILLS "),
         ("mcp", " MCP SERVERS "),
         // `/resume` is not here: with no saved session in the workspace it
@@ -247,7 +247,7 @@ fn escape_closes_it() {
 #[test]
 fn it_closes_another_open_window() {
     let mut app = TestApp::new();
-    app.open_settings();
+    app.open_custom_provider_form();
     assert!(app.settings_modal_open(), "settings should be open first");
     app.press(KeyCode::Char('p'), true).expect("ctrl+p");
     assert!(!app.settings_modal_open());

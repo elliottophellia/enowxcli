@@ -1,11 +1,21 @@
-//! On-disk configuration. One file, `~/.enx/config.toml`, plus environment
-//! overrides so a container can run without writing anything.
+//! On-disk configuration: `~/.enx/config.toml`, plus environment overrides
+//! so a container can run without writing anything.
+//!
+//! Provider keys are not kept here but in `~/.enx/auth.json`
+//! (`crate::auth`), and the model picked in `/model` in `~/.enx/model.json`
+//! (`crate::model_state`), the way opencode splits them. This file holds the
+//! custom providers, a pinned starting model when the user wants one, and
+//! everything else.
+
+mod legacy;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, Result};
 use serde::{Deserialize, Serialize};
+
+use crate::provider::registry::{ModelFacts, ModelRef};
 
 /// Where the agent keeps configuration, sessions, and logs.
 pub fn home_dir() -> PathBuf {
@@ -29,10 +39,19 @@ pub fn sessions_dir() -> PathBuf {
 #[serde(default)]
 pub struct Config {
     pub model: ModelConfig,
-    pub provider: ProviderConfig,
+    /// Custom providers, and changes to built-in ones, by id:
+    /// `[provider.<id>]`. A built-in provider needs no entry to be used.
+    pub provider: BTreeMap<String, ProviderEntry>,
     pub agent: AgentConfig,
     pub ui: UiConfig,
     pub typesafe: TypeSafeConfig,
+    /// Providers for this process only, never written: an endpoint from
+    /// `ENX_BASE_URL`, or a test's fixture server.
+    #[serde(skip)]
+    pub session_providers: BTreeMap<String, ProviderEntry>,
+    /// Provider keys: `auth.json`, the environment, this process.
+    #[serde(skip)]
+    pub auth: crate::auth::Auth,
 }
 
 /// TypeSafe's System One model, used for small typed judgements inside the
@@ -110,67 +129,106 @@ impl Default for UiConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ModelConfig {
-    /// Model id sent to the provider, e.g. `anthropic/claude-sonnet-4.5`.
+    /// The model to start on, as `provider/model`. Empty, the usual case:
+    /// the one picked last in `/model`, kept in `model.json`.
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub default: String,
     /// Sampling temperature. `None` keeps the provider default.
     pub temperature: Option<f32>,
-    /// Context window in tokens, used for the fill gauge in the UI.
+    /// The model in use in this process, as `provider/model`: resolved at
+    /// load, changed by `/model`. Never written.
+    #[serde(skip)]
+    pub active: String,
+    /// Context window in tokens, used for the fill gauge in the UI. This
+    /// and the fields below describe `active`, and are set with it.
+    #[serde(skip)]
     pub context_window: u32,
-    /// USD per 1M input tokens. 0 means unknown; sidebar shows the running
-    /// cost as `$0.00` when unknown rather than hiding it.
-    #[serde(default)]
+    /// USD per 1M input tokens. 0 means unknown; the sidebar shows the
+    /// running cost as `$0.00` when unknown rather than hiding it.
+    #[serde(skip)]
     pub price_input: f64,
     /// USD per 1M output tokens.
-    #[serde(default)]
+    #[serde(skip)]
     pub price_output: f64,
-    /// USD per 1M cached-read tokens (prompt cache). Optional.
-    #[serde(default)]
+    /// USD per 1M cached-read tokens (prompt cache).
+    #[serde(skip)]
     pub price_cache_read: f64,
     /// True when the model accepts image inputs; drives whether `/attach`
     /// warns the user.
-    #[serde(default)]
+    #[serde(skip)]
     pub vision: bool,
     /// True when the model can call tools.
-    #[serde(default = "default_true")]
+    #[serde(skip)]
     pub tool_call: bool,
     /// True when the model produces a reasoning trace.
-    #[serde(default)]
+    #[serde(skip)]
     pub reasoning: bool,
-}
-
-fn default_true() -> bool {
-    true
 }
 
 impl Default for ModelConfig {
     fn default() -> Self {
-        Self {
+        let facts = ModelFacts::default();
+        let mut model = Self {
             default: String::new(),
             temperature: None,
-            context_window: 128_000,
+            active: String::new(),
+            context_window: 0,
             price_input: 0.0,
             price_output: 0.0,
             price_cache_read: 0.0,
             vision: false,
             tool_call: true,
             reasoning: false,
-        }
+        };
+        model.set_facts(facts);
+        model
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+impl ModelConfig {
+    pub fn set_facts(&mut self, facts: ModelFacts) {
+        self.context_window = facts.context_window;
+        self.price_input = facts.price_input;
+        self.price_output = facts.price_output;
+        self.price_cache_read = facts.price_cache_read;
+        self.vision = facts.vision;
+        self.tool_call = facts.tool_call;
+        self.reasoning = facts.reasoning;
+    }
+}
+
+/// A custom provider, or a change to a built-in one: `[provider.<id>]`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct ProviderConfig {
-    /// Display name of the active provider.
+pub struct ProviderEntry {
+    /// Shown in the interface; the id when empty.
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub name: String,
-    /// Preset id this provider came from, or `custom` for a hand-entered endpoint.
-    pub preset: String,
-    /// OpenAI-compatible base URL, without the trailing `/chat/completions`.
+    /// OpenAI-compatible base URL, without `/chat/completions`. Empty for a
+    /// built-in provider keeps its own.
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub base_url: String,
-    /// Exact endpoint used by model auto-detection, e.g. `https://host/v1/models`.
+    /// Where the model list is read, e.g. `https://host/v1/models`.
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub models_url: String,
-    /// API key. `ENX_API_KEY` overrides this.
-    pub api_key: String,
+    /// Models added by hand, or given figures of their own, by model id.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub models: BTreeMap<String, ModelEntry>,
+}
+
+/// What the user states about one model: `[provider.<id>.models."<model>"]`.
+/// Anything left out comes from the provider's list or the catalogue.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModelEntry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub price_input: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub price_output: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub price_cache_read: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -260,144 +318,70 @@ fn non_empty(value: &str) -> Option<&str> {
 /// Window used when neither the provider nor the catalogue states one.
 pub const DEFAULT_CONTEXT_WINDOW: u32 = 128_000;
 
-/// What the provider itself reported about a model. `None` means the provider
-/// did not say, which is the common case for OpenAI-compatible gateways.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct UpstreamModel {
-    pub context_window: Option<u32>,
+/// The id of the provider `ENX_BASE_URL` describes.
+pub const ENV_PROVIDER: &str = "env";
+
+/// Whether `id` can name a provider: lowercase letters, digits, `-` and
+/// `_`, starting with a letter or digit, as opencode requires. `env` is
+/// taken by the endpoint from `ENX_BASE_URL`.
+pub fn valid_provider_id(id: &str) -> bool {
+    let mut chars = id.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+        && id != ENV_PROVIDER
+}
+
+/// A provider id made from a name: `My Gateway` becomes `my-gateway`.
+pub fn provider_id_from(name: &str) -> String {
+    let mut id = String::new();
+    for c in name.trim().chars() {
+        if c.is_ascii_alphanumeric() {
+            id.push(c.to_ascii_lowercase());
+        } else if !id.is_empty() && !id.ends_with('-') {
+            id.push('-');
+        }
+    }
+    id.trim_end_matches('-').to_owned()
 }
 
 impl Config {
-    /// Load `~/.enx/config.toml`, falling back to defaults when it is absent,
-    /// then apply environment overrides.
+    /// Load `~/.enx/config.toml` (defaults when it is absent), the keys in
+    /// `auth.json` and the environment, then settle the model in use.
+    ///
+    /// A configuration written before providers had ids is moved to this
+    /// layout the first time it is loaded, with a copy of the old file kept
+    /// beside it.
     pub fn load() -> Result<Self> {
         let path = config_path();
-        let mut config = if path.exists() {
+        let mut table = if path.exists() {
             let text = std::fs::read_to_string(&path)
                 .with_context(|| format!("reading {}", path.display()))?;
-            toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?
+            toml::from_str::<toml::Table>(&text)
+                .with_context(|| format!("parsing {}", path.display()))?
         } else {
-            Self::default()
+            toml::Table::new()
         };
-        config.apply_env();
-        // Fill missing metadata (context window, pricing, capabilities) from
-        // the cached models.dev catalog. Never overrides fields the user or
-        // provider already set.
-        config.fill_from_catalog();
+        let moved = legacy::take(&mut table);
+        let mut config: Config = toml::Value::Table(table)
+            .try_into()
+            .with_context(|| format!("parsing {}", path.display()))?;
+        config.auth = crate::auth::Auth::load()?;
+        if let Some(moved) = moved {
+            moved.finish(&mut config, &path)?;
+        }
+        let state = crate::model_state::ModelState::load();
+        config.apply_env(&state);
+        config.resolve_active(&state);
         config.validate()?;
         Ok(config)
     }
 
-    /// Look up the current model in the cached catalog and fill any field
-    /// the user did not set. Fetching a fresh catalog is a separate async
-    /// step wired by the runtime; here we only read what is on disk.
-    pub fn fill_from_catalog(&mut self) {
-        if self.model.default.trim().is_empty() {
-            return;
-        }
-        let catalog = crate::catalog::Catalog::load_cached();
-        let Some(entry) = self.model_facts(&catalog, &self.model.default) else {
-            return;
-        };
-        if (self.model.context_window == 0 || self.model.context_window == 128_000)
-            && entry.limit.context > 0
-        {
-            self.model.context_window = entry.limit.context;
-        }
-        if self.model.price_input == 0.0 && entry.cost.input > 0.0 {
-            self.model.price_input = entry.cost.input;
-        }
-        if self.model.price_output == 0.0 && entry.cost.output > 0.0 {
-            self.model.price_output = entry.cost.output;
-        }
-        if self.model.price_cache_read == 0.0 {
-            if let Some(cr) = entry.cost.cache_read {
-                self.model.price_cache_read = cr;
-            }
-        }
-        if !self.model.vision && entry.modalities.supports_vision() {
-            self.model.vision = true;
-        }
-        if !self.model.reasoning && entry.reasoning {
-            self.model.reasoning = true;
-        }
-        // `tool_call` defaults to true; only set false when catalog says so
-        // and user has not explicitly enabled it (we cannot distinguish, so
-        // leave alone).
-    }
-
-    /// Adopt `model_id` and take its metadata from the catalog.
-    ///
-    /// Unlike `fill_from_catalog`, which only fills gaps, this REPLACES the
-    /// per-model fields, because they describe the previous model and would
-    /// otherwise be carried over silently: a 128k window on a model that
-    /// takes 1M, or pricing 30x off, both of which then look like real
-    /// readouts rather than leftovers.
-    ///
-    /// `upstream` is whatever the provider reported for this model, and wins
-    /// where it is present — it describes how the model is actually being
-    /// served, which the public catalogue cannot know. Fields the provider
-    /// leaves out fall back to the catalogue, and fields neither knows are
-    /// reset to a neutral default rather than kept from the old model.
-    pub fn adopt_model(&mut self, model_id: &str, upstream: UpstreamModel) {
-        self.model.default = model_id.trim().to_owned();
-        let catalog = crate::catalog::Catalog::load_cached();
-        let facts = self.model_facts(&catalog, &self.model.default);
-        let entry = facts.as_ref();
-
-        self.model.context_window = upstream
-            .context_window
-            .or_else(|| entry.map(|e| e.limit.context).filter(|c| *c > 0))
-            .unwrap_or(DEFAULT_CONTEXT_WINDOW);
-
-        let cost = entry.map(|e| &e.cost);
-        self.model.price_input = cost.map(|c| c.input).unwrap_or(0.0);
-        self.model.price_output = cost.map(|c| c.output).unwrap_or(0.0);
-        self.model.price_cache_read = cost.and_then(|c| c.cache_read).unwrap_or(0.0);
-
-        self.model.vision = entry.is_some_and(|e| e.modalities.supports_vision());
-        self.model.reasoning = entry.is_some_and(|e| e.reasoning);
-        // Tool calling stays on when the catalogue does not say otherwise:
-        // an unlisted model is far more often capable than not, and turning
-        // it off would silently disable every tool.
-        self.model.tool_call = entry.map(|e| e.tool_call).unwrap_or(true);
-    }
-
-    /// What is known about `model_id` as the configured provider serves it:
-    /// the provider's own published figures where enx carries them, then
-    /// the catalogue, asking that provider's listing before anyone else's.
-    fn model_facts(
-        &self,
-        catalog: &crate::catalog::Catalog,
-        model_id: &str,
-    ) -> Option<crate::catalog::CatalogModel> {
-        let provider = self.catalog_provider();
-        if let Some(official) = crate::catalog::official(provider, model_id) {
-            return Some(official);
-        }
-        if provider.is_empty() {
-            catalog.lookup(model_id).cloned()
-        } else {
-            catalog.lookup_for(provider, model_id).cloned()
-        }
-    }
-
-    /// The catalogue's id for the configured provider, or "" when it has
-    /// none (a custom endpoint, a gateway).
-    fn catalog_provider(&self) -> &str {
-        if crate::provider::is_deepseek(self) {
-            return "deepseek";
-        }
-        match self.provider.preset.as_str() {
-            preset @ ("openai" | "openrouter" | "groq") => preset,
-            _ => "",
-        }
-    }
-
     /// The model an agent should run on: per-agent override, then its tier,
-    /// then the active model.
+    /// then the model in use.
     ///
-    /// Falling back to the active model rather than erroring is deliberate —
+    /// Falling back to the model in use rather than erroring is deliberate:
     /// a user who never wrote a tier table still gets working delegation.
     pub fn model_for(&self, agent: &str, tier: crate::agent_def::Tier) -> String {
         let agent = crate::agent_def::canonical_name(agent);
@@ -414,8 +398,70 @@ impl Config {
             })
             .and_then(|id| non_empty(id))
             .or_else(|| self.agent.tiers.get(tier))
-            .unwrap_or_else(|| self.model.default.trim())
+            .unwrap_or_else(|| self.model.active.trim())
             .to_owned()
+    }
+
+    /// `raw` when it is a `provider/model` ref to a provider enx knows.
+    fn known_ref(&self, raw: &str) -> Option<ModelRef> {
+        ModelRef::parse(raw).filter(|model| self.connection(&model.provider).is_some())
+    }
+
+    /// The models to start on, in order: `ENX_MODEL`, the pinned
+    /// `model.default`, then the recent picks.
+    fn start_candidates(&self, state: &crate::model_state::ModelState) -> Vec<String> {
+        std::env::var("ENX_MODEL")
+            .ok()
+            .into_iter()
+            .chain(std::iter::once(self.model.default.clone()))
+            .map(|raw| raw.trim().to_owned())
+            .filter(|raw| !raw.is_empty())
+            .chain(state.recent.iter().cloned())
+            .collect()
+    }
+
+    /// Settle the model in use again, as at start: after the provider it
+    /// was on is disconnected, or when a provider is connected with no model
+    /// in use yet.
+    pub fn settle_model(&mut self) {
+        let state = crate::model_state::ModelState::load();
+        self.resolve_active(&state);
+    }
+
+    /// Settle the model in use: the first candidate whose provider is
+    /// connected. A bare id in `ENX_MODEL` or `model.default` belongs to the
+    /// endpoint from `ENX_BASE_URL`, or else to the provider of the first
+    /// full ref; the recent list only ever holds full refs.
+    fn resolve_active(&mut self, state: &crate::model_state::ModelState) {
+        let candidates = self.start_candidates(state);
+        let explicit = candidates.len() - state.recent.len();
+        let home = if self.session_providers.contains_key(ENV_PROVIDER) {
+            Some(ENV_PROVIDER.to_owned())
+        } else {
+            candidates
+                .iter()
+                .find_map(|raw| self.known_ref(raw))
+                .map(|model| model.provider)
+        };
+        for (index, raw) in candidates.iter().enumerate() {
+            let model = match self.known_ref(raw) {
+                Some(model) => model,
+                None if index < explicit => match &home {
+                    Some(provider) => ModelRef::new(provider, raw),
+                    None => continue,
+                },
+                None => continue,
+            };
+            if self
+                .connection(&model.provider)
+                .is_some_and(|connection| connection.is_connected())
+                && self.use_model(&model.to_string())
+            {
+                return;
+            }
+        }
+        self.model.active.clear();
+        self.model.set_facts(ModelFacts::default());
     }
 
     fn validate(&self) -> Result<()> {
@@ -427,42 +473,66 @@ impl Config {
             self.agent.shell_timeout_secs > 0 && self.agent.shell_timeout_secs <= 86_400,
             "agent.shell_timeout_secs must be 1..=86400"
         );
-        anyhow::ensure!(
-            self.model.context_window > 0,
-            "model.context_window must be greater than zero"
-        );
-        if !self.provider.base_url.trim().is_empty() {
-            validate_http_url(&self.provider.base_url, "provider.base_url")?;
-        }
-        if !self.provider.models_url.trim().is_empty() {
-            validate_http_url(&self.provider.models_url, "provider.models_url")?;
+        for (id, entry) in &self.provider {
+            anyhow::ensure!(
+                valid_provider_id(id),
+                "provider id `{id}` must be lowercase letters, digits, `-` or `_`"
+            );
+            if !entry.base_url.trim().is_empty() {
+                validate_http_url(&entry.base_url, &format!("provider.{id}.base_url"))?;
+            }
+            if !entry.models_url.trim().is_empty() {
+                validate_http_url(&entry.models_url, &format!("provider.{id}.models_url"))?;
+            }
         }
         Ok(())
     }
 
-    fn apply_env(&mut self) {
-        if let Ok(v) = std::env::var("ENX_API_KEY") {
-            self.provider.api_key = v;
-        }
-        if let Ok(v) = std::env::var("ENX_BASE_URL") {
-            self.provider.base_url = v;
-            if self.provider.name.trim().is_empty() {
-                self.provider.name = reqwest::Url::parse(&self.provider.base_url)
-                    .ok()
-                    .and_then(|url| url.host_str().map(str::to_owned))
-                    .unwrap_or_default();
+    fn apply_env(&mut self, state: &crate::model_state::ModelState) {
+        use crate::auth::KeySource;
+        let var = |name: &str| {
+            std::env::var(name)
+                .ok()
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty())
+        };
+        if let Some(base_url) = var("ENX_BASE_URL") {
+            let name = reqwest::Url::parse(&base_url)
+                .ok()
+                .and_then(|url| url.host_str().map(str::to_owned))
+                .unwrap_or_else(|| ENV_PROVIDER.to_owned());
+            self.session_providers.insert(
+                ENV_PROVIDER.to_owned(),
+                ProviderEntry {
+                    name,
+                    base_url,
+                    ..ProviderEntry::default()
+                },
+            );
+            if let Some(key) = var("ENX_API_KEY") {
+                self.auth
+                    .set_for_session(ENV_PROVIDER, &key, KeySource::Env("ENX_API_KEY".into()));
+            }
+        } else if let Some(key) = var("ENX_API_KEY") {
+            // With no endpoint of its own, the key is for the provider the
+            // start model is on, as when enx had a single provider.
+            let provider = self
+                .start_candidates(state)
+                .iter()
+                .find_map(|raw| self.known_ref(raw))
+                .map(|model| model.provider);
+            if let Some(provider) = provider {
+                self.auth
+                    .set_for_session(&provider, &key, KeySource::Env("ENX_API_KEY".into()));
             }
         }
-        if let Ok(v) = std::env::var("ENX_MODEL") {
-            self.model.default = v;
-        }
-        if let Ok(v) = std::env::var("ENX_THEME") {
-            self.ui.theme = v;
+        if let Some(theme) = var("ENX_THEME") {
+            self.ui.theme = theme;
         }
         // `TYPESAFE_API_KEY` is the name TypeSafe's own SDKs read, so a key
         // already exported for another tool works here without being copied.
-        if let Ok(v) = std::env::var("TYPESAFE_API_KEY") {
-            self.typesafe.api_key = v;
+        if let Some(key) = var("TYPESAFE_API_KEY") {
+            self.typesafe.api_key = key;
         }
     }
 
@@ -486,34 +556,28 @@ impl Config {
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
     }
 
-    /// Whether a provider has been explicitly configured and can own models.
-    pub fn provider_active(&self) -> bool {
-        !self.provider.name.trim().is_empty() && !self.provider.base_url.trim().is_empty()
+    /// Whether any provider can be called now.
+    pub fn has_connected_provider(&self) -> bool {
+        self.connections()
+            .iter()
+            .any(crate::provider::registry::Connection::is_connected)
     }
 
-    /// Whether the active provider has everything required for a model call.
+    /// Whether a model is in use and its provider can be called.
     pub fn is_ready(&self) -> bool {
-        let local = reqwest::Url::parse(&self.provider.base_url)
-            .ok()
-            .is_some_and(|url| matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]")));
-        self.provider_active()
-            && !self.model.default.trim().is_empty()
-            && (local || !self.provider.api_key.is_empty())
+        self.active_connection()
+            .is_some_and(|connection| connection.is_connected())
     }
 
-    /// Read a dotted key. Used by `enx config get`.
+    /// Read a dotted key. Used by `enx config get`. `model.active` is the
+    /// model in use, which is never written to the file.
     pub fn get(&self, key: &str) -> Option<String> {
-        // Never echo the key: `enx config get` output lands in shell history,
+        if key == "model.active" {
+            return Some(self.model.active.clone());
+        }
+        // Never echo a key: `enx config get` output lands in shell history,
         // terminal scrollback, and pasted bug reports.
         let mut value = serde_json::to_value(self).ok()?;
-        value["provider"]["api_key"] = serde_json::Value::String(
-            if self.provider.api_key.is_empty() {
-                "(unset)"
-            } else {
-                "(redacted)"
-            }
-            .into(),
-        );
         value["typesafe"]["api_key"] = serde_json::Value::String(
             if self.typesafe.api_key.is_empty() {
                 "(unset)"
@@ -535,13 +599,11 @@ impl Config {
     /// Write a dotted key. Numbers and booleans are parsed so `agent.shell_timeout_secs=90`
     /// stays an integer in the file.
     pub fn set(&mut self, key: &str, raw: &str) -> Result<()> {
-        // Changing the model changes everything scoped to it. Route through
-        // `adopt_model` so `enx config set` lands the same window, pricing
-        // and capabilities the interface would, instead of leaving the
-        // previous model's numbers in place.
         if key == "model.default" {
-            self.adopt_model(raw, UpstreamModel::default());
-            return Ok(());
+            return self.pin_model(raw);
+        }
+        if let Some(rest) = key.strip_prefix("provider.") {
+            return self.set_provider(rest, raw.trim());
         }
         let mut value = serde_json::to_value(&*self)?;
         let parts: Vec<&str> = key.split('.').collect();
@@ -573,10 +635,121 @@ impl Config {
         if !(agent_model && raw.trim().is_empty()) {
             slot.insert(last.to_string(), parsed);
         }
-        let next: Self =
+        let mut next: Self =
             serde_json::from_value(value).with_context(|| format!("invalid value for {key}"))?;
         next.validate()?;
+        // What the file does not hold comes across as it was: the model in
+        // use and its figures, the keys, this process's providers.
+        next.model = ModelConfig {
+            default: std::mem::take(&mut next.model.default),
+            temperature: next.model.temperature,
+            ..self.model.clone()
+        };
+        next.session_providers = std::mem::take(&mut self.session_providers);
+        next.auth = std::mem::take(&mut self.auth);
         *self = next;
+        Ok(())
+    }
+
+    /// Pin the model to start on, or unpin it with an empty value.
+    fn pin_model(&mut self, raw: &str) -> Result<()> {
+        let raw = raw.trim();
+        if raw.is_empty() {
+            self.model.default.clear();
+            return Ok(());
+        }
+        let model = self.parse_model(raw).ok_or_else(|| {
+            anyhow::anyhow!("`{raw}` names no provider enx knows; write it as provider/model")
+        })?;
+        self.model.default = model.to_string();
+        self.use_model(&model.to_string());
+        Ok(())
+    }
+
+    /// `provider.<id>.<field>`: name, base_url, models_url, or
+    /// `models.<model>.<figure>`. An empty value clears the field, and an
+    /// entry left with nothing in it is removed.
+    fn set_provider(&mut self, rest: &str, raw: &str) -> Result<()> {
+        let (id, field) = rest
+            .split_once('.')
+            .ok_or_else(|| anyhow::anyhow!("write provider.<id>.<field>"))?;
+        anyhow::ensure!(
+            valid_provider_id(id),
+            "provider id `{id}` must be lowercase letters, digits, `-` or `_`"
+        );
+        if field == "api_key" {
+            anyhow::bail!("keys are kept in auth.json, not config.toml: run `enx auth login {id}`");
+        }
+        let mut entry = self.provider.get(id).cloned().unwrap_or_default();
+        match field {
+            "name" => entry.name = raw.to_owned(),
+            "base_url" => entry.base_url = raw.trim_end_matches('/').to_owned(),
+            "models_url" => entry.models_url = raw.to_owned(),
+            other => {
+                let rest = other
+                    .strip_prefix("models.")
+                    .ok_or_else(|| anyhow::anyhow!("unknown provider field: {other}"))?;
+                let figure = rest.rsplit_once('.').filter(|(_, figure)| {
+                    matches!(
+                        *figure,
+                        "context_window" | "price_input" | "price_output" | "price_cache_read"
+                    )
+                });
+                match figure {
+                    Some((model, figure)) => {
+                        let slot = entry.models.entry(model.to_owned()).or_default();
+                        let number = || -> Result<Option<f64>> {
+                            if raw.is_empty() {
+                                return Ok(None);
+                            }
+                            raw.parse::<f64>()
+                                .map(Some)
+                                .map_err(|_| anyhow::anyhow!("{figure} must be a number"))
+                        };
+                        match figure {
+                            "context_window" => {
+                                slot.context_window = if raw.is_empty() {
+                                    None
+                                } else {
+                                    Some(raw.parse().map_err(|_| {
+                                        anyhow::anyhow!("context_window must be a whole number")
+                                    })?)
+                                }
+                            }
+                            "price_input" => slot.price_input = number()?,
+                            "price_output" => slot.price_output = number()?,
+                            _ => slot.price_cache_read = number()?,
+                        }
+                    }
+                    // `provider.x.models.<model>` alone adds the model, or
+                    // with an empty value removes it.
+                    None if raw.is_empty() => {
+                        entry.models.remove(rest);
+                    }
+                    None => {
+                        entry.models.entry(rest.to_owned()).or_default();
+                    }
+                }
+            }
+        }
+        let previous = if entry == ProviderEntry::default() {
+            self.provider.remove(id)
+        } else {
+            self.provider.insert(id.to_owned(), entry)
+        };
+        // A value that does not validate leaves the entry as it was.
+        if let Err(error) = self.validate() {
+            match previous {
+                Some(previous) => self.provider.insert(id.to_owned(), previous),
+                None => self.provider.remove(id),
+            };
+            return Err(error);
+        }
+        // The model in use may be one whose figures just changed.
+        let active = self.model.active.clone();
+        if !active.is_empty() {
+            self.use_model(&active);
+        }
         Ok(())
     }
 }
@@ -669,235 +842,4 @@ fn normalize(path: &Path) -> PathBuf {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::agent_def::Tier;
-
-    #[test]
-    fn set_keeps_scalar_types() {
-        let mut config = Config::default();
-        config.set("agent.shell_timeout_secs", "90").unwrap();
-        assert_eq!(config.agent.shell_timeout_secs, 90);
-        config.set("model.default", "zai/glm-4.6").unwrap();
-        assert_eq!(config.model.default, "zai/glm-4.6");
-        assert!(config.set("model.nope", "x").is_err());
-        config.provider.api_key = "secret".into();
-        assert_eq!(
-            config.get("provider.api_key").as_deref(),
-            Some("(redacted)")
-        );
-    }
-
-    #[test]
-    fn models_require_an_active_provider() {
-        let mut config = Config::default();
-        assert!(!config.provider_active());
-        assert!(!config.is_ready());
-
-        config.provider.name = "fixture".into();
-        config.provider.base_url = "http://127.0.0.1:8913".into();
-        assert!(config.provider_active());
-        assert!(!config.is_ready());
-
-        config.model.default = "fixture/model".into();
-        assert!(config.is_ready());
-    }
-
-    /// Set every level at once: a resolution order that reads the wrong slot
-    /// first still returns *a* model, so only a populated ladder catches it.
-    #[test]
-    fn the_most_specific_model_wins() {
-        let mut config = Config::default();
-        config.model.default = "active/model".into();
-        config.agent.tiers.strong = "tier/strong".into();
-        config.agent.tiers.cheap = "tier/cheap".into();
-        config
-            .agent
-            .models
-            .insert("fe".into(), "override/fe".into());
-
-        assert_eq!(config.model_for("fe", Tier::Strong), "override/fe");
-        assert_eq!(config.model_for("be", Tier::Strong), "tier/strong");
-        assert_eq!(config.model_for("be", Tier::Cheap), "tier/cheap");
-        assert_eq!(
-            config.model_for("be", Tier::Balanced),
-            "active/model",
-            "an unmapped tier falls back rather than failing"
-        );
-    }
-
-    #[test]
-    fn blank_entries_fall_through() {
-        let mut config = Config::default();
-        config.model.default = "active/model".into();
-        config.agent.tiers.balanced = "   ".into();
-        config.agent.models.insert("fe".into(), String::new());
-        assert_eq!(config.model_for("fe", Tier::Balanced), "active/model");
-
-        config.agent.tiers.balanced = "tier/balanced".into();
-        assert_eq!(
-            config.model_for("fe", Tier::Balanced),
-            "tier/balanced",
-            "a blank override must not mask the tier below it"
-        );
-    }
-
-    #[test]
-    fn an_agent_is_given_its_own_model_by_name() {
-        let mut config = Config::default();
-        config.model.default = "active/model".into();
-        config
-            .set("agent.models.fe", "vendor/design-model")
-            .unwrap();
-        assert_eq!(config.model_for("fe", Tier::Strong), "vendor/design-model");
-        assert_eq!(config.model_for("be", Tier::Strong), "active/model");
-        config.set("agent.models.fe", "").unwrap();
-        assert!(config.agent.models.is_empty(), "an empty value clears it");
-        assert!(config.set("agent.nope", "1").is_err());
-        assert!(config.set("agent.tiers.huge", "x").is_err());
-    }
-
-    /// Configs written before the tier table existed have to keep loading.
-    #[test]
-    fn a_config_without_the_agent_tables_parses() {
-        let config: Config = toml::from_str(
-            r#"
-[model]
-default = "active/model"
-
-[agent]
-max_steps = 8
-"#,
-        )
-        .expect("an older config still loads");
-        assert_eq!(config.agent.max_steps, 8);
-        assert!(config.agent.models.is_empty());
-        assert_eq!(config.model_for("fe", Tier::Strong), "active/model");
-    }
-
-    #[test]
-    fn switching_is_automatic_unless_turned_off() {
-        assert!(Config::default().agent.auto_switch);
-        let config: Config = toml::from_str("[agent]\nauto_switch = false\n").unwrap();
-        assert!(!config.agent.auto_switch);
-    }
-
-    #[test]
-    fn workspace_escape_is_rejected() {
-        let root = PathBuf::from("/tmp/enx-root");
-        assert!(resolve_in_workspace(&root, "src/main.rs").is_ok());
-        assert!(resolve_in_workspace(&root, "../etc/passwd").is_err());
-        assert!(resolve_in_workspace(&root, "/etc/passwd").is_err());
-    }
-}
-
-#[cfg(test)]
-mod adopt_model_tests {
-    use super::*;
-
-    /// A gateway that reports nothing but an id is the common case; the
-    /// catalogue has to supply the rest or the UI shows placeholder numbers
-    /// as if they were real.
-    #[test]
-    fn upstream_silence_falls_back_to_the_catalogue() {
-        let catalog = crate::catalog::Catalog::load_cached();
-        // Skip when no catalogue is cached (offline CI); the fallback rules
-        // are covered by the tests below that do not need one.
-        let Some((id, entry)) = catalog
-            .providers
-            .values()
-            .flat_map(|p| p.models.iter())
-            .find(|(_, m)| m.limit.context > 0 && m.cost.input > 0.0)
-            .map(|(id, m)| (id.clone(), m.clone()))
-        else {
-            return;
-        };
-        let mut config = Config::default();
-        config.adopt_model(&id, UpstreamModel::default());
-        assert_eq!(
-            config.model.context_window, entry.limit.context,
-            "the window should come from the catalogue"
-        );
-        assert_eq!(config.model.price_input, entry.cost.input);
-        assert_eq!(config.model.reasoning, entry.reasoning);
-    }
-
-    /// The provider knows how it is actually serving the model; a public
-    /// catalogue cannot. Where they disagree, the provider wins.
-    #[test]
-    fn upstream_wins_over_the_catalogue() {
-        let mut config = Config::default();
-        config.adopt_model(
-            "gpt-4o",
-            UpstreamModel {
-                context_window: Some(42_000),
-            },
-        );
-        assert_eq!(config.model.context_window, 42_000);
-    }
-
-    /// Switching models must not carry the old one's numbers across — that is
-    /// how a 128k window ended up displayed for a 1M-context model.
-    #[test]
-    fn switching_models_replaces_rather_than_keeps() {
-        let mut config = Config::default();
-        config.model.context_window = 999_999;
-        config.model.price_input = 12.5;
-        config.model.price_output = 99.0;
-        config.model.reasoning = true;
-        config.model.vision = true;
-
-        config.adopt_model("definitely-not-a-real-model-xyz", UpstreamModel::default());
-
-        assert_eq!(
-            config.model.context_window, DEFAULT_CONTEXT_WINDOW,
-            "an unknown model falls back to the default window, not the previous model's"
-        );
-        assert_eq!(
-            config.model.price_input, 0.0,
-            "stale pricing must be dropped"
-        );
-        assert_eq!(config.model.price_output, 0.0);
-        assert!(
-            !config.model.reasoning,
-            "capabilities describe the old model"
-        );
-        assert!(!config.model.vision);
-    }
-
-    /// An unlisted model is far more often tool-capable than not, and turning
-    /// tools off silently would disable the agent's whole toolset.
-    #[test]
-    fn an_unknown_model_keeps_tool_calling_enabled() {
-        let mut config = Config::default();
-        config.adopt_model("definitely-not-a-real-model-xyz", UpstreamModel::default());
-        assert!(config.model.tool_call);
-    }
-
-    #[test]
-    fn the_model_id_is_trimmed() {
-        let mut config = Config::default();
-        config.adopt_model("  spaced-model  ", UpstreamModel::default());
-        assert_eq!(config.model.default, "spaced-model");
-    }
-
-    /// Choosing a model on DeepSeek's own API takes DeepSeek's published
-    /// figures, whatever the public catalogue says.
-    #[test]
-    fn a_deepseek_model_takes_deepseeks_own_figures() {
-        let mut config = Config::default();
-        config.provider.preset = "deepseek".into();
-        config.provider.base_url = "https://api.deepseek.com".into();
-        config.adopt_model("deepseek-v4-pro", UpstreamModel::default());
-        assert_eq!(config.model.price_input, 0.66);
-        assert_eq!(config.model.price_output, 1.98);
-        assert_eq!(config.model.price_cache_read, 0.022);
-        assert_eq!(config.model.context_window, 1_000_000);
-        assert!(!config.model.vision);
-        assert!(config.model.reasoning && config.model.tool_call);
-
-        config.adopt_model("deepseek-flash", UpstreamModel::default());
-        assert_eq!(config.model.price_input, 0.15);
-        assert!(config.model.vision, "Flash takes images");
-    }
-}
+mod tests;

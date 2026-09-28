@@ -27,11 +27,9 @@ async fn main() -> anyhow::Result<()> {
 
     let mut config = Config::load()?;
     config.agent.workspace = Some(workspace.clone());
-    println!(
-        "provider  {} ({})",
-        config.provider.name, config.provider.base_url
-    );
-    println!("model     {}", config.model.default);
+    let connection = config.active_connection().unwrap_or_default();
+    println!("provider  {} ({})", connection.name, connection.base_url);
+    println!("model     {}", config.model.active);
     println!(
         "typesafe  gate_tool_results={} rank_compaction={} key={}",
         config.typesafe.gate_tool_results,

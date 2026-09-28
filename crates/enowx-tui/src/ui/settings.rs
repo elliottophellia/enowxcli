@@ -1,97 +1,76 @@
 use super::*;
 
 pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
-    let single = matches!(
-        app.modal,
-        Modal::ModelUrl | Modal::ProviderKey | Modal::TypeSafeKey
-    );
+    let fields = crate::modal::form_fields(app.modal);
     let width = area.width.saturating_sub(2).min(72);
-    // Content rows: a single field is its label, its value, a blank row and
-    // the note; the full form shows six fields of three rows and the note.
-    let height = if single { 4 } else { 20 };
-    // Keys go in the box's bottom edge; the sentence explaining the field, or
+    // Content rows: each field is its label, its value and a gap; the note
+    // sits on the last row with a blank row above it.
+    let height = (fields.len() as u16 * 3).max(3) + 1;
+    // Keys go in the box's bottom edge; the sentence explaining the form, or
     // the error when there is one, keeps one row inside.
-    let (keys, note) = if app.modal == Modal::ModelUrl {
-        (
-            "Enter detect · Ctrl+U clear · Esc cancel",
-            "Full JSON endpoint URL; metadata depends on what it returns.",
-        )
-    } else if app.modal == Modal::TypeSafeKey {
-        (
+    let provider = app.settings.name.as_str();
+    let key_url = enowx_core::provider_preset(&app.settings.provider_id)
+        .map(|preset| preset.key_url)
+        .filter(|url| !url.is_empty());
+    let (keys, note, title): (&str, String, String) = match app.modal {
+        Modal::TypeSafeKey => (
             "Enter save · Ctrl+U clear · Esc cancel",
-            "An empty key turns TypeSafe off. TYPESAFE_API_KEY is read too.",
-        )
-    } else if app.modal == Modal::ProviderKey {
-        (
-            "Enter connect · Ctrl+U clear · Esc cancel",
-            "Provider endpoints are preset. Add a model after connecting.",
-        )
-    } else if SETTINGS_FIELDS.get(app.modal_cursor) == Some(&SettingsField::Theme) {
-        (
-            "Enter / F2 choose theme · Tab field · Esc cancel",
-            "Switch between the five palettes.",
-        )
-    } else if width < 44 {
-        ("Tab field · Enter save · Esc cancel", "F5 adds a model.")
-    } else {
-        (
-            "Tab / ↑↓ field · Ctrl+U clear · Enter save · Esc cancel",
-            "F5 adds a model: auto detect from a URL, or enter one by hand.",
-        )
-    };
-    let title = match app.modal {
-        Modal::ModelUrl => "MODEL-LIST URL".to_owned(),
-        Modal::TypeSafeKey => "TYPESAFE KEY".to_owned(),
-        Modal::ProviderKey => format!("{} KEY", app.settings.provider.to_uppercase()),
-        _ => "SETTINGS".to_owned(),
+            "An empty key turns TypeSafe off. TYPESAFE_API_KEY is read too.".into(),
+            "TYPESAFE KEY".into(),
+        ),
+        Modal::ProviderKey => (
+            "Enter connect · Ctrl+U clear · Esc back",
+            match key_url {
+                Some(url) => format!("Kept in ~/.enx/auth.json. Create one at {url}"),
+                None => "Kept in ~/.enx/auth.json, beside your other providers' keys.".into(),
+            },
+            format!("{} KEY", provider.to_uppercase()),
+        ),
+        Modal::ModelManual => (
+            "Tab field · Enter add and use · Esc back",
+            "For a model its list lacks. An empty window uses 128k.".into(),
+            format!("ADD A MODEL TO {}", provider.to_uppercase()),
+        ),
+        _ => (
+            if width < 44 {
+                "Tab field · Enter save · Esc back"
+            } else {
+                "Tab / ↑↓ field · Ctrl+U clear · Enter save · Esc back"
+            },
+            if app.settings.provider_id.is_empty() {
+                "Any OpenAI-compatible endpoint. The key goes to ~/.enx/auth.json.".into()
+            } else {
+                "An empty key keeps the stored one.".into()
+            },
+            provider_form_title(app),
+        ),
     };
     let (_, content) = overlay(frame, app, width, height, &title, keys);
     if content.height == 0 || content.width < 4 {
         return;
     }
-    // The last content row holds the note; a blank row keeps it off the
-    // fields above.
     let note_row = Rect::new(content.x, content.bottom() - 1, content.width, 1);
-    let fields = Rect::new(
+    let area = Rect::new(
         content.x,
         content.y,
         content.width,
         content.height.saturating_sub(2),
     );
-
-    let visible = if single {
-        1
-    } else {
-        (fields.height / 3).max(1) as usize
-    };
-    let start = if app.modal == Modal::ModelUrl {
-        3
-    } else if matches!(app.modal, Modal::ProviderKey | Modal::TypeSafeKey) {
-        2
-    } else {
-        app.modal_cursor.saturating_sub(visible - 1)
-    };
-    let labels = crate::modal::SETTINGS_LABELS;
-    for (index, field) in SETTINGS_FIELDS
-        .iter()
-        .copied()
-        .enumerate()
-        .skip(start)
-        .take(visible)
-    {
+    // The last field needs no gap below it.
+    let visible = ((area.height + 1) / 3).max(1) as usize;
+    let start = app.modal_cursor.saturating_sub(visible - 1);
+    for (index, field) in fields.iter().copied().enumerate().skip(start).take(visible) {
         let active = index == app.modal_cursor;
         let raw = app.settings.value(field);
         let shown = if field == SettingsField::ApiKey {
             "•".repeat(raw.chars().count())
-        } else if field == SettingsField::Theme {
-            format!("{} (Enter/F2 to change)", Theme::find(raw).label)
         } else {
             raw.to_owned()
         };
-        let y = fields.y + ((index - start) * 3) as u16;
+        let y = area.y + ((index - start) * 3) as u16;
         // Label and value both have to fit: a label with its value cut off
         // below the box reads as an empty field.
-        if y + 1 >= fields.bottom() {
+        if y + 1 >= area.bottom() {
             break;
         }
         // Marker on the overlay's column 2, the label and its value both on
@@ -103,7 +82,7 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
                     Style::default().fg(app.theme.accent),
                 ),
                 Span::styled(
-                    labels[index],
+                    field.label(),
                     if active {
                         Style::default()
                             .fg(app.theme.accent)
@@ -113,9 +92,9 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
                     },
                 ),
             ])),
-            Rect::new(fields.x, y, fields.width, 1),
+            Rect::new(area.x, y, area.width, 1),
         );
-        let field_area = Rect::new(fields.x + 2, y + 1, fields.width.saturating_sub(2), 1);
+        let field_area = Rect::new(area.x + 2, y + 1, area.width.saturating_sub(2), 1);
         let cursor_column = if !active {
             0
         } else if field == SettingsField::ApiKey {
@@ -128,7 +107,12 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             0
         };
-        let content_text = if shown.is_empty() { "(empty)" } else { &shown };
+        let placeholder = placeholder(app, field);
+        let content_text = if shown.is_empty() {
+            placeholder
+        } else {
+            &shown
+        };
         frame.render_widget(
             Paragraph::new(content_text)
                 .scroll((0, offset.min(u16::MAX as usize) as u16))
@@ -146,6 +130,7 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
             ));
         }
     }
+    let note = note.as_str();
     let (note, colour) = if app.modal_error.is_empty() {
         (note, app.theme.faint)
     } else {
@@ -155,4 +140,30 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
         Paragraph::new(trim(note, note_row.width as usize)).style(Style::default().fg(colour)),
         note_row,
     );
+}
+
+fn provider_form_title(app: &App) -> String {
+    if app.settings.provider_id.is_empty() {
+        "CUSTOM PROVIDER".to_owned()
+    } else {
+        app.settings.name.to_uppercase()
+    }
+}
+
+/// What an empty field shows.
+fn placeholder(app: &App, field: SettingsField) -> &'static str {
+    let stored = !app.settings.provider_id.is_empty()
+        && app
+            .config
+            .connection(&app.settings.provider_id)
+            .is_some_and(|c| c.key.is_some());
+    match field {
+        SettingsField::Name => "e.g. My gateway",
+        SettingsField::BaseUrl => "https://host/v1",
+        SettingsField::ApiKey if stored => "(stored; type to replace it)",
+        SettingsField::ApiKey => "(empty)",
+        SettingsField::ModelsUrl => "https://host/v1/models",
+        SettingsField::Model => "the id the provider uses",
+        SettingsField::ContextWindow => "e.g. 200000",
+    }
 }

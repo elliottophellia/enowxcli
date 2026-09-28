@@ -4,6 +4,7 @@
 pub mod agent;
 pub mod agent_def;
 pub mod ask;
+pub mod auth;
 pub mod catalog;
 pub mod compact;
 pub mod config;
@@ -16,6 +17,7 @@ pub mod format;
 pub mod gating;
 pub mod mcp;
 pub mod message;
+pub mod model_state;
 pub mod persist;
 pub mod preview;
 pub mod provider;
@@ -28,11 +30,12 @@ pub mod ui_check;
 
 pub use agent::{Agent, RunRequest};
 pub use agent_def::{builtin_agents, AgentDef, Delegation, Tier};
-pub use config::{Config, UpstreamModel};
+pub use config::Config;
 pub use discovery::{Discovery, InstructionFile, McpServer, McpTransport, SkillEntry, SkillScope};
 pub use event::Event;
 pub use mcp::{McpClient, McpTool};
 pub use message::{Message, Role as MessageRole, ToolCall};
+pub use provider::registry::{Connection, ModelFacts, ModelRef};
 pub use provider::{
     classify, provider_preset, retry_budget_for_error, tier_drop, FailureKind, LadderStep,
     ModelLadder, ProviderPreset, TierDrop, TierNoticeSink, PROVIDER_PRESETS,

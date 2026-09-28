@@ -75,7 +75,7 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
     terminal.clear()?;
     while !app.should_quit {
         app.drain_events();
-        app.drain_model_events();
+        app.drain_picker_events();
         app.drain_typesafe_check();
         app.refresh_viewed_delegation();
         terminal.draw(|frame| draw(frame, &mut app))?;

@@ -125,11 +125,22 @@ async fn second_request_assistant(preset: &str) -> serde_json::Value {
     let dir = Dir::new(preset);
     let (base_url, bodies) = scripted_provider(vec![thinks_then_globs(), answers()]).await;
     let mut config = Config::default();
-    config.provider.name = preset.into();
-    config.provider.preset = preset.into();
-    config.provider.base_url = base_url;
-    config.provider.api_key = "test-key".into();
-    config.model.default = "deepseek-flash".into();
+    if preset == "deepseek" {
+        // DeepSeek's own provider, pointed at the fixture server.
+        config.provider.insert(
+            "deepseek".into(),
+            enowx_core::config::ProviderEntry {
+                base_url,
+                ..Default::default()
+            },
+        );
+        config
+            .auth
+            .set_for_session("deepseek", "test-key", enowx_core::auth::KeySource::Session);
+        assert!(config.use_model("deepseek/deepseek-flash"));
+    } else {
+        config.use_endpoint(preset, &base_url, "test-key", "deepseek-flash");
+    }
     config.agent.workspace = Some(dir.0.clone());
     config.agent.max_steps = 4;
     config.agent.auto_compact = false;

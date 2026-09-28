@@ -46,13 +46,11 @@ fn session() -> TestApp {
 fn ready() -> TestApp {
     let mut app = TestApp::new();
     app.seed_provider(
-        "deepseek",
-        "deepseek",
+        "fixture",
         "http://127.0.0.1:1/v1",
         "",
         "test-key",
         "deepseek-flash",
-        128_000,
     );
     app
 }

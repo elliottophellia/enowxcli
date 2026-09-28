@@ -133,10 +133,7 @@ impl Drop for Dir {
 
 fn agent(base_url: &str, dir: &std::path::Path) -> Agent {
     let mut config = Config::default();
-    config.provider.name = "test".into();
-    config.provider.base_url = base_url.into();
-    config.provider.api_key = "test-key".into();
-    config.model.default = "test-model".into();
+    config.use_endpoint("test", base_url, "test-key", "test-model");
     config.agent.workspace = Some(dir.to_path_buf());
     config.agent.max_steps = 6;
     config.agent.auto_compact = false;

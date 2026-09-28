@@ -121,6 +121,31 @@ impl Catalog {
         cat
     }
 
+    /// The cached catalogue, parsed once per process and again only when
+    /// the file changes. It is a few megabytes of JSON, and a model's facts
+    /// are looked up on every switch of model, agent or delegation.
+    pub fn shared() -> std::sync::Arc<Catalog> {
+        use std::sync::{Arc, Mutex, OnceLock};
+        type Cached = Option<(PathBuf, SystemTime, Arc<Catalog>)>;
+        static CACHE: OnceLock<Mutex<Cached>> = OnceLock::new();
+        let path = cache_path();
+        let Ok(modified) = fs::metadata(&path).and_then(|meta| meta.modified()) else {
+            return Arc::new(Catalog::default());
+        };
+        let mut cache = CACHE
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some((at_path, at, catalog)) = cache.as_ref() {
+            if *at_path == path && *at == modified {
+                return catalog.clone();
+            }
+        }
+        let catalog = Arc::new(Self::load_cached());
+        *cache = Some((path, modified, catalog.clone()));
+        catalog
+    }
+
     fn is_stale(&self) -> bool {
         let Some(ts) = self.fetched_at else {
             return true;

@@ -247,6 +247,25 @@ pub enum Setup {
     Own,
 }
 
+/// USD per 1M input and output tokens for the model `agent` runs on: the
+/// model in use's figures when it is that one, else its own.
+fn agent_prices(config: &Config, agent: &str) -> (f64, f64) {
+    let tier = crate::agent_def::builtin_agents()
+        .into_iter()
+        .find(|def| def.name == agent)
+        .map(|def| def.tier)
+        .unwrap_or(crate::agent_def::Tier::Balanced);
+    let model = config.model_for(agent, tier);
+    if model == config.model.active {
+        return (config.model.price_input, config.model.price_output);
+    }
+    config
+        .parse_model(&model)
+        .map(|model| config.facts(&model))
+        .map(|facts| (facts.price_input, facts.price_output))
+        .unwrap_or((config.model.price_input, config.model.price_output))
+}
+
 /// Run `case` through `agent` (its name, such as "fe") in a new workspace
 /// under `root`, then score it.
 pub async fn run_case(
@@ -391,8 +410,9 @@ pub async fn run_case(
             .count();
         score.input_tokens = u64::from(saved.usage.input_tokens);
         score.output_tokens = u64::from(saved.usage.output_tokens);
-        score.cost = score.input_tokens as f64 * config.model.price_input / 1e6
-            + score.output_tokens as f64 * config.model.price_output / 1e6;
+        let (input, output) = agent_prices(&config, agent);
+        score.cost =
+            score.input_tokens as f64 * input / 1e6 + score.output_tokens as f64 * output / 1e6;
     }
     score
 }

@@ -1,7 +1,6 @@
 //! Modal pickers and the provider/model settings draft they edit.
 
 pub use enowx_core::persist::McpDraft;
-use enowx_core::Config;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Modal {
@@ -20,12 +19,17 @@ pub enum Modal {
     /// Editing a sent message before resending it.
     MessageEdit,
     Sessions,
+    /// Every provider enx knows, connected or not, and a row to add one.
     Providers,
+    /// The API key of a built-in provider.
     ProviderKey,
-    ModelSource,
-    ModelUrl,
+    /// A custom provider's name, endpoint, key and model-list URL.
+    ProviderForm,
+    /// The models of every connected provider, with the recent and
+    /// favourite ones first.
     Models,
-    Settings,
+    /// A model entered by hand, for a provider whose list lacks it.
+    ModelManual,
     Themes,
     Attach,
     /// Floating list of every command, searchable. Distinct from the
@@ -50,9 +54,8 @@ impl Modal {
             Modal::TypeSafeKey => "",
             Modal::MessageEdit => " EDIT PROMPT ",
             Modal::Sessions => " RESUME SESSION ",
-            Modal::Providers => " PROVIDER ",
-            Modal::ModelSource => " ADD MODEL ",
-            Modal::Models => " DETECTED MODELS ",
+            Modal::Providers => " PROVIDERS ",
+            Modal::Models => " MODELS ",
             Modal::Themes => " THEME ",
             Modal::Attach => " ATTACH IMAGE ",
             Modal::Skills => " SKILLS ",
@@ -60,7 +63,7 @@ impl Modal {
             Modal::McpForm => " ADD MCP SERVER ",
             Modal::QuitConfirm => " QUIT ENX ",
             // Forms draw their own heading, so the generic title is empty.
-            Modal::None | Modal::Settings | Modal::ModelUrl | Modal::ProviderKey => "",
+            Modal::None | Modal::ProviderForm | Modal::ModelManual | Modal::ProviderKey => "",
         }
     }
 
@@ -68,8 +71,8 @@ impl Modal {
     pub fn is_form(self) -> bool {
         matches!(
             self,
-            Modal::Settings
-                | Modal::ModelUrl
+            Modal::ProviderForm
+                | Modal::ModelManual
                 | Modal::ProviderKey
                 | Modal::TypeSafeKey
                 | Modal::McpForm
@@ -77,89 +80,93 @@ impl Modal {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SettingsField {
-    Provider,
+    Name,
     BaseUrl,
     ApiKey,
     ModelsUrl,
     Model,
     ContextWindow,
-    Theme,
 }
 
-pub const SETTINGS_FIELDS: [SettingsField; 7] = [
-    SettingsField::Provider,
-    SettingsField::BaseUrl,
-    SettingsField::ApiKey,
-    SettingsField::ModelsUrl,
-    SettingsField::Model,
-    SettingsField::ContextWindow,
-    SettingsField::Theme,
-];
+impl SettingsField {
+    pub fn label(self) -> &'static str {
+        match self {
+            SettingsField::Name => "Name",
+            SettingsField::BaseUrl => "Base URL",
+            SettingsField::ApiKey => "API key",
+            SettingsField::ModelsUrl => "Model-list URL",
+            SettingsField::Model => "Model ID",
+            SettingsField::ContextWindow => "Context window (tokens)",
+        }
+    }
+}
 
-pub const SETTINGS_LABELS: [&str; 7] = [
-    "Provider name",
-    "Base URL",
-    "API key",
-    "Model-list URL",
-    "Model ID",
-    "Context window",
-    "Theme",
-];
+/// The fields each form shows, in order. `modal_cursor` indexes this list.
+pub fn form_fields(modal: Modal) -> &'static [SettingsField] {
+    match modal {
+        Modal::ProviderForm => &[
+            SettingsField::Name,
+            SettingsField::BaseUrl,
+            SettingsField::ApiKey,
+            SettingsField::ModelsUrl,
+        ],
+        Modal::ModelManual => &[SettingsField::Model, SettingsField::ContextWindow],
+        Modal::ProviderKey | Modal::TypeSafeKey => &[SettingsField::ApiKey],
+        _ => &[],
+    }
+}
 
-#[derive(Clone)]
+/// What the provider and model forms are editing.
+#[derive(Clone, Default)]
 pub struct SettingsDraft {
-    pub provider: String,
-    pub preset: String,
+    /// The provider being edited or given a key; empty for a new one.
+    pub provider_id: String,
+    pub name: String,
     pub base_url: String,
+    /// A key typed here. Empty keeps the one already stored.
     pub api_key: String,
     pub models_url: String,
     pub model: String,
     pub context_window: String,
-    pub theme: String,
 }
 
 impl SettingsDraft {
-    pub fn from_config(config: &Config) -> Self {
+    /// The form for `connection`, its key left empty: a stored key is
+    /// never shown, and typing one replaces it.
+    pub fn for_connection(connection: &enowx_core::Connection) -> Self {
         Self {
-            provider: config.provider.name.clone(),
-            preset: config.provider.preset.clone(),
-            base_url: config.provider.base_url.clone(),
-            api_key: config.provider.api_key.clone(),
-            models_url: config.provider.models_url.clone(),
-            model: config.model.default.clone(),
-            context_window: config.model.context_window.to_string(),
-            theme: config.ui.theme.clone(),
+            provider_id: connection.id.clone(),
+            name: connection.name.clone(),
+            base_url: connection.base_url.clone(),
+            api_key: String::new(),
+            models_url: connection.models_url.clone(),
+            model: String::new(),
+            context_window: String::new(),
         }
     }
 
     pub fn value(&self, field: SettingsField) -> &str {
         match field {
-            SettingsField::Provider => &self.provider,
+            SettingsField::Name => &self.name,
             SettingsField::BaseUrl => &self.base_url,
             SettingsField::ApiKey => &self.api_key,
             SettingsField::ModelsUrl => &self.models_url,
             SettingsField::Model => &self.model,
             SettingsField::ContextWindow => &self.context_window,
-            SettingsField::Theme => &self.theme,
         }
     }
 
     pub fn value_mut(&mut self, field: SettingsField) -> &mut String {
         match field {
-            SettingsField::Provider => &mut self.provider,
+            SettingsField::Name => &mut self.name,
             SettingsField::BaseUrl => &mut self.base_url,
             SettingsField::ApiKey => &mut self.api_key,
             SettingsField::ModelsUrl => &mut self.models_url,
             SettingsField::Model => &mut self.model,
             SettingsField::ContextWindow => &mut self.context_window,
-            SettingsField::Theme => &mut self.theme,
         }
-    }
-
-    pub fn provider_active(&self) -> bool {
-        !self.provider.trim().is_empty() && !self.base_url.trim().is_empty()
     }
 }
 

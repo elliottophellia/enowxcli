@@ -151,10 +151,7 @@ async fn one_step_delegates_run_together_and_keep_to_the_contract() {
     std::fs::create_dir_all(&dir).unwrap();
     let (url, bodies) = provider().await;
     let mut config = Config::default();
-    config.provider.name = "test".into();
-    config.provider.base_url = url;
-    config.provider.api_key = "test-key".into();
-    config.model.default = "test-model".into();
+    config.use_endpoint("test", &url, "test-key", "test-model");
     config.agent.workspace = Some(dir.clone());
     config.agent.auto_compact = false;
     let agent = Agent::with_discovery(

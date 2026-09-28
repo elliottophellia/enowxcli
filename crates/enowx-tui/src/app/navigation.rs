@@ -34,7 +34,6 @@ impl App {
         config.save()?;
         self.config = config;
         self.theme = theme;
-        self.settings.theme = theme.name.into();
         self.status = format!("theme: {}", theme.label);
         Ok(())
     }

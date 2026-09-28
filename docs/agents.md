@@ -345,12 +345,16 @@ Unmapped tiers fall back to the active model rather than failing; a missing
 tier table must not make delegation stop working.
 
 One agent is given a model of its own from the command line, and an empty
-value gives it back to its tier:
+value gives it back to its tier. The model is named with its provider, so it
+can be on any connected provider, not only the one in use:
 
 ```sh
-enx config set agent.models.fe "cbc/claude-opus-5"
+enx config set agent.models.fe "openrouter/anthropic/claude-sonnet-4.5"
 enx config set agent.models.fe ""
 ```
+
+An agent whose model is on a provider with no key runs on the model in use,
+and the transcript says so.
 
 `/agent` shows the model beside each agent that does not run on the active
 one. To choose a model for `fe`, run the interface suite once per candidate

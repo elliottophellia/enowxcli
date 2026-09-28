@@ -117,10 +117,7 @@ fn refuses_the_key() -> String {
 
 fn config_for(base_url: &str, workspace: &std::path::Path) -> Config {
     let mut config = Config::default();
-    config.provider.name = "test".into();
-    config.provider.base_url = base_url.into();
-    config.provider.api_key = "test-key".into();
-    config.model.default = "test-model".into();
+    config.use_endpoint("test", base_url, "test-key", "test-model");
     config.agent.workspace = Some(workspace.to_path_buf());
     config.agent.max_steps = 6;
     config.agent.auto_compact = false;

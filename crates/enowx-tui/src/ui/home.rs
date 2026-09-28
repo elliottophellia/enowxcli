@@ -185,7 +185,7 @@ fn info_rows(app: &App, width: u16) -> Vec<(Line<'static>, Line<'static>)> {
     );
     let setup = if app.config.is_ready() {
         None
-    } else if app.config.provider_active() && app.config.model.default.is_empty() {
+    } else if app.config.has_connected_provider() {
         Some(("Choose a model", "/model"))
     } else {
         Some(("Connect a provider", "/provider"))

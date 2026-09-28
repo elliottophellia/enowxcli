@@ -1,282 +1,216 @@
+//! `/provider`: every provider enx knows, each with its own key, any number
+//! of them connected at once.
+
 use super::*;
 use crate::app::settings_keys::origin_of;
+use crate::modal::form_fields;
+use enowx_core::auth::KeySource;
+use enowx_core::config::{provider_id_from, valid_provider_id};
+use enowx_core::Connection;
+
+/// The row under a provider's name: whether it is connected, how, and
+/// whether the model in use is on it.
+fn provider_state(connection: &Connection, active: Option<&str>) -> String {
+    let mut parts = vec![match &connection.key_source {
+        Some(KeySource::Stored) => "Connected".to_owned(),
+        Some(KeySource::Env(name)) => format!("Connected · key from {name}"),
+        Some(KeySource::Session) => "Connected for this session".to_owned(),
+        None if connection.is_local() => "Connected · on this machine, no key needed".to_owned(),
+        None if connection.preset.is_some() => "Enter adds your API key".to_owned(),
+        None => "No API key yet".to_owned(),
+    }];
+    if connection.preset.is_none() {
+        if let Some(origin) = origin_of(&connection.base_url) {
+            parts.push(origin.split("://").nth(1).unwrap_or(&origin).to_owned());
+        }
+    }
+    if active == Some(connection.id.as_str()) {
+        parts.push("in use".to_owned());
+    }
+    parts.join(" · ")
+}
 
 impl App {
-    pub(crate) fn open_settings(&mut self) {
-        self.settings = SettingsDraft::from_config(&self.config);
-        self.modal = Modal::Settings;
-        self.modal_cursor = 0;
-        self.field_cursor = self.settings.value(SETTINGS_FIELDS[0]).len();
-        self.modal_error.clear();
-    }
-
     pub(crate) fn open_providers(&mut self) {
-        self.modal = Modal::Providers;
         self.modal_cursor = 0;
-        self.modal_error.clear();
-        self.modal_items = PROVIDER_PRESETS
-            .iter()
-            .map(|preset| {
-                (
-                    preset.name.to_owned(),
-                    if preset.id == "custom" {
-                        "Set your own OpenAI-compatible endpoint".into()
-                    } else {
-                        "Connect with your API key".into()
-                    },
-                )
-            })
-            .collect();
-        if self.config.provider_active() {
-            self.modal_items.push((
-                format!("Edit current · {}", self.config.provider.name),
-                "Provider and model settings".into(),
-            ));
-        }
+        self.refresh_providers();
     }
 
+    /// Fill the provider list from the configuration, keeping the cursor.
+    pub(crate) fn refresh_providers(&mut self) {
+        self.modal = Modal::Providers;
+        self.modal_error.clear();
+        let active = self.config.active_connection().map(|c| c.id);
+        let connections = self.config.connections();
+        self.provider_ids = connections.iter().map(|c| c.id.clone()).collect();
+        self.modal_items = connections
+            .iter()
+            .map(|c| (c.name.clone(), provider_state(c, active.as_deref())))
+            .collect();
+        self.modal_items.push((
+            "Add a custom provider".into(),
+            "Any OpenAI-compatible endpoint".into(),
+        ));
+        self.modal_cursor = self.modal_cursor.min(self.modal_items.len() - 1);
+    }
+
+    pub(crate) fn open_form(&mut self, modal: Modal) {
+        self.modal = modal;
+        self.modal_cursor = 0;
+        self.modal_error.clear();
+        self.field_cursor = form_fields(modal)
+            .first()
+            .map(|field| self.settings.value(*field).len())
+            .unwrap_or(0);
+    }
+
+    /// Enter on a provider row: a built-in provider asks for its key, a
+    /// custom one opens its settings, the last row adds a new one.
     pub(crate) fn select_provider(&mut self) {
-        let Some(preset) = PROVIDER_PRESETS.get(self.modal_cursor) else {
-            self.open_settings();
+        let Some(id) = self.provider_ids.get(self.modal_cursor).cloned() else {
+            self.settings = SettingsDraft::default();
+            self.open_form(Modal::ProviderForm);
             return;
         };
-        if self.config.provider.preset == preset.id {
-            self.settings = SettingsDraft::from_config(&self.config);
-        } else {
-            self.settings = SettingsDraft::from_config(&Config::default());
-            self.settings.provider = if preset.id == "custom" {
-                String::new()
-            } else {
-                preset.name.into()
-            };
-            self.settings.base_url = preset.base_url.into();
-            self.settings.models_url = preset.models_url.into();
-        }
-        self.settings.preset = preset.id.into();
-        self.models.clear();
-        self.model_events = None;
-        self.modal_error.clear();
-        self.modal = if preset.id == "custom" {
-            Modal::Settings
-        } else {
-            Modal::ProviderKey
+        let Some(connection) = self.config.connection(&id) else {
+            return;
         };
-        self.modal_cursor = if preset.id == "custom" { 0 } else { 2 };
-        self.field_cursor = self
-            .settings
-            .value(SETTINGS_FIELDS[self.modal_cursor])
-            .len();
+        self.settings = SettingsDraft::for_connection(&connection);
+        self.open_form(if connection.preset.is_some() {
+            Modal::ProviderKey
+        } else {
+            Modal::ProviderForm
+        });
     }
 
-    pub(crate) fn connect_preset(&mut self) -> Result<()> {
-        anyhow::ensure!(
-            !self.settings.api_key.trim().is_empty(),
-            "Enter the provider API key."
-        );
+    /// Store a built-in provider's key, keeping every other provider's, and
+    /// open its models.
+    pub(crate) fn connect_key(&mut self) -> Result<()> {
+        let key = self.settings.api_key.trim().to_owned();
+        anyhow::ensure!(!key.is_empty(), "Enter the API key.");
+        let id = self.settings.provider_id.clone();
         let mut next = self.config.clone();
-        next.provider.name = self.settings.provider.trim().into();
-        next.provider.preset = self.settings.preset.clone();
-        next.provider.base_url = self.settings.base_url.trim().into();
-        next.provider.models_url = self.settings.models_url.trim().into();
-        next.provider.api_key = self.settings.api_key.trim().into();
-        if next.provider.preset != self.config.provider.preset
-            || next.provider.base_url != self.config.provider.base_url
-        {
-            next.model.default.clear();
-            next.model.context_window = 128_000;
+        next.auth.store(&id, &key)?;
+        if !next.is_ready() {
+            next.settle_model();
         }
-        next.save()?;
+        let name = next.connection(&id).map(|c| c.name).unwrap_or(id.clone());
         self.adopt(next);
-        self.status = "provider connected; add a model".into();
-        self.open_model_source();
+        self.status = format!("{name} connected");
+        self.open_model_picker(Some(&id));
         Ok(())
     }
 
-    pub(crate) fn save_settings(&mut self) -> Result<()> {
-        // Decide host-scoped invalidation once, against the finished URL.
-        // Doing it per keystroke cleared the key while the user was still
-        // typing the hostname.
-        self.reconcile_host_change();
-        let mut next = self.config.clone();
-        next.provider.name = self.settings.provider.trim().to_owned();
-        next.provider.preset = self.settings.preset.clone();
-        next.provider.base_url = self
+    /// Save the custom provider in the form: its entry in `config.toml`, and
+    /// a typed key in `auth.json`.
+    pub(crate) fn save_provider_form(&mut self) -> Result<()> {
+        let name = self.settings.name.trim().to_owned();
+        let base_url = self
             .settings
             .base_url
             .trim()
             .trim_end_matches('/')
             .to_owned();
-        next.provider.models_url = self.settings.models_url.trim().to_owned();
-        let chosen_model = self.settings.model.trim().to_owned();
-        let model_changed = chosen_model != self.config.model.default;
-        next.model.default = chosen_model.clone();
-        next.provider.api_key = self.settings.api_key.trim().to_owned();
-        next.ui.theme = self.settings.theme.clone();
+        let mut models_url = self.settings.models_url.trim().to_owned();
+        let key = self.settings.api_key.trim().to_owned();
+        anyhow::ensure!(!name.is_empty(), "Give the provider a name.");
         anyhow::ensure!(
-            self.settings.provider_active(),
-            "Provider name and Base URL are required."
+            !base_url.is_empty(),
+            "Enter its base URL, such as https://host/v1."
         );
-        let window = self.settings.context_window.trim();
-        next.model.context_window = if window.is_empty() && next.model.default.is_empty() {
-            128_000
+        let editing = !self.settings.provider_id.is_empty();
+        let id = if editing {
+            self.settings.provider_id.clone()
         } else {
-            window
-                .parse()
-                .map_err(|_| anyhow::anyhow!("Context window must be a whole number of tokens."))?
+            provider_id_from(&name)
         };
-        // A newly chosen model brings its own window, pricing and
-        // capabilities; keeping the previous model's would misreport both the
-        // context gauge and the cost readout.
-        if model_changed && !chosen_model.is_empty() {
-            let typed_window = self.settings.context_window.trim().parse::<u32>().ok();
-            next.adopt_model(
-                &chosen_model,
-                enowx_core::UpstreamModel {
-                    context_window: typed_window,
-                },
-            );
+        anyhow::ensure!(
+            valid_provider_id(&id),
+            "`{name}` does not make a usable id; use letters and digits."
+        );
+        anyhow::ensure!(
+            editing || self.config.connection(&id).is_none(),
+            "There is a provider called `{id}` already: pick another name, or open it from the list."
+        );
+        let previous = self.config.connection(&id);
+        // A key issued by one service means nothing at another. Moving the
+        // endpoint to a different host without typing a new key drops the
+        // stored one, decided here against the finished URL: every prefix of
+        // a URL is typed on the way to it.
+        let old_origin = previous.as_ref().and_then(|p| origin_of(&p.base_url));
+        let new_origin = origin_of(&base_url);
+        let moved = matches!((&old_origin, &new_origin), (Some(a), Some(b)) if a != b);
+        if moved {
+            // A model-list URL on the old host moves with it.
+            if let (Some(old), Some(new)) = (&old_origin, &new_origin) {
+                if let Some(path) = models_url.strip_prefix(old.as_str()) {
+                    models_url = format!("{new}{path}");
+                }
+            }
         }
+        let mut next = self.config.clone();
+        let mut entry = next.provider.get(&id).cloned().unwrap_or_default();
+        entry.name = if name == id {
+            String::new()
+        } else {
+            name.clone()
+        };
+        entry.base_url = base_url;
+        entry.models_url = models_url;
+        next.provider.insert(id.clone(), entry);
         next.save()?;
-        let needs_model = next.model.default.is_empty();
-        let ready = next.is_ready();
-        self.adopt(next);
-        self.modal_error.clear();
-        if needs_model {
-            self.status = "provider saved; choose a model".into();
-            self.open_model_source();
-            return Ok(());
+        if !key.is_empty() {
+            next.auth.store(&id, &key)?;
+        } else if moved {
+            next.auth.forget(&id)?;
         }
-        self.modal = Modal::None;
-        self.status = if ready {
-            "provider saved".into()
+        if !next.is_ready() {
+            next.settle_model();
+        }
+        let connected = next.connection(&id).is_some_and(|c| c.is_connected());
+        self.adopt(next);
+        if connected {
+            self.status = format!("{name} saved");
+            self.open_model_picker(Some(&id));
         } else {
-            "saved; this provider still needs an API key".into()
-        };
+            self.status = format!("{name} saved; it needs an API key");
+            self.refresh_providers();
+        }
         Ok(())
     }
 
-    /// Drop credentials that belonged to a host the user has moved away from.
-    ///
-    /// Only the API key and the model-list URL are host-scoped. The model ID
-    /// is deliberately kept: pointing a base URL at a different gateway for
-    /// the same catalogue is common, and making the user re-pick a model they
-    /// already chose is the annoyance this whole path is meant to avoid.
-    fn reconcile_host_change(&mut self) {
-        let previous = origin_of(&self.config.provider.base_url);
-        let current = origin_of(&self.settings.base_url);
-        let (Some(previous), Some(current)) = (previous, current) else {
-            return;
+    /// Delete on a provider row: remove its stored key. A custom provider
+    /// with no key left is removed on the next press.
+    pub(crate) fn disconnect_provider(&mut self) -> Result<()> {
+        let Some(id) = self.provider_ids.get(self.modal_cursor).cloned() else {
+            return Ok(());
         };
-        if previous == current {
-            return;
-        }
-        self.settings.api_key.clear();
-        // A catalogue URL on the old host cannot describe the new one; if it
-        // moved with the base URL, rewrite it rather than discarding it.
-        let models_url = self.settings.models_url.trim().to_owned();
-        self.settings.models_url = match models_url.strip_prefix(&previous) {
-            Some(path) => format!("{current}{path}"),
-            None => String::new(),
+        let Some(connection) = self.config.connection(&id) else {
+            return Ok(());
         };
-    }
-
-    pub(crate) fn open_model_source(&mut self) {
-        self.models.clear();
-        self.modal_items.clear();
-        self.modal_error.clear();
-        if !self.settings.provider_active() {
-            self.open_providers();
-            return;
-        }
-        self.modal = Modal::ModelSource;
-        self.modal_cursor = 0;
-        self.modal_items = vec![
-            (
-                "Auto detect".into(),
-                "Enter a model-list URL and detect metadata".into(),
-            ),
-            (
-                "Manual".into(),
-                "Enter a model ID and context window yourself".into(),
-            ),
-        ];
-    }
-
-    pub(crate) fn discover_models(&mut self) {
-        self.model_events = None;
-        self.models.clear();
-        self.modal_items.clear();
-        self.modal_error.clear();
-        if !self.settings.provider_active() {
-            self.open_model_source();
-            return;
-        }
-        if self.settings.models_url.trim().is_empty() {
-            self.modal = Modal::ModelUrl;
-            self.modal_error = "Enter the full model-list URL first.".into();
-            return;
-        }
-        self.discovering_models = true;
-        self.modal = Modal::Models;
-        self.modal_cursor = 0;
-        let mut config = self.config.clone();
-        config.provider.name = self.settings.provider.trim().into();
-        config.provider.base_url = self.settings.base_url.trim().into();
-        config.provider.api_key = self.settings.api_key.trim().into();
-        let url = self.settings.models_url.clone();
-        let (tx, rx) = mpsc::channel(1);
-        self.model_events = Some(rx);
-        tokio::spawn(async move {
-            tokio::select! {
-                _ = tx.closed() => {}
-                result = async { Provider::from_config(&config)?.models(&url).await } => {
-                    let _ = tx.send(result.map_err(|error| format!("{error:#}"))).await;
-                }
+        let mut next = self.config.clone();
+        if next.auth.forget(&id)? {
+            self.status = format!(
+                "{} disconnected: its key is gone from auth.json",
+                connection.name
+            );
+            if let Some(KeySource::Env(name)) = next.connection(&id).and_then(|c| c.key_source) {
+                self.status = format!("{}; {name} still connects it", self.status);
             }
-        });
-    }
-
-    pub(crate) fn close_models(&mut self) {
-        self.model_events = None;
-        self.discovering_models = false;
-        self.modal_error.clear();
-        self.modal = Modal::Settings;
-        self.modal_cursor = 4;
-        self.field_cursor = self.settings.model.len();
-    }
-
-    pub(crate) fn drain_model_events(&mut self) {
-        let next = self.model_events.as_mut().map(mpsc::Receiver::try_recv);
-        match next {
-            Some(Ok(Ok(models))) => {
-                self.modal_items = models
-                    .iter()
-                    .map(|model| (model.id.clone(), model.summary()))
-                    .collect();
-                self.models = models;
-                self.modal_cursor = self
-                    .models
-                    .iter()
-                    .position(|model| model.id == self.settings.model)
-                    .unwrap_or(0);
-                self.modal_error.clear();
-                self.discovering_models = false;
-                self.model_events = None;
-                self.status = format!("{} models detected", self.models.len());
-            }
-            Some(Ok(Err(error))) => {
-                self.discovering_models = false;
-                self.model_events = None;
-                self.status = "model fetch failed".into();
-                self.modal_error = format!("{error}. F5 retry; F2 manual ID.");
-            }
-            Some(Err(mpsc::error::TryRecvError::Disconnected)) => {
-                self.discovering_models = false;
-                self.model_events = None;
-                self.status = "model fetch failed".into();
-                self.modal_error = "Model request stopped. F5 retry; F2 manual ID.".into();
-            }
-            _ => {}
+        } else if connection.preset.is_none() && connection.configured {
+            next.provider.remove(&id);
+            next.save()?;
+            let _ = enowx_core::provider::detected::Detected::forget(&id);
+            self.status = format!("{} removed", connection.name);
+        } else {
+            self.status = format!("{} has no stored key", connection.name);
+            return Ok(());
         }
+        if !next.is_ready() {
+            next.settle_model();
+        }
+        self.adopt(next);
+        self.refresh_providers();
+        Ok(())
     }
 }

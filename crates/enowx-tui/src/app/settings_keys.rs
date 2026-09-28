@@ -2,34 +2,23 @@ use super::*;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 impl App {
-    /// React to an edit in the settings form.
+    /// The field the cursor is on in the open form.
+    fn form_field(&self) -> Option<SettingsField> {
+        crate::modal::form_fields(self.modal)
+            .get(self.modal_cursor)
+            .copied()
+    }
+
+    /// React to an edit in a form: the error it showed no longer applies.
     ///
-    /// Editing the endpoint used to blank the API key, the model-list URL,
-    /// the model and the context window — on every keystroke, before the user
-    /// could save. Correcting a typo in a URL (adding a missing `/v1`, say)
-    /// therefore cost the whole provider setup and forced a re-entry of
-    /// everything.
-    ///
-    /// What actually stops being valid is scoped to the HOST: a key issued by
-    /// one service is meaningless at another. That is decided at SAVE, in
-    /// `reconcile_host_change`, not here — every prefix of a URL is typed on
-    /// the way to the full one, and `https://a` is a perfectly valid host that
-    /// happens to be one keystroke into `https://ai.example.id`. Clearing on
-    /// each keystroke wiped the key before the user finished the word.
-    ///
-    /// The model list held in memory is still dropped, since it was fetched
-    /// from the old endpoint and may no longer describe this one.
-    pub(crate) fn settings_changed(&mut self, field: SettingsField) {
+    /// Nothing else is cleared while typing. Editing the endpoint used to
+    /// blank the key, the model-list URL and the model on every keystroke,
+    /// so correcting a typo in a URL cost the whole setup. What stops being
+    /// valid when the host changes is decided at save, against the finished
+    /// URL (`save_provider_form`): every prefix of a URL is typed on the way
+    /// to the full one.
+    pub(crate) fn settings_changed(&mut self) {
         self.modal_error.clear();
-        if matches!(field, SettingsField::Provider | SettingsField::BaseUrl) {
-            self.settings.preset = "custom".into();
-        }
-        if field != SettingsField::Model && field != SettingsField::ContextWindow {
-            self.models.clear();
-            self.modal_items.clear();
-            self.model_events = None;
-            self.discovering_models = false;
-        }
     }
 
     /// Route a paste to wherever the user is typing.
@@ -48,13 +37,17 @@ impl App {
             let cursor = self.cursor.min(self.input.len());
             self.input.insert_str(cursor, &clean);
             self.cursor = cursor + clean.len();
+        } else if self.modal == Modal::Models {
+            // The model list filters by what is typed, pasted or not.
+            let clean: String = text.chars().filter(|c| !c.is_control()).collect();
+            self.search_models(|search| search.push_str(clean.trim()));
         }
         // Any other modal is a list, with nothing to paste into.
     }
 
     /// Insert pasted text into whichever form field is being edited.
     ///
-    /// The MCP form keeps its own fields rather than `SETTINGS_FIELDS`, so
+    /// The MCP form keeps its own fields rather than the provider forms', so
     /// routing every form's paste through the settings draft would write a
     /// pasted command into the provider name.
     pub(crate) fn paste_into_form(&mut self, text: &str) {
@@ -77,70 +70,86 @@ impl App {
             self.mcp_field_mut().push_str(&text);
             return;
         }
-        let field = SETTINGS_FIELDS[self.modal_cursor];
-        self.settings_changed(field);
+        let Some(field) = self.form_field() else {
+            return;
+        };
+        self.settings_changed();
         let cursor = self.field_cursor.min(self.settings.value(field).len());
         self.settings.value_mut(field).insert_str(cursor, &text);
         self.field_cursor = cursor + text.len();
     }
 
     pub(crate) fn settings_key(&mut self, key: KeyEvent) -> Result<()> {
+        let Some(field) = self.form_field() else {
+            self.modal = Modal::None;
+            return Ok(());
+        };
+        let fields = crate::modal::form_fields(self.modal).len();
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             match key.code {
                 KeyCode::Char('c') => self.modal = Modal::None,
                 KeyCode::Char('u') => {
-                    self.settings_changed(SETTINGS_FIELDS[self.modal_cursor]);
-                    self.settings
-                        .value_mut(SETTINGS_FIELDS[self.modal_cursor])
-                        .clear();
+                    self.settings_changed();
+                    self.settings.value_mut(field).clear();
                     self.field_cursor = 0;
                 }
                 _ => {}
             }
             return Ok(());
         }
-        let field = SETTINGS_FIELDS[self.modal_cursor];
         match key.code {
             KeyCode::Esc => {
-                self.modal = Modal::None;
-                self.model_events = None;
+                // Back to the list the form was opened from.
+                match self.modal {
+                    Modal::ProviderKey | Modal::ProviderForm => {
+                        let id = self.settings.provider_id.clone();
+                        self.refresh_providers();
+                        // On the provider the form was for, or on the row
+                        // that adds one.
+                        self.modal_cursor = self
+                            .provider_ids
+                            .iter()
+                            .position(|p| *p == id)
+                            .unwrap_or(self.provider_ids.len());
+                    }
+                    Modal::ModelManual => {
+                        self.modal = Modal::Models;
+                        self.modal_cursor = 0;
+                        self.move_picker(0);
+                    }
+                    _ => self.modal = Modal::None,
+                }
+                self.settings.api_key.clear();
             }
-            KeyCode::Up | KeyCode::BackTab if self.modal == Modal::Settings => {
-                self.modal_cursor =
-                    (self.modal_cursor + SETTINGS_FIELDS.len() - 1) % SETTINGS_FIELDS.len();
+            KeyCode::Up | KeyCode::BackTab if fields > 1 => {
+                self.modal_cursor = (self.modal_cursor + fields - 1) % fields;
                 self.field_cursor = self
                     .settings
-                    .value(SETTINGS_FIELDS[self.modal_cursor])
+                    .value(self.form_field().unwrap_or(field))
                     .len();
             }
-            KeyCode::Down | KeyCode::Tab if self.modal == Modal::Settings => {
-                self.modal_cursor = (self.modal_cursor + 1) % SETTINGS_FIELDS.len();
+            KeyCode::Down | KeyCode::Tab if fields > 1 => {
+                self.modal_cursor = (self.modal_cursor + 1) % fields;
                 self.field_cursor = self
                     .settings
-                    .value(SETTINGS_FIELDS[self.modal_cursor])
+                    .value(self.form_field().unwrap_or(field))
                     .len();
             }
-            KeyCode::Enter if self.modal == Modal::ModelUrl => self.discover_models(),
-            KeyCode::Enter if self.modal == Modal::ProviderKey => self.connect_preset()?,
-            KeyCode::Enter if self.modal == Modal::TypeSafeKey => self.save_typesafe_key()?,
-            KeyCode::Enter if field == SettingsField::Theme => {
-                self.open_themes();
-                return Ok(());
-            }
-            KeyCode::F(2) if field == SettingsField::Theme => {
-                self.open_themes();
-                return Ok(());
-            }
-            KeyCode::Enter => self.save_settings()?,
-            KeyCode::F(5) if self.modal == Modal::Settings => self.open_model_source(),
+            KeyCode::Enter => match self.modal {
+                Modal::ProviderKey => self.connect_key()?,
+                Modal::ProviderForm => self.save_provider_form()?,
+                Modal::ModelManual => self.save_manual_model()?,
+                Modal::TypeSafeKey => self.save_typesafe_key()?,
+                _ => {}
+            },
             KeyCode::Char(character) => {
-                self.settings_changed(field);
+                self.settings_changed();
                 let value = self.settings.value_mut(field);
                 value.insert(self.field_cursor, character);
                 self.field_cursor += character.len_utf8();
             }
             KeyCode::Backspace if self.field_cursor > 0 => {
-                self.settings_changed(field);
+                self.settings_changed();
                 let value = self.settings.value_mut(field);
                 let previous = value[..self.field_cursor]
                     .char_indices()
@@ -151,7 +160,7 @@ impl App {
                 self.field_cursor = previous;
             }
             KeyCode::Delete => {
-                self.settings_changed(field);
+                self.settings_changed();
                 let value = self.settings.value_mut(field);
                 if self.field_cursor < value.len() {
                     let next = value[self.field_cursor..]

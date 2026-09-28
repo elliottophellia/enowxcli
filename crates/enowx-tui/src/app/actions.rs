@@ -242,18 +242,10 @@ impl App {
     fn accept_typesafe_row(&mut self) -> Result<()> {
         match self.modal_cursor {
             0 => {
-                // Reuse the provider-key form, which already masks input.
-                // The cursor has to name the API-key field: the form routes
-                // typing by `SETTINGS_FIELDS[modal_cursor]`, so leaving it at
-                // 0 sent every keystroke into the provider-name field while
-                // the API-key row was the one on screen.
+                // Reuse the key form, which already masks input: its one
+                // field is the key.
                 self.settings.api_key.clear();
-                self.modal_cursor = SETTINGS_FIELDS
-                    .iter()
-                    .position(|f| *f == SettingsField::ApiKey)
-                    .unwrap_or(0);
-                self.field_cursor = 0;
-                self.modal = Modal::TypeSafeKey;
+                self.open_form(Modal::TypeSafeKey);
             }
             1 => {
                 let mut next = self.config.clone();
@@ -389,24 +381,8 @@ impl App {
             "resume" => self.open_sessions()?,
             "agent" if !args.trim().is_empty() => self.force_agent(args.trim())?,
             "agent" => self.open_agents(),
-            "model" if !args.trim().is_empty() => {
-                anyhow::ensure!(self.config.provider_active(), "Set a provider with /provider first.");
-                let mut next = self.config.clone();
-                // Typed by hand, so nothing is known about it upstream; take
-                // the window, pricing and capabilities from the catalogue.
-                next.adopt_model(args.trim(), enowx_core::UpstreamModel::default());
-                next.save()?;
-                self.adopt(next);
-                self.status = "model saved".into();
-            }
-            "model" => {
-                self.open_settings();
-                if self.settings.provider_active() && !self.settings.models_url.trim().is_empty() {
-                    self.discover_models();
-                } else {
-                    self.open_model_source();
-                }
-            }
+            "model" if !args.trim().is_empty() => self.choose_model(args.trim())?,
+            "model" => self.open_model_picker(None),
             "provider" => self.open_providers(),
             "attach" if !args.trim().is_empty() => {
                 self.attach_from_path(std::path::Path::new(args.trim()));
@@ -436,7 +412,9 @@ impl App {
             "stop" => self.interrupt(),
             "status" => self.push(TranscriptKind::System, format!(
                 "Model: {} · {}\nAgent: {}\nWorkspace: {}\nSession: {}\nTokens: {} in / {} out\nTheme: {}\nThinking: {}",
-                self.config.model.default, self.config.provider.name, self.active_agent(), self.config.workspace().display(),
+                self.config.model.active,
+                self.config.active_connection().map(|c| c.name).unwrap_or_else(|| "no provider".into()),
+                self.active_agent(), self.config.workspace().display(),
                 self.session_id.as_deref().unwrap_or("(new)"), self.tokens_in, self.tokens_out, self.theme.name,
                 if self.show_reasoning { "open" } else { "closed" },
             )),
@@ -480,54 +458,20 @@ impl App {
     pub(crate) fn accept_modal(&mut self) -> Result<()> {
         match self.modal {
             Modal::Providers => self.select_provider(),
-            Modal::ProviderKey => return self.connect_preset(),
+            Modal::ProviderKey => return self.connect_key(),
+            Modal::ProviderForm => return self.save_provider_form(),
+            Modal::ModelManual => return self.save_manual_model(),
             Modal::Sessions => {
                 if let Some((id, _)) = self.modal_items.get(self.modal_cursor).cloned() {
                     self.resume(&id)?;
                 }
                 self.modal = Modal::None;
             }
-            Modal::ModelSource => {
-                if self.modal_cursor == 0 {
-                    self.modal = Modal::ModelUrl;
-                    self.modal_cursor = 3;
-                    self.field_cursor = self.settings.models_url.len();
-                } else {
-                    self.modal = Modal::Settings;
-                    self.modal_cursor = 4;
-                    self.field_cursor = self.settings.model.len();
-                }
-            }
             Modal::Models => {
-                if let Some(model) = self.models.get(self.modal_cursor).cloned() {
-                    let mut next = self.config.clone();
-                    next.provider.name = self.settings.provider.trim().into();
-                    next.provider.preset = self.settings.preset.clone();
-                    next.provider.base_url =
-                        self.settings.base_url.trim().trim_end_matches('/').into();
-                    next.provider.api_key = self.settings.api_key.trim().into();
-                    next.provider.models_url = self.settings.models_url.trim().into();
-                    // Upstream wins where it reported something; the rest —
-                    // pricing, reasoning, vision, and the window when the
-                    // gateway omits it — comes from models.dev. Without this
-                    // the previous model's numbers were carried over and then
-                    // displayed as if they described the new one.
-                    next.adopt_model(
-                        &model.id,
-                        enowx_core::UpstreamModel {
-                            context_window: model.context_window,
-                        },
-                    );
-                    next.save()?;
-                    self.adopt(next);
-                    self.model_events = None;
-                    self.discovering_models = false;
-                    self.modal = Modal::None;
-                    self.status = format!("model active: {}", self.config.model.default);
+                if let Some(model) = self.selected_model() {
+                    return self.choose_model(&model);
                 }
             }
-            Modal::Settings => return self.save_settings(),
-            Modal::ModelUrl => self.discover_models(),
             Modal::Themes => {
                 self.select_theme(self.modal_cursor)?;
                 self.modal = Modal::None;

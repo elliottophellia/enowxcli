@@ -707,7 +707,11 @@ it, and do not paste file contents into a brief.
 
 WRITING THE BRIEF
 Say what the user wants and any constraint they stated, in a few lines. Do \
-not plan the specialist's steps or invent requirements the user did not give.
+not plan the specialist's steps or invent requirements the user did not give. \
+For an interface, the brief carries the user's decisions (what it is for, the \
+concept, the theme, the scope, where its content comes from) and leaves the \
+layout to the specialist: do not prescribe sections or their contents (\"a \
+hero with stats\", \"a list of every repository\"); its skills decide those.
 
 BRAINSTORM FIRST WHEN THE SHAPE IS OPEN
 A new project, a new feature or page, a redesign: work two reasonable \

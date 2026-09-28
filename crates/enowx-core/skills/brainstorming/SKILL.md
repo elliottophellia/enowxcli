@@ -61,7 +61,9 @@ details, or leave them to you.
      photographer's work on black); "developers like dark" is the category's
      default, not a reason. When "both" is chosen, both themes are built and
      checked, not one with the other left broken
-   - constraints: the stack, where it runs, the data it works with
+   - constraints: the stack, where it runs, the data it works with. How
+     the data is fetched, cached or deployed is the specialist's to decide;
+     ask about it only when the user raised it
    Ask only what you could not write the brief without: three to six
    questions is usual, never more than eight.
    For a developer's portfolio, the look and the theme might be asked like
@@ -94,7 +96,8 @@ details, or leave them to you.
    approach is obvious, skip the second round and say what you will build.
 5. **Hand it over.** Hand off or delegate as usual, with the agreed design
    as the brief: every decision the user made, in their own words where
-   they gave any, and what is out of scope. For anything with an interface,
+   they gave any, and what is out of scope. Only those: the layout, the
+   sections and what goes in them are the specialist's, from its skills. For anything with an interface,
    say that the direction and theme go into `DESIGN.md`, so every later
    change keeps to them.
 

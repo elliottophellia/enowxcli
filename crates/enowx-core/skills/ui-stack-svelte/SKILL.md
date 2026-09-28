@@ -36,3 +36,8 @@ Data in `+page.server.ts` or `+page.ts` load functions, `+error.svelte` for
 failures, `+layout.svelte` for the shared frame, `<svelte:head>` for title
 and description, form actions for forms. Check with `npm run build` and
 `npm run check`.
+
+## Look at it
+
+The `preview` tool, with `url` `http://localhost:5173/` and `start` `npm run
+dev -- --port 5173 --strictPort`.

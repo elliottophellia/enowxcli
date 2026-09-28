@@ -52,3 +52,10 @@ handle focus and keys, rather than hand-rolled.
 
 Memoise after measuring, not by habit. Split heavy routes and components
 with `lazy`. Images with sizes set.
+
+## Check
+
+`npm run build` (and `npm run lint` when there is one). With Vite, look at
+the result with the `preview` tool: `url` `http://localhost:5173/` and
+`start` `npm run dev -- --port 5173 --strictPort`. With Next, see
+`ui-stack-next`.

@@ -237,6 +237,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
         "todo",
         "ui_check",
         "icon",
+        "preview",
     ];
 
     // The built-in skills each carries: interface work gets `ui` and
@@ -409,15 +410,16 @@ pub fn builtin_agents() -> Vec<AgentDef> {
         make(
             "review",
             "reads diffs and code for defects; never edits",
-            &["read", "glob", "grep", "bash", "todo", "ui_check"],
+            &["read", "glob", "grep", "bash", "todo", "ui_check", "preview"],
             Tier::Strong,
             Delegation::Librarian,
             &interface,
             "You review code and diffs for defects. You do not edit: a review that \
              rewrites the code is not a review.\n\
-             - For an interface, run `ui_check`, read `ui-audit` to judge its findings, \
-             check the work against DESIGN.md when there is one, and report the marks \
-             of generated work too: invented figures, dead controls, default gradients, identical \
+             - For an interface, run `ui_check`, look at it with `preview` (overflow, \
+             contrast, dead links and touch targets as rendered), read `ui-audit` to \
+             judge the findings, check the work against DESIGN.md when there is one, \
+             and report the marks of generated work too: invented figures, dead controls, default gradients, identical \
              card grids, buzzword copy, broken phone layouts.\n\
              - For each finding: what breaks, under what input, and where (path and line). \
              Rank by consequence, not by how easy the fix is.\n\
@@ -605,10 +607,16 @@ plausible guesses: a guess reads as a promise the business never made.
 
 DONE
 Build it and run the project's linter and tests; with none, read the files \
-back. Check the layout at a phone width and a wide one by reading the CSS for \
-those widths, and run `ui_check` on what you changed: the harness runs it too \
-before you finish, and sends you back to what it finds. Say in your report, briefly: the direction, the stack and icon \
-set you chose and why, what you verified, and what is a placeholder.";
+back. Look at the result with `preview`: an HTML file by its `path`, an \
+application by its dev server's `url` with `start`, the command that runs it \
+(pin the port so the url is right). It renders the page at 360, 768 and \
+1440px and measures overflow, contrast, dead links, unnamed controls and small \
+touch targets: fix what it finds and look again. When there is no browser, say \
+so, and check the widths by reading the CSS instead. Run `ui_check` on what you \
+changed: the harness runs it too before you finish, and sends you back to what \
+it finds. Say in your report, briefly: the direction, the stack and icon set \
+you chose and why, what you verified and how (previewed, or read), and what is \
+a placeholder.";
 
 /// The orchestrator's prompt.
 ///

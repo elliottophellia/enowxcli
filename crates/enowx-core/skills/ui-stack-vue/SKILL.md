@@ -36,3 +36,10 @@ under `prefers-reduced-motion`.
 `useHead` or `useSeoMeta` for titles and descriptions, `useFetch` or
 `useAsyncData` for data with its pending and error states, layouts in
 `layouts/`. Check with `npm run build`.
+
+## Check
+
+Look at the result with the `preview` tool: with Vite, `url`
+`http://localhost:5173/` and `start` `npm run dev -- --port 5173
+--strictPort`; with Nuxt, `url` `http://localhost:3000/` and `start` `npm
+run dev -- --port 3000`.

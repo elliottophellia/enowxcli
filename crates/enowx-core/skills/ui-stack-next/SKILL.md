@@ -42,6 +42,6 @@ The project's method: Tailwind, CSS Modules, or global CSS with tokens in
 ## Check
 
 `npm run build` runs the type check and lint; fix what it reports. `npm run
-lint` for lint alone. Look at the result with `npm run build && npm run
-start` (or `npm run dev`) through the `preview` tool, which starts and stops
-the server.
+lint` for lint alone. Look at the result with the `preview` tool: `url`
+`http://localhost:3000/` and `start` `npm run dev -- -p 3000`; it starts the
+server, waits for it and stops it afterwards.

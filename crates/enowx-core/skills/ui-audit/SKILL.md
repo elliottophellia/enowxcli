@@ -22,8 +22,10 @@ wrong with it produces a different generic page.
 3. **Judge each candidate**: a technique is slop when it is there by default
    rather than for a reason (section 3). A gradient in the brand's own
    palette is fine; the default blue-to-purple on every section is not.
-4. **Look at the layout** against the checks in the `ui-layout` skill: focal
-   point, text measure, rhythm, phone layout.
+4. **Look at the rendered page** with the `preview` tool: overflow on a
+   phone, contrast as rendered, dead links, controls without a name, small
+   touch targets, console errors. Then the layout against the checks in the
+   `ui-layout` skill: focal point, text measure, rhythm, phone layout.
 5. **Report** (section 4), then fix what the task covers.
 
 ## 2. What to search for

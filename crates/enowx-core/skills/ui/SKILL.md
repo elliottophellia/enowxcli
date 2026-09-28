@@ -210,7 +210,9 @@ nothing about the product.
 - Build it, and run the project's linter and tests.
 - Search the CSS for colour, spacing and radius values written outside the
   token definitions, and move each into a token.
-- Read the result against a 360px, a 768px and a wide window: widths,
-  wrapping, overflow.
+- Look at it with the `preview` tool: it renders the page at 360, 768 and
+  1440px and measures overflow, contrast, dead links, unnamed controls and
+  touch targets, with a screenshot of each width. Without a browser, read
+  the CSS for those widths instead, and say so.
 - Walk the keyboard path and every state.
 - Report the direction, the icon set, and anything left as a placeholder.

@@ -14,6 +14,7 @@ mod fetch;
 mod files;
 mod icon;
 pub mod mcp_proxy;
+mod preview_tool;
 mod search;
 mod shell;
 pub mod skill;
@@ -101,6 +102,7 @@ impl Default for ToolRegistry {
         registry.register(MultiEditTool);
         registry.register(ui::UiCheckTool);
         registry.register(icon::IconTool::default());
+        registry.register(preview_tool::PreviewTool);
         registry.register(GlobTool);
         registry.register(GrepTool);
         registry.register(BashTool);

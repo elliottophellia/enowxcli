@@ -86,8 +86,9 @@ paragraphs or lists.
 - Tables: a scroll container with a visible edge, or one card per row.
 - The primary action within reach: full width at the end of the content, or
   sticky at the bottom in a long form.
-- Check at 360px, 390px and 430px wide: no horizontal scroll, no text
-  touching the edges, no tap target under 44px.
+- Check with the `preview` tool, which renders the page at 360px (and 768
+  and 1440): no horizontal scroll, no tap target under 44px, and in the
+  screenshot no text touching the edges.
 
 ## 6. Checks for a layout that looks generated
 

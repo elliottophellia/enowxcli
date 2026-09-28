@@ -141,10 +141,11 @@ and three built-in skills are there to stop that (2026-09-28).
 | `ui-layout` | The measures: container, grid, spacing rhythm, type scale; section compositions; the phone layout; checks for a generated-looking layout |
 | `ui-audit` | Finding the marks of generated work in an existing interface: what to search the code for, how to judge and rank each finding, the report, then the fix |
 | `ui-page-*` | One per kind of page (landing, local business, portfolio, docs, dashboard, list and detail, settings, form, sign-in): the skeleton to start from |
+| `ui-stack-*` | One per stack (plain HTML and CSS, Tailwind, React, Next, shadcn/ui, Vue, Svelte): its idioms, the generated version of it, and how to look at the result |
 | `ui-part-*` | One per part (header, navigation, sidebar, page header, footer, hero, sections, cards, social proof, pricing, FAQ, CTA, buttons, links, forms, choices, tables, lists, dialogs, drawers, menus, tooltips, notifications, badges, loading, tabs, breadcrumbs, pagination, search, images, avatars, charts): what it is for, how to build it, the generated version to avoid |
 | `code` | Reading the codebase first, structure, names, types, errors, dependencies, frontend specifics, comments, hygiene |
 | `writing` | Specific over generic, words to drop, sentences, interface copy, errors and empty states, docs, voice |
-| `brainstorming` | When to agree a design with the user before building (a new project, feature or page, a redesign) and when not to; how: look first, ask one question at a time with `ask`, offer approaches, confirm, hand the agreed design over |
+| `brainstorming` | When to agree a design with the user before building (a new project, feature or page, a redesign) and when not to; how: look first, ask everything open in one `ask` session (always the theme, for a new interface), offer approaches, confirm, hand the agreed design over |
 
 They ship inside the binary (`crates/enowx-core/skills/`), so every install
 has them, and are listed with the scope `built-in`. A project or user skill of
@@ -188,6 +189,36 @@ and `review` reports the same marks. The guidance is split one skill per part
 so building a hero reads the hero's rules, not thirty components' worth.
 The list of built-in skills is generated from `crates/enowx-core/skills/`, and a
 test fails when a directory there is not compiled in.
+
+### Tools for interfaces
+
+Reading the CSS is not looking at the page, and a rule in a prompt is not a
+check. The interface agents (`fe`, `mobile`) have four tools of their own,
+and `review` has the two that only look:
+
+- `ui_check` searches the interface files for the marks of generated work:
+  invented figures, dead links and handlers, removed focus outlines, images
+  without alt, default gradients, glow, glass, buzzwords, emoji, colours
+  outside the tokens, several icon sets. Each finding has a priority, a
+  reason and a fix. The harness runs it once more when the agent says it is
+  done, on the interface files the turn changed, and sends a high or medium
+  finding back to the agent before the turn ends.
+- `preview` opens the page in headless Chrome (or Chromium, Edge, Brave;
+  `ENX_CHROME` names another) at 360, 768 and 1440px and measures what a
+  person would see: horizontal overflow and the element causing it, text
+  below AA contrast, links to nowhere, controls without a name, touch
+  targets under 44px on a phone, console errors, the number of h1s, a
+  missing viewport tag. It saves a screenshot of each width. An HTML file is
+  opened by its path; an application by its dev server's url, with the
+  command that starts it, which the tool runs, waits for and stops. It talks
+  to Chrome over the DevTools protocol, so nothing is installed with it.
+- `icon` finds icons by meaning in one Iconify set and returns their exact
+  SVG, so no icon is drawn from memory.
+- `multi_edit` makes several changes to one file in one call, all or none.
+
+The direction a design settles on (the look, the palette, the type, the
+theme) goes into `DESIGN.md` at the project's root, and every later change
+reads it first, so the tenth screen matches the first.
 
 The shared rule used to allow one skill per task, which stopped agents loading
 six skills before any work. It now reads: the skill the agent's instructions

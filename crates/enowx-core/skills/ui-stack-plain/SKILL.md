@@ -63,4 +63,5 @@ built in strings.
 
 ## Check
 
-Open the file in the browser (or the `preview` tool), and run `ui_check`.
+Look at it with the `preview` tool, giving the HTML file's `path`, and run
+`ui_check`.

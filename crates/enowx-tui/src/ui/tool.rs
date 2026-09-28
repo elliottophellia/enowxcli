@@ -258,10 +258,96 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
             }
         }
         "ask" => {
-            // The question in the row, the answer under it.
-            let question = str_arg(&parsed, "question").unwrap_or("").trim();
+            // The first question in the row, the answers under it.
+            let questions = parsed
+                .get("questions")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let question = questions
+                .first()
+                .and_then(|q| str_arg(q, "question"))
+                .or_else(|| str_arg(&parsed, "question"))
+                .unwrap_or("")
+                .trim();
+            let note = if questions.len() > 1 {
+                counted(questions.len(), "question", "questions")
+            } else {
+                String::new()
+            };
             ToolRender::Detail {
-                header: RowParts::new("ask", question.to_owned(), ""),
+                header: RowParts::new("ask", question.to_owned(), note),
+                subtitle: None,
+                body: ToolBody::Plain(result),
+            }
+        }
+        "preview" => {
+            let target = str_arg(&parsed, "path")
+                .or_else(|| str_arg(&parsed, "url"))
+                .unwrap_or("")
+                .to_owned();
+            // Each width's line ends "N problems" or "nothing found".
+            let problems: usize = result
+                .lines()
+                .filter_map(|line| line.split_once("px tall: ").map(|(_, rest)| rest))
+                .filter_map(|rest| rest.split(' ').next()?.parse::<usize>().ok())
+                .sum();
+            let note = if !result.starts_with("Preview of") {
+                String::new()
+            } else if problems == 0 {
+                "nothing found".to_owned()
+            } else {
+                counted(problems, "problem", "problems")
+            };
+            ToolRender::Detail {
+                header: RowParts::new("preview", target, note),
+                subtitle: None,
+                body: ToolBody::Plain(result),
+            }
+        }
+        "ui_check" => {
+            let path = str_arg(&parsed, "path").unwrap_or(".").to_owned();
+            // "12 findings in 9 interface files: ..." or "No marks ...".
+            let note = result
+                .split_once(" findings in ")
+                .and_then(|(n, _)| n.parse::<usize>().ok())
+                .map(|n| counted(n, "finding", "findings"))
+                .unwrap_or_else(|| {
+                    if result.starts_with("No marks") {
+                        "nothing found".to_owned()
+                    } else {
+                        String::new()
+                    }
+                });
+            ToolRender::Detail {
+                header: RowParts::new("ui_check", path, note),
+                subtitle: None,
+                body: ToolBody::Plain(result),
+            }
+        }
+        "icon" => {
+            let target = match str_arg(&parsed, "action") {
+                Some("search") => {
+                    let query = str_arg(&parsed, "query").unwrap_or("");
+                    match str_arg(&parsed, "set") {
+                        Some(set) if !set.trim().is_empty() => format!("{set}: {query}"),
+                        _ => query.to_owned(),
+                    }
+                }
+                _ => parsed
+                    .get("names")
+                    .and_then(Value::as_array)
+                    .map(|names| {
+                        names
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or_default(),
+            };
+            ToolRender::Detail {
+                header: RowParts::new("icon", target, ""),
                 subtitle: None,
                 body: ToolBody::Plain(result),
             }

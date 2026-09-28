@@ -14,6 +14,7 @@ pub mod gating;
 pub mod mcp;
 pub mod message;
 pub mod persist;
+pub mod preview;
 pub mod provider;
 pub mod role;
 pub mod routing;

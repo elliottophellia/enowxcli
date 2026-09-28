@@ -1,0 +1,52 @@
+use super::{resolve_existing, Tool, ToolCtx, ToolOutput};
+use anyhow::Result;
+use async_trait::async_trait;
+use serde_json::{json, Value};
+
+/// Looking at a page in headless Chrome, through `crate::preview`.
+pub(super) struct PreviewTool;
+
+#[async_trait]
+impl Tool for PreviewTool {
+    fn name(&self) -> &str {
+        "preview"
+    }
+    fn description(&self) -> &str {
+        "Open a page in headless Chrome at 360, 768 and 1440px wide and measure what a \
+         person would see: horizontal overflow and what causes it, text below AA \
+         contrast, links to nowhere, images without alt, controls without a name, touch \
+         targets under 44px, console errors, the number of h1s. Saves a screenshot per \
+         width. Give `path` for an HTML file, or `url` for a served page with `start`, \
+         the command that serves it (such as \"npm run dev\"), which is started and \
+         stopped for you. Use it before you report on anything with an interface."
+    }
+    fn parameters(&self) -> Value {
+        json!({"type":"object","properties":{
+            "path":{"type":"string","description":"An HTML file in the workspace"},
+            "url":{"type":"string","description":"A page to open, such as http://localhost:3000/"},
+            "start":{"type":"string","description":"With url: the command that serves it, run in the workspace and stopped afterwards"}
+        },"additionalProperties":false})
+    }
+    async fn execute(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput> {
+        let (target, shown) = match (args["path"].as_str(), args["url"].as_str()) {
+            (Some(path), _) => {
+                let file = resolve_existing(&ctx.workspace, path)?;
+                (crate::preview::Target::File(file), path.to_owned())
+            }
+            (None, Some(url)) => (crate::preview::Target::Url(url.to_owned()), url.to_owned()),
+            (None, None) => return Ok(ToolOutput::error("give a path or a url")),
+        };
+        let out_dir =
+            std::env::temp_dir().join(format!("enx-preview-{}", uuid::Uuid::new_v4().simple()));
+        let preview =
+            crate::preview::preview(&ctx.workspace, target, args["start"].as_str(), &out_dir);
+        let reports = tokio::select! {
+            reports = preview => reports,
+            _ = ctx.cancel.cancelled() => return Ok(ToolOutput::error("stopped")),
+        };
+        match reports {
+            Ok(reports) => Ok(ToolOutput::ok(crate::preview::report(&shown, &reports))),
+            Err(error) => Ok(ToolOutput::error(format!("{error:#}"))),
+        }
+    }
+}

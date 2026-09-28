@@ -24,8 +24,11 @@ wrong with it produces a different generic page.
    palette is fine; the default blue-to-purple on every section is not.
 4. **Look at the rendered page** with the `preview` tool: overflow on a
    phone, contrast as rendered, dead links, controls without a name, small
-   touch targets, console errors. Then the layout against the checks in the
-   `ui-layout` skill: focal point, text measure, rhythm, phone layout.
+   touch targets, console errors, a sidebar left open on a phone, content
+   floating beside a sidebar. A screen behind a sign-in is looked at with
+   `login` and a test account; without it the preview shows only the sign-in
+   form. Then the layout against the checks in the `ui-layout` skill:
+   positioning, focal point, text measure, rhythm, phone layout.
 5. **Report** (section 4), then fix what the task covers.
 
 ## 2. What to search for
@@ -89,6 +92,22 @@ usually shows.
 - Icons: emoji as icons; more than one icon library imported
   (`lucide-react` and `react-icons` and `@heroicons` together); the generic
   set (sparkles, rocket, zap, wand) on feature cards.
+
+**Positioning (application screens)**
+- A page column centred inside a shell: `mx-auto` with a `max-w-*` in the
+  component that wraps every screen (a `PageContainer`, a layout), or
+  `margin: 0 auto` on the content beside a sidebar (`ui-layout` 2b).
+- A sidebar with no narrow-screen state: an `aside` or sidebar with a fixed
+  width (`w-56`, `w-64`, `width: 240px`) and no `hidden`, `lg:` or media
+  query around it, and no Menu button that opens it as a drawer.
+- A filter or search area in its own card with a heading ("Search and
+  filter", a `SlidersHorizontal` icon before a title).
+- Controls in every row: steppers, inputs or selects inside table cells;
+  two or more buttons repeated on every row.
+- The same status badge on every row ("Active" on each).
+- A second job stacked under the first: another kind of record managed in a
+  section below the list.
+- A "Reload" or "Refresh" button beside the primary action.
 
 ## 3. Judging a finding
 

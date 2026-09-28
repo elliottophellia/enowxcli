@@ -18,13 +18,21 @@ impl Tool for PreviewTool {
          targets under 44px, console errors, the number of h1s. Saves a screenshot per \
          width. Give `path` for an HTML file, or `url` for a served page with `start`, \
          the command that serves it (such as \"npm run dev\"), which is started and \
-         stopped for you. Use it before you report on anything with an interface."
+         stopped for you. For a page behind a sign-in, give `login` (the sign-in page \
+         and the fields to type, with a test account from the project's seed) and it \
+         signs in first; without it such a page shows only the sign-in form. Use it \
+         before you report on anything with an interface."
     }
     fn parameters(&self) -> Value {
         json!({"type":"object","properties":{
             "path":{"type":"string","description":"An HTML file in the workspace"},
             "url":{"type":"string","description":"A page to open, such as http://localhost:3000/"},
-            "start":{"type":"string","description":"With url: the command that serves it, run in the workspace and stopped afterwards"}
+            "start":{"type":"string","description":"With url: the command that serves it, run in the workspace and stopped afterwards"},
+            "login":{"type":"object","description":"For a page behind a sign-in: signed in first, in the same browser","properties":{
+                "url":{"type":"string","description":"The sign-in page, such as http://localhost:3000/login"},
+                "fields":{"type":"object","description":"Each field by its name, id, label or placeholder, and the value to type: {\"username\": \"admin\", \"password\": \"admin123\"}","additionalProperties":{"type":"string"}},
+                "submit":{"type":"string","description":"The submit button's text, when the form has more than one button"}
+            },"required":["url","fields"]}
         },"additionalProperties":false})
     }
     async fn execute(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput> {
@@ -38,8 +46,24 @@ impl Tool for PreviewTool {
         };
         let out_dir =
             std::env::temp_dir().join(format!("enx-preview-{}", uuid::Uuid::new_v4().simple()));
-        let preview =
-            crate::preview::preview(&ctx.workspace, target, args["start"].as_str(), &out_dir);
+        let login: Option<crate::preview::Login> = match args.get("login") {
+            Some(value) if !value.is_null() => match serde_json::from_value(value.clone()) {
+                Ok(login) => Some(login),
+                Err(error) => {
+                    return Ok(ToolOutput::error(format!(
+                        "login needs a url and fields: {error}"
+                    )))
+                }
+            },
+            _ => None,
+        };
+        let preview = crate::preview::preview_signed_in(
+            &ctx.workspace,
+            target,
+            args["start"].as_str(),
+            login.as_ref(),
+            &out_dir,
+        );
         let reports = tokio::select! {
             reports = preview => reports,
             _ = ctx.cancel.cancelled() => return Ok(ToolOutput::error("stopped")),

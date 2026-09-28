@@ -1,14 +1,25 @@
 //! Scratch: preview a URL (or a served folder) and print the report.
+//! `look URL OUT [SIGN_IN_URL USER PASSWORD]` signs in first.
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     let first = args.next().unwrap();
     let out = std::path::PathBuf::from(args.next().unwrap());
+    // Optional: a sign-in page, a user name and a password to sign in with.
+    let login = match (args.next(), args.next(), args.next()) {
+        (Some(url), Some(user), Some(pass)) => Some(enowx_core::preview::Login {
+            url,
+            fields: [("username".to_owned(), user), ("password".to_owned(), pass)].into(),
+            submit: None,
+        }),
+        _ => None,
+    };
     let reports = if first.starts_with("http") {
-        enowx_core::preview::preview(
+        enowx_core::preview::preview_signed_in(
             &std::env::temp_dir(),
             enowx_core::preview::Target::Url(first.clone()),
             None,
+            login.as_ref(),
             &out,
         )
         .await?

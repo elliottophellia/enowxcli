@@ -27,8 +27,10 @@ the order of those questions.
 - **Top bar** 56 to 64px inside the content column: the page title or
   breadcrumbs on the left; search, notifications that exist and the account
   on the right. Sticky.
-- **Content** padded 24 to 32px (16px on phones), fluid up to about 1440 to
-  1600px then centred; a grid of 12 columns with 16 to 24px gutters.
+- **Content** anchored beside the sidebar, padded 24 to 32px (16px on
+  phones), fluid up to about 1600px with any extra width left on the right,
+  never a centred column floating between empty bands (`ui-layout` section
+  2b); a grid of 12 columns with 16 to 24px gutters.
 
 ## 2a. What sticks
 

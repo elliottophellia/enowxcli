@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use futures::{SinkExt, StreamExt};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio_tungstenite::tungstenite::Message;
@@ -30,6 +30,21 @@ pub enum Target {
     File(PathBuf),
     /// A page served somewhere, usually a dev server.
     Url(String),
+}
+
+/// Signing in before looking, for pages behind a sign-in: the form at `url`
+/// is filled and submitted in the same browser, so its cookies and storage
+/// carry over to the page looked at.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Login {
+    /// The sign-in page.
+    pub url: String,
+    /// Each field, by its name, id, label or placeholder, and the value to
+    /// type: `{"username": "admin", "password": "admin123"}`.
+    pub fields: std::collections::BTreeMap<String, String>,
+    /// The submit button's text; the form's submit button when empty.
+    #[serde(default)]
+    pub submit: Option<String>,
 }
 
 /// What one width showed.
@@ -73,6 +88,13 @@ pub struct WidthReport {
     /// theme that is charcoal rather than dark, or a light one that is dull
     /// grey. As `#1e1e1e, 12% light`.
     pub grey_background: Option<String>,
+    /// An application screen whose content floats centred beside its
+    /// sidebar on a wide screen, as `210px from the sidebar and 226px from
+    /// the right edge on a 2400px screen`.
+    pub floating_content: Option<String>,
+    /// A sidebar still beside the content at a phone or tablet width, as
+    /// `aside takes 224 of 360px`.
+    pub open_sidebar: Option<String>,
     pub console_errors: Vec<String>,
     pub screenshot: Option<PathBuf>,
 }
@@ -96,6 +118,8 @@ impl WidthReport {
             + usize::from(self.grey_background.is_some())
             + usize::from(self.short_side.is_some())
             + usize::from(self.repeated_primary.is_some())
+            + usize::from(self.floating_content.is_some())
+            + usize::from(self.open_sidebar.is_some())
     }
 }
 
@@ -132,6 +156,17 @@ pub async fn preview(
     start: Option<&str>,
     out_dir: &Path,
 ) -> Result<Vec<WidthReport>> {
+    preview_signed_in(workspace, target, start, None, out_dir).await
+}
+
+/// `preview`, signing in first with `login` when the page is behind one.
+pub async fn preview_signed_in(
+    workspace: &Path,
+    target: Target,
+    start: Option<&str>,
+    login: Option<&Login>,
+    out_dir: &Path,
+) -> Result<Vec<WidthReport>> {
     let chrome = find_chrome().context(
         "no Chrome, Chromium, Edge or Brave found; install one, or set ENX_CHROME to its path",
     )?;
@@ -165,14 +200,19 @@ pub async fn preview(
         Some(command) => Some(Server::start(workspace, command, &url, out_dir).await?),
         None => None,
     };
-    let result = look(&chrome, &url, out_dir).await;
+    let result = look(&chrome, &url, login, out_dir).await;
     if let Some(server) = server {
         server.stop().await;
     }
     result
 }
 
-async fn look(chrome: &Path, url: &str, out_dir: &Path) -> Result<Vec<WidthReport>> {
+async fn look(
+    chrome: &Path,
+    url: &str,
+    login: Option<&Login>,
+    out_dir: &Path,
+) -> Result<Vec<WidthReport>> {
     let profile = std::env::temp_dir().join(format!("enx-chrome-{}", uuid::Uuid::new_v4()));
     let mut child = tokio::process::Command::new(chrome)
         .args([
@@ -231,6 +271,9 @@ async fn look(chrome: &Path, url: &str, out_dir: &Path) -> Result<Vec<WidthRepor
             .to_owned();
         for method in ["Page.enable", "Runtime.enable", "Log.enable"] {
             cdp.call(method, json!({}), Some(&session)).await?;
+        }
+        if let Some(login) = login {
+            cdp.sign_in(&session, login).await?;
         }
         let mut reports = Vec::new();
         for width in WIDTHS {
@@ -389,6 +432,8 @@ impl Cdp {
             grey_background: found["grey_background"].as_str().map(str::to_owned),
             short_side: found["short_side"].as_str().map(str::to_owned),
             repeated_primary: found["repeated_primary"].as_str().map(str::to_owned),
+            floating_content: found["floating_content"].as_str().map(str::to_owned),
+            open_sidebar: found["open_sidebar"].as_str().map(str::to_owned),
             console_errors: self.console_errors(session),
             screenshot: None,
         };
@@ -409,6 +454,96 @@ impl Cdp {
             report.screenshot = Some(path);
         }
         Ok(report)
+    }
+
+    /// Fill and submit the sign-in form, then check it went through: a page
+    /// still showing a password field at the sign-in address did not.
+    async fn sign_in(&mut self, session: &str, login: &Login) -> Result<()> {
+        self.call(
+            "Emulation.setDeviceMetricsOverride",
+            json!({"width": 1440, "height": 900, "deviceScaleFactor": 1, "mobile": false}),
+            Some(session),
+        )
+        .await?;
+        self.events.clear();
+        self.call("Page.navigate", json!({"url": login.url}), Some(session))
+            .await?;
+        if !self
+            .wait_for("Page.loadEventFired", session, Duration::from_secs(45))
+            .await
+        {
+            bail!(
+                "the sign-in page {} did not load within 45 seconds",
+                login.url
+            );
+        }
+        // A client-rendered form appears after the load event.
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        let script = LOGIN_SCRIPT
+            .replace("__FIELDS__", &serde_json::to_string(&login.fields)?)
+            .replace("__SUBMIT__", &serde_json::to_string(&login.submit)?);
+        let result = self
+            .call(
+                "Runtime.evaluate",
+                json!({"expression": script, "returnByValue": true, "awaitPromise": true}),
+                Some(session),
+            )
+            .await?;
+        let found = &result["result"]["value"];
+        let list = |key: &str| -> String {
+            found[key]
+                .as_array()
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default()
+        };
+        if !list("missing").is_empty() {
+            bail!(
+                "signing in at {}: no field for {} (the fields there: {})",
+                login.url,
+                list("missing"),
+                list("available")
+            );
+        }
+        if found["submitted"] != true {
+            bail!(
+                "signing in at {}: no submit button found; give `submit`, its text",
+                login.url
+            );
+        }
+        // A redirect, or a request and a change of route, takes a moment.
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        let after = self
+            .call(
+                "Runtime.evaluate",
+                json!({"expression": STILL_SIGNING_IN, "returnByValue": true}),
+                Some(session),
+            )
+            .await?;
+        let after = &after["result"]["value"];
+        let same_page = after["path"].as_str().is_some_and(|path| {
+            reqwest::Url::parse(&login.url)
+                .map(|url| url.path() == path)
+                .unwrap_or(false)
+        });
+        if after["password"] == true && same_page {
+            let said = after["alert"].as_str().unwrap_or("").trim();
+            bail!(
+                "the sign-in at {} did not go through: the form is still there{}",
+                login.url,
+                if said.is_empty() {
+                    String::new()
+                } else {
+                    format!(", saying \"{said}\"")
+                }
+            );
+        }
+        Ok(())
     }
 
     /// Errors the page logged or threw since it was loaded.
@@ -598,6 +733,20 @@ pub fn report(target: &str, reports: &[WidthReport]) -> String {
                  quiet (ghost, outline or a menu) (ui-page-dashboard)\n"
             ));
         }
+        if let Some(side) = &r.open_sidebar {
+            out.push_str(&format!(
+                "  a sidebar stays open at this width ({side}), squeezing the content: under \
+                 1024px it becomes a drawer behind a labelled Menu button in a top bar \
+                 (ui-part-sidebar, ui-layout section 5)\n"
+            ));
+        }
+        if let Some(gaps) = &r.floating_content {
+            out.push_str(&format!(
+                "  the content floats centred beside the sidebar ({gaps}): anchor it at the \
+                 sidebar's edge plus the page padding, with no mx-auto on the page column \
+                 (ui-layout section 2b)\n"
+            ));
+        }
         if let Some(background) = &r.grey_background {
             out.push_str(&format!(
                 "  the page background is {background}: a dark theme sits at 3 to 8% \
@@ -620,6 +769,63 @@ pub fn report(target: &str, reports: &[WidthReport]) -> String {
     );
     out
 }
+
+/// Run on the sign-in page: fill each field and press submit. A field is
+/// found by its name or id, then its type (for `password` and `email`), its
+/// label, its placeholder, or its autocomplete hint; values are set the way
+/// typing sets them, so frameworks that track input see them.
+const LOGIN_SCRIPT: &str = r#"(async () => {
+  const fields = __FIELDS__;
+  const submitText = __SUBMIT__;
+  const shown = el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const inputs = [...document.querySelectorAll('input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]), textarea')].filter(shown);
+  const norm = s => (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const labelOf = el => norm([...(el.labels || [])].map(l => l.textContent).join(' ') + ' ' + (el.getAttribute('aria-label') || ''));
+  const find = key => {
+    const k = norm(key);
+    return inputs.find(el => norm(el.name) === k || norm(el.id) === k)
+      || inputs.find(el => (k === 'password' || k === 'email') && norm(el.type) === k)
+      || inputs.find(el => labelOf(el).includes(k))
+      || inputs.find(el => norm(el.placeholder).includes(k))
+      || inputs.find(el => norm(el.getAttribute('autocomplete')).includes(k));
+  };
+  const setValue = (el, value) => {
+    const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value').set;
+    el.focus();
+    setter.call(el, value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  const available = inputs.map(el => el.name || el.id || el.placeholder || el.type).slice(0, 8);
+  const missing = [];
+  let form = null;
+  for (const [key, value] of Object.entries(fields)) {
+    const el = find(key);
+    if (!el) { missing.push(key); continue; }
+    setValue(el, value);
+    form = form || el.form;
+  }
+  if (missing.length) return { missing, available, submitted: false };
+  await new Promise(done => setTimeout(done, 150));
+  const buttons = [...(form || document).querySelectorAll('button, input[type=submit]')].filter(shown);
+  let button = submitText ? buttons.find(b => norm(b.textContent || b.value).includes(norm(submitText))) : null;
+  button = button || buttons.find(b => (b.getAttribute('type') || 'submit') === 'submit');
+  if (button) { button.click(); return { missing, available, submitted: true }; }
+  if (form) { form.requestSubmit ? form.requestSubmit() : form.submit(); return { missing, available, submitted: true }; }
+  return { missing, available, submitted: false };
+})()"#;
+
+/// Run after submitting: whether the sign-in form is still on screen, and
+/// what the page says about it.
+const STILL_SIGNING_IN: &str = r#"(() => {
+  const password = [...document.querySelectorAll('input[type=password]')].some(el => {
+    const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0;
+  });
+  const alert = [...document.querySelectorAll('[role=alert], [aria-live=assertive]')]
+    .map(el => el.textContent.trim()).filter(Boolean).join(' ').slice(0, 200);
+  return { password, alert, path: location.pathname };
+})()"#;
 
 /// Run in the page: what a person would run into, as plain data.
 const CHECK_SCRIPT: &str = r#"(async () => {
@@ -820,6 +1026,50 @@ const CHECK_SCRIPT: &str = r#"(async () => {
       const hex = '#' + [pageBg.r, pageBg.g, pageBg.b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
       out.grey_background = hex + ', ' + Math.round(light) + '% light';
     }
+  }
+  // An application shell: a tall column pinned to the left edge.
+  const shellSide = [...document.querySelectorAll('aside, nav, [class*=sidebar], [role=navigation]')].find(el => {
+    if (!visible(el)) return false;
+    const r = el.getBoundingClientRect();
+    return r.left <= 2 && r.top <= 80 && r.height >= window.innerHeight * 0.7
+      && r.width >= 56 && r.width <= Math.max(360, W * 0.45);
+  });
+  const kindOf = el => el.tagName.toLowerCase() + (el.classList.length ? '.' + [...el.classList].slice(0, 2).join('.') : '');
+  // Still beside the content on a phone or a tablet: a drawer would be shut.
+  out.open_sidebar = null;
+  if (shellSide && W < 1024) {
+    const r = shellSide.getBoundingClientRect();
+    if (r.width >= 120) out.open_sidebar = kindOf(shellSide) + ' takes ' + Math.round(r.width) + ' of ' + W + 'px';
+  }
+  // On a wide monitor, whether the content stays beside the sidebar or
+  // floats centred in what is left, with an empty band on each side. The
+  // page is laid out as if 2400px wide for a moment to see it.
+  out.floating_content = null;
+  const content = shellSide && (document.querySelector('main') || shellSide.nextElementSibling);
+  if (shellSide && content && W >= 1200) {
+    const root = document.documentElement;
+    const was = root.style.width;
+    root.style.width = '2400px';
+    await new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)));
+    const side = shellSide.getBoundingClientRect();
+    let left = Infinity, right = -Infinity, counted = 0;
+    for (const el of content.querySelectorAll('*')) {
+      if (counted > 1500) break;
+      if (el.children.length && !/^(TABLE|INPUT|BUTTON|SELECT|TEXTAREA|IMG|SVG|CANVAS|VIDEO)$/i.test(el.tagName)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0 || getComputedStyle(el).position === 'fixed') continue;
+      counted++;
+      left = Math.min(left, r.left);
+      right = Math.max(right, r.right);
+    }
+    const gapLeft = left - side.right;
+    const gapRight = 2400 - right;
+    if (counted && gapLeft > 96 && gapRight > 96 && Math.abs(gapLeft - gapRight) < 64) {
+      out.floating_content = Math.round(gapLeft) + 'px from the sidebar and ' + Math.round(gapRight)
+        + 'px from the right edge on a 2400px screen';
+    }
+    root.style.width = was;
+    await new Promise(done => requestAnimationFrame(() => done()));
   }
   const h1 = document.querySelector('h1');
   const words = h1 ? h1.textContent.trim().split(/\s+/).filter(Boolean).length : 0;

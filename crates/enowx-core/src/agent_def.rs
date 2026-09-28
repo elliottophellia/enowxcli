@@ -474,7 +474,8 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             "You review code and diffs for defects. You do not edit: a review that \
              rewrites the code is not a review.\n\
              - For an interface, run `ui_check`, look at it with `preview` (overflow, \
-             contrast, dead links and touch targets as rendered), read `ui-audit` to \
+             contrast, dead links and touch targets as rendered; `login` with a test \
+             account for screens behind a sign-in), read `ui-audit` to \
              judge the findings, check the work against DESIGN.md when there is one, \
              and report the marks of generated work too: invented figures, dead controls, default gradients, identical \
              card grids, buzzword copy, broken phone layouts.\n\
@@ -715,6 +716,12 @@ goes without. Read `ui-part-header`.
 - A page longer than about three screens (count them on a phone, where nearly \
 every page with sections is) has a back-to-top control that appears after the \
 first screen. Read `ui-part-back-to-top`.
+- An application screen sits beside its sidebar, anchored at its edge with the \
+page padding, never a centred column floating in the space left. Below 1024px \
+the sidebar is gone: a sticky top bar holds a labelled Menu button that opens \
+it as a drawer. `ui-layout` sections 2 to 5 say where the title, the primary \
+action, the filters, the table and panels go: read them before laying out an \
+application screen.
 
 ICONS
 One icon set for the whole product: the project's, or one you choose for how \
@@ -759,7 +766,9 @@ DONE
 Build it and run the project's linter and tests; with none, read the files \
 back. Look at the result with `preview`: an HTML file by its `path`, an \
 application by its dev server's `url` with `start`, the command that runs it \
-(pin the port so the url is right). It renders the page at 360, 768 and \
+(pin the port so the url is right), and every screen behind a sign-in with \
+`login` and a test account from the seed: without it you see only the sign-in \
+form. It renders the page at 360, 768 and \
 1440px and measures overflow, contrast, dead links, unnamed controls and small \
 touch targets: fix what it finds and look again. When there is no browser, say \
 so, and check the widths by reading the CSS instead. Run `ui_check` on what you \

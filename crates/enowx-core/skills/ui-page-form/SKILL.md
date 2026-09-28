@@ -10,6 +10,8 @@ One kind of page. The measures (container, grid, spacing, type) are in
 `ui-part-*` skill. Start from this skeleton, then cut and reorder for the
 content.
 
-One column, 480 to 560px wide, labels above fields, the steps shown when
-there are more than one, the summary beside the form on wide screens (below
-it on a phone), the primary action at the end, full width on a phone.
+One column, 480 to 560px wide (left-aligned with the page header inside an
+app shell, centred on a page of its own), labels above fields, the steps
+shown when there are more than one, the summary beside the form on wide
+screens (below it on a phone), the primary action at the end, full width on
+a phone.

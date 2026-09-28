@@ -21,14 +21,28 @@ has it and when it is due, add a new book, fix a record. Every field and
 control on the page serves one of those tasks; every task has its field or
 control.
 
-## 2. The page header
+## 2. The layout
 
-The title with the total ("Books · 214 titles"), then the primary action
-that creates a record ("Add book"), and secondary ones that exist (import,
-export) in a menu beside it.
+Inside the app shell, anchored beside the sidebar (`ui-layout` sections 2b
+and 5), from top to bottom:
+
+1. The page header on one row: the title with the total at the left
+   ("Books · 214"), the primary action that creates a record at the right
+   ("Add book"), secondary ones (import, export) in a menu beside it
+   (`ui-part-page-header`).
+2. One surface below it, full width: the toolbar (search, filters, view
+   options) as its top row, the table, and a footer with the count and the
+   pagination (`ui-part-tables`).
+3. The detail in a panel from the right, or on its own page.
+
+This screen has one job: these records. Another kind of record (the
+categories of these books, the users) gets its own screen or a panel, not a
+second section stacked under the list.
 
 ## 3. Finding
 
+- The controls sit in the toolbar row at the top of the table's surface,
+  with no card or heading of their own (`ui-layout` section 4).
 - A search over the fields people search by (title, author, number), with
   the result count as they type.
 - Filters for the fields people narrow by (category, status, branch), as
@@ -91,4 +105,6 @@ A list with no way to add a record; a status with no reason or date; a
 disabled button that does not say why; four columns chosen by habit (Name,
 Category, Status, Actions); every field label repeated on every phone card;
 a count with no pagination behind it; filters that reset when the detail
-closes.
+closes; the list floating centred in the shell; filters in a card titled
+"Search and filter"; controls in every row; another kind of record managed
+in a section below the list.

@@ -427,3 +427,183 @@ async fn a_short_sidebar_and_a_primary_on_every_row_are_reported() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// An application shell: a sidebar beside a page column that is centred
+/// (`floating`) or anchored, and a sidebar that becomes a drawer on narrow
+/// screens (`collapses`) or stays.
+fn shell(floating: bool, collapses: bool) -> String {
+    let page = if floating {
+        "max-width: 1280px; margin: 0 auto;"
+    } else {
+        "max-width: 1280px; margin: 0;"
+    };
+    let narrow = if collapses {
+        "@media (max-width: 1023px) { .shell { grid-template-columns: 1fr; } aside { display: none; } }"
+    } else {
+        ""
+    };
+    format!(
+        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Shell</title>
+<style>body {{ margin: 0; font: 15px/1.5 system-ui; background: #fff; color: #111; }}
+.shell {{ display: grid; grid-template-columns: 224px minmax(0, 1fr); min-height: 100vh; }}
+aside {{ background: #f4f4f2; border-right: 1px solid #ddd; position: sticky; top: 0; height: 100vh; }}
+aside a {{ display: block; padding: 12px; min-height: 44px; color: #111; }}
+main {{ padding: 24px; }}
+.page {{ {page} }}
+table {{ width: 100%; border-collapse: collapse; }} td {{ padding: 12px 8px; border-top: 1px solid #ddd; }}
+{narrow}</style></head>
+<body><div class="shell"><aside><nav><a href="#m">Products</a></nav></aside>
+<main id="m"><div class="page"><h1>Products</h1><table><tr><td>Kopi</td><td>Rp1.500</td></tr><tr><td>Teh</td><td>Rp4.000</td></tr></table></div></main></div></body></html>"##
+    )
+}
+
+#[tokio::test]
+async fn a_floating_page_and_an_open_sidebar_on_a_phone_are_reported() {
+    if no_chrome() {
+        return;
+    }
+    for (floating, collapses) in [(true, false), (false, true)] {
+        let dir = folder(&shell(floating, collapses));
+        let reports = preview::preview(&dir, Target::File(dir.clone()), None, &dir.join("shots"))
+            .await
+            .unwrap();
+        let text = preview::report("index.html", &reports);
+        let (phone, tablet, wide) = (&reports[0], &reports[1], &reports[2]);
+        assert_eq!(wide.floating_content.is_some(), floating, "{text}");
+        assert_eq!(phone.open_sidebar.is_some(), !collapses, "{text}");
+        assert_eq!(tablet.open_sidebar.is_some(), !collapses, "{text}");
+        assert!(
+            wide.open_sidebar.is_none(),
+            "a sidebar belongs on a wide screen"
+        );
+        if floating {
+            assert!(text.contains("floats centred beside the sidebar"), "{text}");
+            assert!(text.contains("becomes a drawer"), "{text}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+const SIGN_IN: &str = r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in</title></head>
+<body><main><form id="f">
+<label for="u">Username</label><input id="u" name="username" autocomplete="username">
+<label for="p">Password</label><input id="p" name="password" type="password">
+<button type="submit">Sign in</button><p role="alert" id="err"></p>
+</form></main>
+<script>
+document.getElementById('f').addEventListener('submit', event => {
+  event.preventDefault();
+  const user = document.getElementById('u').value, pass = document.getElementById('p').value;
+  if (user === 'admin' && pass === 'admin123') {
+    localStorage.setItem('token', 'ok');
+    location.href = '/app.html';
+  } else {
+    document.getElementById('err').textContent = 'Wrong username or password';
+  }
+});
+</script></body></html>"##;
+
+/// Shows the products only to a browser that signed in; anyone else gets
+/// the sign-in form again, with no heading.
+const BEHIND_SIGN_IN: &str = r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>App</title></head>
+<body><div id="root"></div><script>
+document.getElementById('root').innerHTML = localStorage.getItem('token') === 'ok'
+  ? '<main><h1>Products</h1><p>Signed in.</p></main>'
+  : '<form><label for="u">Username</label><input id="u"><label for="p">Password</label><input id="p" type="password"></form>';
+</script></body></html>"##;
+
+/// Serve the two pages with Python's server, or None where there is none.
+fn signed_in_site() -> Option<(PathBuf, u16)> {
+    if std::process::Command::new("python3")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        return None;
+    }
+    let dir = folder(SIGN_IN);
+    std::fs::write(dir.join("login.html"), SIGN_IN).unwrap();
+    std::fs::write(dir.join("app.html"), BEHIND_SIGN_IN).unwrap();
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    Some((dir, port))
+}
+
+fn admin(port: u16, password: &str) -> preview::Login {
+    preview::Login {
+        url: format!("http://127.0.0.1:{port}/login.html"),
+        fields: [
+            ("username".to_owned(), "admin".to_owned()),
+            ("password".to_owned(), password.to_owned()),
+        ]
+        .into(),
+        submit: None,
+    }
+}
+
+#[tokio::test]
+async fn a_page_behind_a_sign_in_is_seen_after_signing_in() {
+    if no_chrome() {
+        return;
+    }
+    let Some((dir, port)) = signed_in_site() else {
+        return;
+    };
+    let serve = format!("python3 -m http.server {port} --bind 127.0.0.1");
+    let url = format!("http://127.0.0.1:{port}/app.html");
+    let signed_in = preview::preview_signed_in(
+        &dir,
+        Target::Url(url.clone()),
+        Some(&serve),
+        Some(&admin(port, "admin123")),
+        &dir.join("shots"),
+    )
+    .await
+    .unwrap();
+    assert!(
+        signed_in.iter().all(|report| report.h1_count == 1),
+        "the products page, at every width: {}",
+        preview::report(&url, &signed_in)
+    );
+
+    let without = preview::preview(
+        &dir,
+        Target::Url(url.clone()),
+        Some(&serve),
+        &dir.join("shots"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(without[0].h1_count, 0, "only the sign-in form, without it");
+
+    let refused = preview::preview_signed_in(
+        &dir,
+        Target::Url(url.clone()),
+        Some(&serve),
+        Some(&admin(port, "wrong")),
+        &dir.join("shots"),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(refused.contains("did not go through"), "{refused}");
+    assert!(refused.contains("Wrong username or password"), "{refused}");
+
+    let mut unknown = admin(port, "admin123");
+    unknown.fields.insert("email".into(), "a@b.c".into());
+    let missing = preview::preview_signed_in(
+        &dir,
+        Target::Url(url),
+        Some(&serve),
+        Some(&unknown),
+        &dir.join("shots"),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+    assert!(missing.contains("no field for email"), "{missing}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

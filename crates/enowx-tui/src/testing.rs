@@ -326,6 +326,22 @@ impl TestApp {
 
     /// `error` mirrors what the agent sets from `ToolOutput::error`, so a
     /// fixture can reproduce a failed call rather than always looking green.
+    /// A call still running, as a tool call event leaves it.
+    pub fn push_running_tool(&mut self, id: &str, name: &str, args: &str) {
+        self.inner.blocks.push(crate::session::TranscriptBlock {
+            kind: TranscriptKind::Tool {
+                id: id.into(),
+                name: name.into(),
+                args: args.into(),
+                result: String::new(),
+                running: true,
+                error: false,
+                started: None,
+            },
+            text: String::new(),
+        });
+    }
+
     pub fn push_tool_with_status(
         &mut self,
         id: &str,

@@ -1014,6 +1014,12 @@ fn refresh_render_cache(app: &mut App, width: usize) {
     app.render_cache.resize(app.blocks.len(), None);
 
     let last = app.blocks.len().saturating_sub(1);
+    let roles = group_roles(
+        &app.blocks,
+        &markers_for,
+        !trailing.is_empty(),
+        &app.tool_expanded,
+    );
     // Indexes three collections in step — blocks, their markers, and the cache
     // — so an iterator over any one of them would still need the index.
     #[allow(clippy::needless_range_loop)]
@@ -1131,10 +1137,15 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 (false, false)
             }
         };
+        let role = &roles[idx];
+        role.hash(&mut hasher);
         let hidden = routing_row(&block.kind);
         // A hidden block that carries a handover still has to draw, or
         // collapsing reasoning would silently swallow the marker with it.
-        let skipped = hidden && before.is_empty() && after.is_empty();
+        // A call folded into a closed run draws nothing: its run's row
+        // stands for it.
+        let skipped = (hidden && before.is_empty() && after.is_empty())
+            || matches!(role, GroupRole::Member { open: false });
         let key = crate::ui::BlockKey {
             content: hasher.finish(),
             width,
@@ -1156,14 +1167,39 @@ fn refresh_render_cache(app: &mut App, width: usize) {
         for text in &before {
             switch_marker(&mut lines, text, width, &theme);
         }
-        // Markers occupy rows above the block, so the click offsets the
-        // renderer records are relative to the wrong line until they are
-        // shifted past them.
-        let offset = lines.len();
-        if !hidden {
+        // The block renders into its own buffer and is appended below the
+        // marker rows, its click offsets shifted past them. (It used to
+        // render into this buffer and be shifted as well, which put the
+        // click target of a row after a handover marker on the wrong line.)
+        let indent = match role {
+            GroupRole::Head {
+                id: group,
+                summary,
+                calls,
+                open,
+            } => {
+                tool_headers.push((group.clone(), lines.len()));
+                lines.push(tool_row(
+                    &crate::ui::tool::RowParts::new(format!("{calls} calls"), summary.clone(), ""),
+                    Some(if *open { "▾" } else { "▸" }),
+                    ("✓", theme.green),
+                    None,
+                    width,
+                    &theme,
+                ));
+                open.then_some(GUTTER)
+            }
+            GroupRole::Member { open: true } => Some(GUTTER),
+            GroupRole::Member { open: false } => None,
+            GroupRole::Alone => Some(0),
+        };
+        if let Some(indent) = indent.filter(|_| !hidden) {
+            let mut own = Vec::new();
+            let mut own_headers = Vec::new();
+            let mut own_links = Vec::new();
             render_block(
                 block,
-                width,
+                width.saturating_sub(indent).max(1),
                 &theme,
                 show_reasoning,
                 show_tool_output,
@@ -1172,16 +1208,24 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 retry_max,
                 &app.tool_expanded,
                 &app.tool_before,
-                &mut lines,
-                &mut tool_headers,
-                &mut file_links,
+                &mut own,
+                &mut own_headers,
+                &mut own_links,
             );
-        }
-        for (_, at) in tool_headers.iter_mut() {
-            *at += offset;
-        }
-        for (at, _, _) in file_links.iter_mut() {
-            *at += offset;
+            let base = lines.len();
+            // A call inside an opened run sits under the run's row.
+            for mut line in own {
+                if indent > 0 {
+                    line.spans.insert(0, Span::raw(" ".repeat(indent)));
+                }
+                lines.push(line);
+            }
+            tool_headers.extend(own_headers.into_iter().map(|(id, at)| (id, at + base)));
+            file_links.extend(own_links.into_iter().map(|(at, path, columns)| {
+                let columns =
+                    columns.map(|(start, end)| (start + indent as u16, end + indent as u16));
+                (at + base, path, columns)
+            }));
         }
         for text in after {
             switch_marker(&mut lines, text, width, &theme);
@@ -1195,6 +1239,137 @@ fn refresh_render_cache(app: &mut App, width: usize) {
             skipped,
         });
     }
+}
+
+/// Where a block stands in a run of calls that read and look (reads,
+/// searches, commands), which draws as one row until opened:
+/// `✓ 5 calls  read ×3 · grep · bash`.
+#[derive(Clone, Hash, PartialEq, Eq)]
+enum GroupRole {
+    /// Not in a run: drawn as itself.
+    Alone,
+    /// The run's first call, which draws the run's row.
+    Head {
+        id: String,
+        summary: String,
+        calls: usize,
+        open: bool,
+    },
+    /// A later call in the run, or a thought between two of its calls.
+    Member { open: bool },
+}
+
+/// Tools whose calls only read and look, and so fold into a run.
+const RUN_TOOLS: &[&str] = &[
+    "read",
+    "glob",
+    "grep",
+    "bash",
+    "fetch",
+    "skill_read",
+    "icon",
+];
+
+/// Mark the runs of two or more finished calls that read and look, with the
+/// finished thoughts between them. A failed call, a command that exited
+/// non-zero, a running call and a handover marker all end a run, so what
+/// needs the reader's eye keeps its own row.
+fn group_roles(
+    blocks: &[crate::session::TranscriptBlock],
+    markers_for: &[Vec<String>],
+    trailing_markers: bool,
+    expanded: &std::collections::HashMap<String, bool>,
+) -> Vec<GroupRole> {
+    let last = blocks.len().saturating_sub(1);
+    let marked = |at: usize| {
+        !markers_for.get(at).is_none_or(|m| m.is_empty()) || (at == last && trailing_markers)
+    };
+    let quiet_call = |at: usize| match &blocks[at].kind {
+        TranscriptKind::Tool {
+            name,
+            result,
+            running: false,
+            error: false,
+            ..
+        } => {
+            RUN_TOOLS.contains(&name.as_str())
+                && (name != "bash" || !result.starts_with("exit ") || result.starts_with("exit 0"))
+        }
+        _ => false,
+    };
+    let done_thought = |at: usize| {
+        matches!(
+            &blocks[at].kind,
+            TranscriptKind::Reasoning { started, elapsed, .. }
+                if elapsed.is_some() || started.is_none()
+        )
+    };
+    let mut roles = vec![GroupRole::Alone; blocks.len()];
+    let mut at = 0;
+    while at < blocks.len() {
+        if !quiet_call(at) {
+            at += 1;
+            continue;
+        }
+        let start = at;
+        let mut end = at;
+        let mut next = at + 1;
+        while next < blocks.len() && !marked(next) && (quiet_call(next) || done_thought(next)) {
+            if quiet_call(next) {
+                end = next;
+            }
+            next += 1;
+        }
+        let calls: Vec<&str> = (start..=end)
+            .filter(|&i| quiet_call(i))
+            .filter_map(|i| match &blocks[i].kind {
+                TranscriptKind::Tool { name, .. } => Some(name.as_str()),
+                _ => None,
+            })
+            .collect();
+        if calls.len() >= 2 {
+            let TranscriptKind::Tool { id, .. } = &blocks[start].kind else {
+                unreachable!("a run starts at a call")
+            };
+            let group = format!("group:{id}");
+            let open = expanded.get(&group).copied().unwrap_or(false);
+            // Each tool once, in the order first used, with its count.
+            let mut kinds: Vec<(&str, usize)> = Vec::new();
+            for name in &calls {
+                let name = if *name == "skill_read" {
+                    "skill"
+                } else {
+                    *name
+                };
+                match kinds.iter_mut().find(|(kind, _)| *kind == name) {
+                    Some((_, count)) => *count += 1,
+                    None => kinds.push((name, 1)),
+                }
+            }
+            let summary = kinds
+                .iter()
+                .map(|(kind, count)| {
+                    if *count > 1 {
+                        format!("{kind} ×{count}")
+                    } else {
+                        (*kind).to_owned()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" · ");
+            roles[start] = GroupRole::Head {
+                id: group,
+                summary,
+                calls: calls.len(),
+                open,
+            };
+            for role in roles.iter_mut().take(end + 1).skip(start + 1) {
+                *role = GroupRole::Member { open };
+            }
+        }
+        at = end + 1;
+    }
+    roles
 }
 
 /// A thinking row: `✻ Thought for 6s`, with the chevron on the same column as

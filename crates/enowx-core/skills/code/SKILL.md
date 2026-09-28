@@ -84,6 +84,21 @@ runs. This is how to write code the next engineer can own.
   say why in your report.
 - Import only what you use.
 
+## 6a. Data at scale
+
+- Lists are paginated in the query (a cursor or an offset with a limit, on
+  an indexed column), never by loading a table and slicing it.
+- Counts, sums and series are computed in the database with a grouped
+  query; heavy ones are cached (in memory with a short expiry, a summary
+  table, a materialised view) and invalidated when their data changes.
+- No query in a loop (N+1): load related rows in one query or a join.
+- Cache what is read often and changes rarely, at the level it is cheapest:
+  HTTP headers (`Cache-Control`, `ETag`) for responses, the client's query
+  cache for screens, the server for expensive computations. Every cache has
+  a rule for when it is stale.
+- Measure before optimising further: the slow query, the large bundle, the
+  render that repeats.
+
 ## 7. Frontend
 
 - Components are functions of their props and state. In React: stable ids as

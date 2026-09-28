@@ -171,6 +171,15 @@ pub struct Discovery {
     pub warnings: Vec<String>,
 }
 
+/// Whether `skill` is turned off: by its own name, or, for a built-in part
+/// such as `ui-part-hero`, by its parent's.
+fn is_disabled(skill: &SkillEntry, disabled: &[String]) -> bool {
+    let off = |name: &str| disabled.iter().any(|d| d == name);
+    off(&skill.name)
+        || (skill.scope == SkillScope::Builtin
+            && skills::builtin_parent(&skill.name).is_some_and(off))
+}
+
 impl Discovery {
     pub fn run(workspace: &Path) -> Self {
         let mut result = Discovery::default();
@@ -197,7 +206,7 @@ impl Discovery {
         carried: &'a [String],
     ) -> impl Iterator<Item = &'a SkillEntry> + 'a {
         self.skills.iter().filter(move |skill| {
-            !disabled.iter().any(|d| d == &skill.name)
+            !is_disabled(skill, disabled)
                 && (skill.scope != SkillScope::Builtin || carried.iter().any(|c| c == &skill.name))
         })
     }
@@ -215,7 +224,7 @@ impl Discovery {
             None => self
                 .skills
                 .iter()
-                .filter(|s| !disabled.iter().any(|d| d == &s.name))
+                .filter(|s| !is_disabled(s, disabled))
                 .collect(),
         };
         if self.instructions.is_empty() && active_skills.is_empty() {

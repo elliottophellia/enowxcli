@@ -261,6 +261,20 @@ impl TestApp {
         self.inner.show_reasoning = on;
     }
 
+    /// Reasoning still streaming: its row shows the latest sentence.
+    pub fn push_live_reasoning(&mut self, text: &str) {
+        self.inner.reasoning_seq += 1;
+        let id = format!("thinking-{}", self.inner.reasoning_seq);
+        self.inner.push(
+            TranscriptKind::Reasoning {
+                id,
+                started: Some(std::time::Instant::now()),
+                elapsed: None,
+            },
+            text,
+        );
+    }
+
     pub fn push_reasoning(&mut self, text: &str) {
         self.inner.reasoning_seq += 1;
         let id = format!("thinking-{}", self.inner.reasoning_seq);

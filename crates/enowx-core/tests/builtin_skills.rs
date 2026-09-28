@@ -314,3 +314,43 @@ fn brainstorming_asks_for_the_theme() {
     let source = builtin_source("brainstorming").unwrap();
     assert!(source.contains("light, dark, or both with a toggle"));
 }
+
+/// Lists show `ui` alone for the fifty-odd `ui-*` parts, so turning `ui`
+/// off has to turn its parts off too, or they would still be offered with
+/// no row left to turn them off from.
+#[test]
+fn a_part_is_turned_off_with_its_parent() {
+    use enowx_core::discovery::skills::builtin_parent;
+    assert_eq!(builtin_parent("ui-part-hero"), Some("ui"));
+    assert_eq!(builtin_parent("ui-layout"), Some("ui"));
+    assert_eq!(builtin_parent("ui-stack-next"), Some("ui"));
+    for parent in ["ui", "code", "writing", "brainstorming"] {
+        assert_eq!(builtin_parent(parent), None, "{parent}");
+    }
+    assert_eq!(builtin_parent("uix"), None, "a prefix is not a parent");
+
+    let _home = HOME.lock().unwrap_or_else(|e| e.into_inner());
+    let scratch = Scratch::new("family");
+    let discovery = scratch.discover();
+    let fe = enowx_core::builtin_agents()
+        .into_iter()
+        .find(|agent| agent.name == "fe")
+        .unwrap();
+    let offered = |disabled: &[String]| -> Vec<String> {
+        discovery
+            .skills_for(disabled, &fe.skills)
+            .map(|skill| skill.name.clone())
+            .collect()
+    };
+    assert!(offered(&[]).iter().any(|s| s == "ui-part-hero"));
+    let without_ui = offered(&["ui".to_owned()]);
+    assert!(
+        !without_ui.iter().any(|s| s == "ui" || s.starts_with("ui-")),
+        "{without_ui:?}"
+    );
+    assert!(without_ui.iter().any(|s| s == "writing"), "{without_ui:?}");
+    let prompt = discovery
+        .system_prompt_for(&["ui".to_owned()], Some(&fe.skills))
+        .unwrap_or_default();
+    assert!(!prompt.contains("`ui-part-hero`"), "{prompt}");
+}

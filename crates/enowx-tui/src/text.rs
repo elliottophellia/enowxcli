@@ -51,6 +51,21 @@ pub fn sanitize_paste(text: &str) -> String {
     out
 }
 
+/// Text as it can be drawn on one row: a tab as four spaces, and every other
+/// control character (a stray `\r`, an escape) dropped, since the terminal
+/// would act on it instead of showing it.
+pub fn printable(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\t' => out.push_str("    "),
+            c if c.is_control() => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 /// Soft-wrap the composer into display rows and report the caret's row/column.
 pub fn input_rows(text: &str, cursor: usize, width: usize) -> (Vec<String>, usize, usize) {
     let mut rows = vec![String::new()];

@@ -537,10 +537,15 @@ fn detail_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usi
         }
         2 => {
             let skills = &app.discovery.skills;
+            // A built-in part (`ui-part-hero`) is listed through its parent.
+            let listed = skills
+                .iter()
+                .filter(|s| !crate::app::skills::is_builtin_part(s))
+                .count();
             headline(
                 &mut lines,
-                &skills.len().to_string(),
-                if skills.len() == 1 { "skill" } else { "skills" },
+                &listed.to_string(),
+                if listed == 1 { "skill" } else { "skills" },
                 t,
             );
             // Shadowing is a problem to fix, not a count to note: two skills
@@ -572,6 +577,7 @@ fn detail_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usi
                     match skill.scope {
                         enowx_core::SkillScope::Project => project.push(&skill.name),
                         enowx_core::SkillScope::User => user.push(&skill.name),
+                        _ if crate::app::skills::is_builtin_part(skill) => {}
                         enowx_core::SkillScope::Builtin => builtin.push(&skill.name),
                     }
                 }
@@ -585,10 +591,22 @@ fn detail_lines(app: &App, width: usize) -> (Vec<Line<'static>>, Vec<(usize, usi
                     }
                     heading(&mut lines, title, t);
                     for name in group.iter().take(40) {
-                        lines.push(Line::styled(
+                        let parts = if title == "BUILT-IN" {
+                            crate::app::skills::builtin_parts(skills, name)
+                        } else {
+                            0
+                        };
+                        let mut row = vec![Span::styled(
                             (*name).to_owned(),
                             Style::default().fg(t.text),
-                        ));
+                        )];
+                        if parts > 0 {
+                            row.push(Span::styled(
+                                format!(" +{parts} parts"),
+                                Style::default().fg(t.muted),
+                            ));
+                        }
+                        lines.push(Line::from(row));
                     }
                     if group.len() > 40 {
                         note(&mut lines, &format!("+{} more", group.len() - 40), t);

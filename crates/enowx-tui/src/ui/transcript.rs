@@ -206,7 +206,14 @@ pub(super) fn draw_transcript(frame: &mut Frame, app: &mut App, area: Rect) {
     // that the diff and card layouts rely on, leaving what look like blank
     // gap rows. A trailing `…` says content was elided.
     let mut wrapped: Vec<Line> = Vec::new();
-    for line in lines {
+    for mut line in lines {
+        // Tabs and other control characters are laid out here, where the
+        // width is measured, rather than left for the terminal to act on.
+        for span in line.spans.iter_mut() {
+            if span.content.chars().any(char::is_control) {
+                span.content = crate::text::printable(&span.content).into();
+            }
+        }
         if line.width() <= width {
             wrapped.push(line);
             continue;

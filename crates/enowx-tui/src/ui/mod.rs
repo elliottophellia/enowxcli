@@ -88,6 +88,24 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
     if app.modal != Modal::None && !draw_popup(frame, app) {
         draw_modal(frame, app);
     }
+    no_control_characters(frame.buffer_mut());
+}
+
+/// Blank every cell holding a control character.
+///
+/// Ratatui's paragraph passes everything but `\n` through to the terminal.
+/// A tab there moves the cursor to the next tab stop while ratatui believes
+/// it moved one cell, so the rest of the row lands columns to the right, on
+/// the side panel, and stays there: ratatui never repaints cells it thinks
+/// are unchanged. A model's reasoning with a tab in its latest sentence left
+/// a row's `▸` in the skills list this way. Text is cleaned where it is
+/// laid out; this is the net for whatever gets past.
+fn no_control_characters(buffer: &mut ratatui::buffer::Buffer) {
+    for cell in buffer.content.iter_mut() {
+        if cell.symbol().chars().any(char::is_control) {
+            cell.set_symbol(" ");
+        }
+    }
 }
 
 /// See `crate::preview_markdown`.

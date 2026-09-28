@@ -24,7 +24,7 @@ mod navigation;
 pub(crate) mod question;
 mod sessions;
 mod settings_keys;
-mod skills;
+pub(crate) mod skills;
 
 /// One sub-agent run, as the sidebar shows it.
 #[derive(Clone)]

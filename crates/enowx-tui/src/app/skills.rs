@@ -2,6 +2,7 @@
 //! read the selected skill's body on Enter.
 
 use anyhow::Result;
+use enowx_core::discovery::skills::builtin_parent;
 use enowx_core::discovery::{SkillEntry, SkillScope};
 use enowx_core::persist;
 
@@ -17,6 +18,22 @@ pub(crate) struct SkillRow {
     pub scope: SkillScope,
     pub enabled: bool,
     pub path: std::path::PathBuf,
+    /// The built-in parts listed under this skill rather than beside it
+    /// (`ui` has `ui-layout`, `ui-part-hero`...).
+    pub parts: usize,
+}
+
+/// Whether `skill` is a built-in part shown only through its parent.
+pub(crate) fn is_builtin_part(skill: &SkillEntry) -> bool {
+    skill.scope == SkillScope::Builtin && builtin_parent(&skill.name).is_some()
+}
+
+/// How many built-in parts `skills` lists under `parent`.
+pub(crate) fn builtin_parts(skills: &[SkillEntry], parent: &str) -> usize {
+    skills
+        .iter()
+        .filter(|s| is_builtin_part(s) && builtin_parent(&s.name) == Some(parent))
+        .count()
 }
 
 impl App {
@@ -33,9 +50,12 @@ impl App {
     pub(crate) fn skill_rows(&self) -> Vec<SkillRow> {
         let needle = self.modal_search.trim().to_ascii_lowercase();
         let disabled = &self.config.ui.disabled_skills;
-        self.discovery
-            .skills
+        let skills = &self.discovery.skills;
+        skills
             .iter()
+            // A built-in part is turned on and off with its parent, so it
+            // has no row of its own.
+            .filter(|s| !is_builtin_part(s))
             .filter(|s| {
                 needle.is_empty()
                     || s.name.contains(&needle)
@@ -47,6 +67,11 @@ impl App {
                 scope: s.scope,
                 enabled: !disabled.iter().any(|d| d == &s.name),
                 path: s.path.clone(),
+                parts: if s.scope == SkillScope::Builtin {
+                    builtin_parts(skills, &s.name)
+                } else {
+                    0
+                },
             })
             .collect()
     }

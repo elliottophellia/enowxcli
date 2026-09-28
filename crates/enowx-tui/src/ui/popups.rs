@@ -147,11 +147,20 @@ fn draw_skills(frame: &mut Frame, app: &mut App) {
             } else {
                 format!("for {} · {desc}", carriers.join(", "))
             };
+            // A parent says how many parts it carries with it.
+            let parts = if row.parts > 0 {
+                format!(" +{} parts", row.parts)
+            } else {
+                String::new()
+            };
+            let pad = 28usize.saturating_sub(row.name.chars().count() + parts.chars().count());
             // The dot is this row's marker, on the marker column; the name
             // starts on the text column like every other list.
             ListItem::new(Line::from(vec![
                 Span::styled(format!("{mark} "), Style::default().fg(colour)),
-                Span::styled(format!("{:<28}", row.name), name_style),
+                Span::styled(row.name.clone(), name_style),
+                Span::styled(parts, Style::default().fg(t.muted)),
+                Span::raw(" ".repeat(pad)),
                 Span::styled(format!(" {scope:<9}"), Style::default().fg(t.muted)),
                 Span::styled(
                     trim(&desc, list_area.width.saturating_sub(41) as usize),

@@ -97,6 +97,20 @@ pub fn builtin_names() -> impl Iterator<Item = &'static str> {
     BUILTIN.iter().map(|(name, _)| *name)
 }
 
+/// The built-in skill a built-in part belongs to: `ui` for `ui-layout`,
+/// `ui-part-hero` and every other `ui-*`, `None` for a skill with no parent.
+/// Lists show the parent alone, and turning the parent off turns its parts
+/// off with it.
+pub fn builtin_parent(name: &str) -> Option<&'static str> {
+    builtin_names()
+        .filter(|parent| {
+            name.len() > parent.len()
+                && name.starts_with(parent)
+                && name.as_bytes()[parent.len()] == b'-'
+        })
+        .min_by_key(|parent| parent.len())
+}
+
 /// The whole `SKILL.md` of a built-in skill.
 pub fn builtin_source(name: &str) -> Option<&'static str> {
     BUILTIN

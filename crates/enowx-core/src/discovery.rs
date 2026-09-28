@@ -14,6 +14,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 pub mod agents;
+mod builtin_skills;
 pub mod instructions;
 pub mod mcp;
 pub mod skills;

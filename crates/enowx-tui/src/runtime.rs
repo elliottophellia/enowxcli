@@ -80,49 +80,60 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
         app.refresh_viewed_delegation();
         terminal.draw(|frame| draw(frame, &mut app))?;
         if event::poll(Duration::from_millis(40))? {
-            match event::read()? {
-                TerminalEvent::Key(key) if key.kind != KeyEventKind::Release => {
-                    if let Err(error) = app.key(key) {
-                        if app.modal != Modal::None {
-                            app.modal_error = format!("{error:#}");
-                        } else {
-                            app.push(TranscriptKind::Error, format!("{error:#}"));
+            // Everything already queued is handled before the next frame. A
+            // wheel or trackpad sends dozens of events a second, and drawing a
+            // long transcript after each one fell behind them: the queue kept
+            // scrolling after the hand had stopped.
+            let mut handled = 0;
+            loop {
+                match event::read()? {
+                    TerminalEvent::Key(key) if key.kind != KeyEventKind::Release => {
+                        if let Err(error) = app.key(key) {
+                            if app.modal != Modal::None {
+                                app.modal_error = format!("{error:#}");
+                            } else {
+                                app.push(TranscriptKind::Error, format!("{error:#}"));
+                            }
                         }
                     }
-                }
-                // Every text-field modal, asked as a question rather than
-                // listed: a form added to `is_form` but missed here would
-                // silently refuse to accept a paste, which is what kept the
-                // TypeSafe key from being pasted at all.
-                TerminalEvent::Paste(text) if app.modal.is_form() => {
-                    app.paste(&text);
-                }
-                TerminalEvent::Paste(text) if app.modal == Modal::None => {
-                    // A drag-and-drop reaches us as one or more file paths.
-                    let paths = crate::attachments::dropped_paths(&text);
-                    if !paths.is_empty() {
-                        app.attach_paths(&paths);
-                    } else if text.trim().is_empty() {
-                        // macOS Cmd+V on an image sends a bracketed paste with
-                        // no text: terminals cannot stream binary through stdin.
-                        app.attach_from_clipboard();
-                    } else {
-                        // Normalize CR/CRLF to LF, drop other control chars,
-                        // and expand tabs so a paste from Warp/iTerm cannot
-                        // slip an out-of-band cursor movement into the field.
+                    // Every text-field modal, asked as a question rather than
+                    // listed: a form added to `is_form` but missed here would
+                    // silently refuse to accept a paste, which is what kept the
+                    // TypeSafe key from being pasted at all.
+                    TerminalEvent::Paste(text) if app.modal.is_form() => {
                         app.paste(&text);
                     }
-                }
-                TerminalEvent::Mouse(mouse) => {
-                    if let Err(error) = app.mouse(mouse) {
-                        if app.modal != Modal::None {
-                            app.modal_error = format!("{error:#}");
+                    TerminalEvent::Paste(text) if app.modal == Modal::None => {
+                        // A drag-and-drop reaches us as one or more file paths.
+                        let paths = crate::attachments::dropped_paths(&text);
+                        if !paths.is_empty() {
+                            app.attach_paths(&paths);
+                        } else if text.trim().is_empty() {
+                            // macOS Cmd+V on an image sends a bracketed paste with
+                            // no text: terminals cannot stream binary through stdin.
+                            app.attach_from_clipboard();
                         } else {
-                            app.push(TranscriptKind::Error, format!("{error:#}"));
+                            // Normalize CR/CRLF to LF, drop other control chars,
+                            // and expand tabs so a paste from Warp/iTerm cannot
+                            // slip an out-of-band cursor movement into the field.
+                            app.paste(&text);
                         }
                     }
+                    TerminalEvent::Mouse(mouse) => {
+                        if let Err(error) = app.mouse(mouse) {
+                            if app.modal != Modal::None {
+                                app.modal_error = format!("{error:#}");
+                            } else {
+                                app.push(TranscriptKind::Error, format!("{error:#}"));
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
+                handled += 1;
+                if handled >= 512 || app.should_quit || !event::poll(Duration::ZERO)? {
+                    break;
+                }
             }
         }
     }

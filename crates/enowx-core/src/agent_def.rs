@@ -222,7 +222,14 @@ pub fn builtin_agents() -> Vec<AgentDef> {
     // `brainstorming`, for agreeing a new project's design with the user
     // before routing it; the read-only gatherers and the auditor have
     // nothing to shape, so they carry none.
-    const INTERFACE: &[&str] = &["ui", "ui-components", "code", "writing"];
+    // Every `ui*` skill: the principles, the measures, the audit, and one
+    // skill per page kind and per part, read only when that part is built.
+    let ui: Vec<&str> = crate::discovery::skills::builtin_names()
+        .filter(|name| *name == "ui" || name.starts_with("ui-"))
+        .collect();
+    let interface: Vec<&str> = ui.iter().copied().chain(["code", "writing"]).collect();
+    let mobile: Vec<&str> = ui.iter().copied().chain(["code"]).collect();
+
     const CODE: &[&str] = &["code"];
     const NONE: &[&str] = &[];
     let make = |name: &str,
@@ -259,7 +266,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             FULL,
             Tier::Balanced,
             Delegation::Librarian,
-            INTERFACE,
+            &interface,
             FE_PROMPT,
         ),
         make(
@@ -322,7 +329,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             FULL,
             Tier::Balanced,
             Delegation::Librarian,
-            &["ui", "ui-components", "code"],
+            &mobile,
             "You are a mobile specialist: platform APIs, app lifecycle, and the limits of \
              a device: memory, battery and an intermittent network.\n\
              - Follow the project's platform and architecture, and match its navigation and \
@@ -382,9 +389,12 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             &["read", "glob", "grep", "bash", "todo"],
             Tier::Strong,
             Delegation::Librarian,
-            INTERFACE,
+            &interface,
             "You review code and diffs for defects. You do not edit: a review that \
              rewrites the code is not a review.\n\
+             - For an interface, read `ui-audit` and report the marks of generated \
+             work too: invented figures, dead controls, default gradients, identical \
+             card grids, buzzword copy, broken phone layouts.\n\
              - For each finding: what breaks, under what input, and where (path and line). \
              Rank by consequence, not by how easy the fix is.\n\
              - Check the change against what it claims to do, then against what it could \
@@ -497,11 +507,17 @@ With no stack in the project or the brief, use the simplest that fits. A page \
 of content is semantic HTML and CSS, with JavaScript only for behaviour it \
 needs; an application with state and repeated interface is a component \
 framework, React with Vite and TypeScript unless the brief names another.
-Before designing or restyling a page or screen, read the `ui` skill, and \
-`ui-components` before building or reworking a part of it: header, \
-navigation, sidebar, hero, sections, footer, buttons, forms, tables, dialogs, \
-menus, notifications. Read `writing` before writing a page's copy, and `code` \
-before a new component or module of any size.
+Before designing or restyling a page or screen, read the `ui` skill and \
+`ui-layout`, then the `ui-page-*` skill for the kind of page (landing, \
+dashboard, portfolio, docs, settings, form...) and the `ui-part-*` skill for \
+each part you build (header, navigation, sidebar, hero, cards, forms, tables, \
+dialogs...): only the ones you build, as you come to them. Read `writing` \
+before writing a page's copy, and `code` before a new component or module of \
+any size.
+An interface that already exists is audited before it is changed: to improve, \
+restyle, fix the look of or review one, read `ui-audit`, search the code for \
+the marks of generated work, list what you found by priority, then fix what \
+the task covers. A new look over the same faults is not an improvement.
 
 DIRECTION
 Use the project's direction. With none, set one from what the product is and \

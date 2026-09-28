@@ -115,7 +115,9 @@ nothing about the product.
 
 - Each part of a page (header, navigation, sidebar, hero, sections, footer,
   buttons, forms, tables, dialogs, menus, notifications) has its own entry,
-  with what to build and what to avoid, in the `ui-components` skill.
+  with what to build and what to avoid, in its own `ui-part-*` skill
+  (`ui-part-header`, `ui-part-hero`, `ui-part-tables`...), and each kind of
+  page its skeleton in a `ui-page-*` skill. Read only the ones you build.
 - Reuse first: search the project for the component (Button, Input, Dialog,
   Card, Tabs) and use or extend it.
 - A component for each named concept, and wherever the same markup repeats

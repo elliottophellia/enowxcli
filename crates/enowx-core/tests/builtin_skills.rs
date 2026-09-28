@@ -60,7 +60,17 @@ fn every_workspace_has_the_builtin_skills() {
     let _home = HOME.lock().unwrap_or_else(|e| e.into_inner());
     let scratch = Scratch::new("empty");
     let discovery = scratch.discover();
-    for name in ["ui", "ui-components", "code", "writing", "brainstorming"] {
+    for name in [
+        "ui",
+        "ui-layout",
+        "ui-audit",
+        "ui-page-dashboard",
+        "ui-part-hero",
+        "ui-part-sidebar",
+        "code",
+        "writing",
+        "brainstorming",
+    ] {
         let skill = discovery
             .skills
             .iter()
@@ -76,7 +86,8 @@ fn every_workspace_has_the_builtin_skills() {
     let listed = discovery.system_prompt_supplement().expect("a skill list");
     for name in [
         "`ui`",
-        "`ui-components`",
+        "`ui-layout`",
+        "`ui-audit`",
         "`code`",
         "`writing`",
         "`brainstorming`",
@@ -192,12 +203,15 @@ fn each_agent_carries_the_skills_for_its_work() {
             .skills
             .clone()
     };
-    assert_eq!(carried("fe"), ["ui", "ui-components", "code", "writing"]);
+    assert!(carried("fe").iter().any(|s| s == "ui-part-hero"));
+    assert!(carried("fe").iter().any(|s| s == "ui-page-dashboard"));
+    assert!(carried("fe").iter().any(|s| s == "writing"));
     assert_eq!(
         carried("review"),
         ["ui", "ui-components", "code", "writing"]
     );
-    assert_eq!(carried("mobile"), ["ui", "ui-components", "code"]);
+    assert!(carried("mobile").iter().any(|s| s == "ui-part-sidebar"));
+    assert!(!carried("mobile").iter().any(|s| s == "writing"));
     assert_eq!(carried("docs"), ["writing"]);
     for name in ["be", "db", "devops", "systems", "test", "perf"] {
         assert_eq!(carried(name), ["code"], "{name}");
@@ -225,7 +239,17 @@ fn an_agent_file_names_its_skills() {
 /// generated page would say about itself.
 #[test]
 fn the_builtin_skills_follow_their_own_rules() {
-    for name in ["ui", "ui-components", "code", "writing", "brainstorming"] {
+    for name in [
+        "ui",
+        "ui-layout",
+        "ui-audit",
+        "ui-page-dashboard",
+        "ui-part-hero",
+        "ui-part-sidebar",
+        "code",
+        "writing",
+        "brainstorming",
+    ] {
         let source = builtin_source(name).expect("built in");
         assert!(!source.contains('—'), "`{name}` has an em dash");
         assert!(
@@ -245,7 +269,8 @@ fn the_frontend_prompt_names_its_skills_and_essentials() {
         .expect("fe ships");
     for needed in [
         "`ui` skill",
-        "`ui-components`",
+        "`ui-layout`",
+        "`ui-audit`",
         "`writing`",
         "`code`",
         "One icon set",
@@ -256,4 +281,31 @@ fn the_frontend_prompt_names_its_skills_and_essentials() {
         assert!(fe.prompt.contains(needed), "missing {needed:?}");
     }
     assert!(!fe.prompt.contains('—'), "the prompt has an em dash");
+}
+
+/// Every directory under `skills/` is compiled in: a skill added there and
+/// left out of the list would ship nowhere.
+#[test]
+fn every_skill_directory_is_built_in() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("skills");
+    let mut on_disk: Vec<String> = std::fs::read_dir(root)
+        .unwrap()
+        .flatten()
+        .filter(|entry| entry.path().join("SKILL.md").is_file())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    on_disk.sort();
+    let mut built_in: Vec<String> = enowx_core::discovery::skills::builtin_names()
+        .map(str::to_owned)
+        .collect();
+    built_in.sort();
+    assert_eq!(on_disk, built_in);
+    for name in &built_in {
+        let source = builtin_source(name).unwrap();
+        assert!(
+            source.starts_with(&format!("---\nname: {name}\n")),
+            "{name} names itself"
+        );
+        assert!(!source.contains('\u{2014}'), "{name} has an em dash");
+    }
 }

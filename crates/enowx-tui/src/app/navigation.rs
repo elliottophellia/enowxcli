@@ -457,6 +457,10 @@ impl App {
     /// Whether the row keyed `id` is open when nothing has toggled it: the
     /// same rule the renderer draws it by.
     fn opens_by_default(&self, id: &str) -> bool {
+        // A fold of long output, and a run of calls, start closed.
+        if id.starts_with("full:") || id.starts_with("group:") {
+            return false;
+        }
         self.blocks
             .iter()
             .find_map(|block| match &block.kind {

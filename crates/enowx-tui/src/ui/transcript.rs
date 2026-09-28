@@ -796,6 +796,41 @@ fn render_block(
                                 if !current.is_empty() {
                                     flush(lines, &mut current, &mut current_w);
                                 }
+                                // Long output folds after a screenful; the
+                                // fold opens it all, and closes it again.
+                                let full_id = format!("full:{id}");
+                                let full = tool_expanded.get(&full_id).copied().unwrap_or(false);
+                                let rows = lines.len() - body_start;
+                                let cap = crate::ui::tool::BODY_PREVIEW_MAX;
+                                if name != "preview" && rows > cap + 1 {
+                                    let label = if full {
+                                        "show less".to_owned()
+                                    } else {
+                                        lines.truncate(body_start + cap);
+                                        format!("{} more lines", rows - cap)
+                                    };
+                                    tool_headers.push((full_id, lines.len()));
+                                    lines.push(Line::from(vec![
+                                        Span::styled("┈ ", Style::default().fg(theme.faint)),
+                                        Span::styled(label, Style::default().fg(theme.muted)),
+                                    ]));
+                                }
+                                // A screenshot's row opens the image.
+                                if name == "preview" {
+                                    let shots = crate::ui::tool::preview_screenshots(result);
+                                    for (at, line) in lines.iter().enumerate().skip(body_start) {
+                                        let row: String = line
+                                            .spans
+                                            .iter()
+                                            .map(|span| span.content.as_ref())
+                                            .collect();
+                                        if let Some((_, path)) = shots.iter().find(|(file, _)| {
+                                            row.trim_start() == format!("screenshot  {file}")
+                                        }) {
+                                            file_links.push((at, path.clone(), None));
+                                        }
+                                    }
+                                }
                             }
                             ToolBody::Diff {
                                 old,
@@ -1031,6 +1066,9 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 running.hash(&mut hasher);
                 error.hash(&mut hasher);
                 app.tool_before.contains_key(id).hash(&mut hasher);
+                app.tool_expanded
+                    .get(&format!("full:{id}"))
+                    .hash(&mut hasher);
                 // Must match the renderer exactly, or a row would be cached
                 // in one state and drawn in the other.
                 let default_expand = crate::ui::tool::opens_by_default(name, show_tool_output);

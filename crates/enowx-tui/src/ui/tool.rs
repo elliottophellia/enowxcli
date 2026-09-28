@@ -253,7 +253,7 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
             ToolRender::Detail {
                 header: RowParts::new("bash", head.clone(), lines_note).with_status(status),
                 // Only worth a second line when the header had to abbreviate.
-                subtitle: (head.len() < cmd.len()).then(|| trim(cmd, 240)),
+                subtitle: (head.len() < cmd.len()).then(|| format!("$ {}", trim(cmd, 240))),
                 body: ToolBody::Plain(body),
             }
         }
@@ -302,7 +302,7 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
             ToolRender::Detail {
                 header: RowParts::new("preview", target, note),
                 subtitle: None,
-                body: ToolBody::Plain(result),
+                body: ToolBody::Formatted(preview_for_reader(result)),
             }
         }
         "ui_check" => {
@@ -700,6 +700,57 @@ pub(super) fn render_file_card(
         ]));
     }
 }
+
+/// A `preview` report as the reader needs it. The report is written for the
+/// model: it repeats the page the row already names, gives each screenshot's
+/// full temporary path, and ends with an instruction to fix what it found.
+/// Here each screenshot is named by its file (the row opens it), and the
+/// rest goes.
+pub(super) fn preview_for_reader(result: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    for line in result.lines() {
+        if line.starts_with("Preview of ") || line.starts_with("The measurements are facts") {
+            continue;
+        }
+        match line.trim_start().strip_prefix("screenshot: ") {
+            Some(path) => {
+                let name = std::path::Path::new(path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.to_owned());
+                out.push(format!("  screenshot  {name}"));
+            }
+            None => out.push(line.to_owned()),
+        }
+    }
+    while out.first().is_some_and(|line| line.trim().is_empty()) {
+        out.remove(0);
+    }
+    while out.last().is_some_and(|line| line.trim().is_empty()) {
+        out.pop();
+    }
+    out.join("\n")
+}
+
+/// Each screenshot a `preview` report names, as (file name, full path), so
+/// its row in the reader's version can open the image.
+pub(super) fn preview_screenshots(result: &str) -> Vec<(String, String)> {
+    result
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("screenshot: "))
+        .map(|path| {
+            let name = std::path::Path::new(path)
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            (name, path.to_owned())
+        })
+        .collect()
+}
+
+/// The most rows of output an opened row shows before the rest folds into
+/// a "more lines" row, which opens it all.
+pub(super) const BODY_PREVIEW_MAX: usize = 12;
 
 /// The most changed regions a replaced file shows.
 pub(super) const MAX_HUNKS: usize = 4;

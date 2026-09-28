@@ -171,3 +171,79 @@ fn a_write_shows_a_new_file_or_what_it_changed() {
         "unchanged middle is left out: {body}"
     );
 }
+
+fn click(app: &mut TestApp, id: &str) {
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    let _ = app.render_to_text(W, H);
+    let y = app
+        .tool_header_rows()
+        .into_iter()
+        .find(|(_, row_id)| row_id == id)
+        .map(|(y, _)| y)
+        .unwrap_or_else(|| panic!("no row for {id}"));
+    app.mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 8,
+        row: y,
+        modifiers: KeyModifiers::NONE,
+    })
+    .expect("click");
+}
+
+/// Long output shows a screenful; the fold opens the rest, and closes it.
+#[test]
+fn long_output_folds_after_a_screenful() {
+    let mut app = TestApp::in_conversation();
+    let output: String = (1..=30).map(|n| format!("row {n}\n")).collect();
+    app.push_tool(
+        "b1",
+        "bash",
+        r#"{"command":"seq 30"}"#,
+        &format!("exit 0\n{output}"),
+    );
+    app.expand_tool("b1");
+    let text = app.render_to_text(W, H).join("\n");
+    assert!(
+        text.contains("row 11") && !text.contains("row 25"),
+        "{text}"
+    );
+    assert!(text.contains("┈ 18 more lines"), "{text}");
+
+    click(&mut app, "full:b1");
+    let text = app.render_to_text(W, H).join("\n");
+    assert!(text.contains("row 30"), "the fold opened it all: {text}");
+    assert!(text.contains("┈ show less"), "{text}");
+}
+
+/// The preview's report, as the reader needs it: no line for the model, no
+/// temporary paths, and each screenshot a link to the image.
+#[test]
+fn a_preview_names_its_screenshots_and_opens_them() {
+    let mut app = TestApp::in_conversation();
+    let dir = "/var/folders/xx/T/enx-preview-abc";
+    let report = format!(
+        "Preview of http://localhost:4321/\n\n360px, page 8310px tall: 1 problem\n  touch targets under 44px:\n    - a.tiny 29x28px\n  screenshot: {dir}/360.png\n\n1440px, page 6027px tall: nothing found\n  screenshot: {dir}/1440.png\n\nThe measurements are facts about the rendered page; fix what they show."
+    );
+    app.push_tool(
+        "p1",
+        "preview",
+        r#"{"url":"http://localhost:4321/"}"#,
+        &report,
+    );
+    app.expand_tool("p1");
+    let text = app.render_to_text(W, H).join("\n");
+    assert!(text.contains("screenshot  360.png"), "{text}");
+    assert!(!text.contains("/var/folders"), "{text}");
+    assert!(!text.contains("The measurements are facts"), "{text}");
+    assert!(
+        !text.contains("Preview of"),
+        "the row names the page: {text}"
+    );
+    let links: Vec<String> = app
+        .file_link_areas()
+        .into_iter()
+        .map(|(_, _, _, path)| path)
+        .collect();
+    assert!(links.contains(&format!("{dir}/360.png")), "{links:?}");
+    assert!(links.contains(&format!("{dir}/1440.png")), "{links:?}");
+}

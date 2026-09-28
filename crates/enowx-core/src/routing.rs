@@ -534,8 +534,10 @@ pub fn routing_schemas(hand_off: HandOff) -> Vec<serde_json::Value> {
             "name": "delegate",
             "description":
                 "Give a piece of work to a specialist. It starts from your briefing \
-                 alone, works in its own context, and returns a summary. Its context \
-                 is then discarded, so this is the cheap way to use a specialist.",
+                 alone, works in its own context, and returns a summary. Call it \
+                 several times in one step to run parts at the same time, several to \
+                 the same specialist if you like; a file one agent is editing is \
+                 closed to the others until it finishes.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -552,19 +554,6 @@ pub fn routing_schemas(hand_off: HandOff) -> Vec<serde_json::Value> {
                             "cheap | balanced | strong. Start one lower than feels \
                              right; the ladder promotes on failure."
                     },
-                    "writes": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description":
-                            "paths or globs this work will change. Enforced: a write \
-                             outside them is refused. Too narrow blocks the specialist, \
-                             too wide blocks work that could have run alongside."
-                    },
-                    "reads": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "paths it expects to read; overlaps are harmless"
-                    }
                 },
                 "required": ["agent", "task"]
             }

@@ -33,7 +33,9 @@ const REPORT_CONTRACT: &str = "\nYou are working on behalf of another agent, whi
      DONE: what you achieved, or what you could not\n\
      CHANGED: every file you created or edited, or `none`\n\
      VERIFIED: how you checked it (the project's build or tests, or reading the result back) and what you found, or `not verified`\n\
-     NEXT: what the caller must know to carry on, or `nothing`\n";
+     NEXT: what the caller must know to carry on, or `nothing`\n\
+     Other agents may be working at the same time. A file one of them is editing is refused to you \
+     until it finishes: do your other files first, and if you cannot finish without it, say so in NEXT.\n";
 
 /// The workspace's top level, for the system prompt.
 ///
@@ -286,6 +288,9 @@ pub struct Agent {
     questions: std::sync::Mutex<
         std::collections::HashMap<String, tokio::sync::oneshot::Sender<crate::ask::Answer>>,
     >,
+    /// Which files the agents of the current run are editing, so two of
+    /// them working at once never edit the same file.
+    board: crate::contract::Board,
 }
 
 impl Agent {
@@ -326,6 +331,7 @@ impl Agent {
             system_one,
             asks_user: false,
             questions: std::sync::Mutex::new(std::collections::HashMap::new()),
+            board: crate::contract::Board::default(),
         }
     }
 
@@ -594,7 +600,10 @@ impl Agent {
         events: mpsc::Sender<Event>,
         cancel: CancellationToken,
     ) -> Result<()> {
-        match self.run_inner(request, &events, cancel).await {
+        let outcome = self.run_inner(request, &events, cancel).await;
+        // The run is over and every agent in it has finished.
+        self.board.clear();
+        match outcome {
             Ok(()) => Ok(()),
             Err(error) => {
                 let _ = events
@@ -641,117 +650,140 @@ impl Agent {
         Provider::from_config(agent_config).ok()
     }
 
-    async fn run_delegated(
+    /// Run the delegations asked for in one step, all at the same time, each in
+    /// its own branch session, and return their summaries in the same order.
+    ///
+    /// Several may go to the same agent (three `fe` tasks for three pages).
+    /// Agents at work together keep to the contract in `crate::contract`: a
+    /// file one of them is editing is closed to the others until it finishes.
+    async fn run_delegations(
         &self,
         parent: &mut Session,
-        delegation: &crate::routing::Delegation,
+        delegations: &[crate::routing::Delegation],
         events: &mpsc::Sender<Event>,
-    ) -> String {
-        let mut branch = parent.branch(&delegation.to);
-        if let Err(error) = self.store.save(&branch) {
-            // Said on screen as well as to the caller: the delegate call
-            // itself went through, so without this the failure shows nowhere.
-            let summary = format!("failed before changing anything: could not start: {error:#}");
+    ) -> Vec<String> {
+        // Start every branch first: records, events and the lineage the
+        // contract uses, so the runs themselves share nothing mutable.
+        let mut started: Vec<Result<Session, String>> = Vec::new();
+        for delegation in delegations {
+            let branch = parent.branch(&delegation.to);
+            if let Err(error) = self.store.save(&branch) {
+                // Said on screen as well as to the caller: the delegate call
+                // itself went through, so without this the failure shows nowhere.
+                let summary =
+                    format!("failed before changing anything: could not start: {error:#}");
+                let _ = events
+                    .send(Event::DelegationFinished {
+                        agent: delegation.to.clone(),
+                        summary: summary.clone(),
+                        session_id: branch.id.clone(),
+                        failed: true,
+                    })
+                    .await;
+                started.push(Err(summary));
+                continue;
+            }
+            self.board.branch(&branch.id, &parent.id);
+            parent.delegations.push(crate::session::DelegationRecord {
+                agent: delegation.to.clone(),
+                session_id: branch.id.clone(),
+                failed: false,
+            });
+            let _ = events
+                .send(Event::DelegationStarted {
+                    agent: delegation.to.clone(),
+                    task: delegation.task.clone(),
+                    session_id: branch.id.clone(),
+                })
+                .await;
+            started.push(Ok(branch));
+        }
+
+        let runs = delegations
+            .iter()
+            .zip(&started)
+            .map(|(delegation, branch)| async move {
+                let Ok(branch) = branch else {
+                    return None;
+                };
+                // The task alone. The report the sub-agent owes (DONE/CHANGED/…)
+                // rides in its system prompt via REPORT_CONTRACT, keyed off the
+                // branch's `parent`.
+                let request = RunRequest {
+                    prompt: delegation.task.clone(),
+                    session_id: Some(branch.id.clone()),
+                    role: branch.role,
+                    attachments: Vec::new(),
+                    agent: None,
+                };
+                // The sub-agent's own events are not forwarded: the caller sees a
+                // summary, and interleaving several agents' tool calls in one
+                // transcript is unreadable. The branch session holds the detail.
+                let (sink, mut drain) = mpsc::channel::<Event>(64);
+                tokio::spawn(async move { while drain.recv().await.is_some() {} });
+                // Its own token, not a child of the caller's: stopping the turn
+                // stops the agent the user talks to, and a sub-agent cut off
+                // mid-task would leave its caller a `NO REPORT` for work that was
+                // interrupted rather than failed.
+                let own = CancellationToken::new();
+                let outcome = Box::pin(self.run_inner(request, &sink, own)).await;
+                // Finished: what it was editing is open to the others again.
+                self.board.release(&branch.id);
+                Some(outcome)
+            });
+        let outcomes = futures::future::join_all(runs).await;
+
+        let mut summaries = Vec::new();
+        for ((delegation, branch), outcome) in delegations.iter().zip(started).zip(outcomes) {
+            let (mut branch, outcome) = match (branch, outcome) {
+                (Err(summary), _) => {
+                    summaries.push(summary);
+                    continue;
+                }
+                (Ok(branch), Some(outcome)) => (branch, outcome),
+                (Ok(_), None) => unreachable!("a started branch always runs"),
+            };
+            // Reload: the nested run owns the branch on disk from here.
+            if let Ok(finished) = self.store.load(&branch.id) {
+                branch = finished;
+            }
+            parent.absorb_usage(&branch.usage);
+            let summary = match outcome {
+                Ok(()) => branch_summary(&branch),
+                Err(error) => {
+                    // Whether files were already changed decides what the
+                    // caller may safely do next, so the report says which.
+                    let touched = files_touched(&branch);
+                    if touched.is_empty() {
+                        format!("failed before changing anything: {error:#}")
+                    } else {
+                        format!(
+                            "PARTIAL FAILURE: {error:#}\nAlready changed: {}\nDo not redo this work.",
+                            touched.join(", ")
+                        )
+                    }
+                }
+            };
+            let failed = summary.starts_with("failed") || summary.starts_with("PARTIAL FAILURE");
+            if let Some(record) = parent
+                .delegations
+                .iter_mut()
+                .rev()
+                .find(|record| record.session_id == branch.id)
+            {
+                record.failed = failed;
+            }
             let _ = events
                 .send(Event::DelegationFinished {
                     agent: delegation.to.clone(),
                     summary: summary.clone(),
                     session_id: branch.id.clone(),
-                    failed: true,
+                    failed,
                 })
                 .await;
-            return summary;
+            summaries.push(summary);
         }
-        // The task alone. The report the sub-agent owes (DONE/CHANGED/…) rides
-        // in its system prompt via REPORT_CONTRACT, keyed off the branch's
-        // `parent`, rather than trailing the task here — appended to a long
-        // brief it was getting lost, and the sub-agent stopped with narration
-        // mid-task ("Now rewriting main.js") or a question the caller cannot
-        // answer standing in for a result.
-        let request = RunRequest {
-            prompt: delegation.task.clone(),
-            session_id: Some(branch.id.clone()),
-            role: parent.role,
-            attachments: Vec::new(),
-            agent: None,
-        };
-        parent.delegations.push(crate::session::DelegationRecord {
-            agent: delegation.to.clone(),
-            session_id: branch.id.clone(),
-            failed: false,
-        });
-        let _ = events
-            .send(Event::DelegationStarted {
-                agent: delegation.to.clone(),
-                task: delegation.task.clone(),
-                session_id: branch.id.clone(),
-            })
-            .await;
-
-        // The sub-agent's own events are not forwarded: the caller sees a
-        // summary, and interleaving two agents' tool calls in one transcript
-        // is unreadable. The branch session holds the detail, and the id
-        // above is how the interface reaches it.
-        let (sink, mut drain) = mpsc::channel::<Event>(64);
-        tokio::spawn(async move { while drain.recv().await.is_some() {} });
-
-        // Its own token, NOT a child of the caller's.
-        //
-        // Stopping the turn stops the agent the user is talking to. A
-        // sub-agent is not that agent: the user cannot send it anything,
-        // cannot steer it, and only the calling agent decides what it does.
-        // Cancelling it from the outside left it dead mid-task and the caller
-        // holding a `NO REPORT` for work that was interrupted rather than
-        // failed — indistinguishable, from the report, from a sub-agent that
-        // simply gave up.
-        //
-        // It still ends: its own step limit, its own errors, and the caller
-        // waits for it either way.
-        let own = CancellationToken::new();
-        let outcome = Box::pin(self.run_inner(request, &sink, own)).await;
-
-        // Reload: the nested run owns the branch on disk from here.
-        if let Ok(finished) = self.store.load(&branch.id) {
-            branch = finished;
-        }
-        parent.absorb_usage(&branch.usage);
-
-        let summary = match outcome {
-            Ok(()) => branch_summary(&branch),
-            Err(error) => {
-                // Whether files were already changed decides what the caller
-                // may safely do next, so the report says which — a caller that
-                // treats a partial failure as "try again" has the next
-                // specialist building on a state it knows nothing about.
-                let touched = files_touched(&branch);
-                if touched.is_empty() {
-                    format!("failed before changing anything: {error:#}")
-                } else {
-                    format!(
-                        "PARTIAL FAILURE: {error:#}\nAlready changed: {}\nDo not redo this work.",
-                        touched.join(", ")
-                    )
-                }
-            }
-        };
-        let failed = summary.starts_with("failed") || summary.starts_with("PARTIAL FAILURE");
-        if let Some(record) = parent
-            .delegations
-            .iter_mut()
-            .rev()
-            .find(|record| record.session_id == branch.id)
-        {
-            record.failed = failed;
-        }
-        let _ = events
-            .send(Event::DelegationFinished {
-                agent: delegation.to.clone(),
-                summary: summary.clone(),
-                session_id: branch.id.clone(),
-                failed,
-            })
-            .await;
-        summary
+        summaries
     }
 
     async fn run_inner(
@@ -971,6 +1003,8 @@ impl Agent {
         // the step's tool results are recorded — switching mid-loop would
         // leave the current turn's results attributed to the wrong agent.
         let mut pending_switch: Option<crate::routing::Switch> = None;
+        // Every delegation asked for in one step runs at the same time.
+        let mut pending_delegations: Vec<crate::routing::Delegation> = Vec::new();
         // `agent_prompt` already carries the instruction files and the skill
         // list. Appending them again here sent both twice on every model call.
         let mut prompt = self.agent_prompt(&active, &workspace.to_string_lossy());
@@ -1256,7 +1290,12 @@ impl Agent {
                                     ) {
                                         Ok(()) => {
                                             let accepted = accepted_message(&switch);
-                                            pending_switch = Some(switch);
+                                            match switch {
+                                                crate::routing::Switch::Delegate(delegation) => {
+                                                    pending_delegations.push(delegation)
+                                                }
+                                                handoff => pending_switch = Some(handoff),
+                                            }
                                             ToolOutput::ok(accepted)
                                         }
                                         Err(refusal) => ToolOutput::error(refusal.message()),
@@ -1266,11 +1305,37 @@ impl Agent {
                             }
                         }
                         Ok(args @ serde_json::Value::Object(_)) => {
-                            let mut ctx = tool_ctx.clone();
-                            ctx.call_id = call.id.clone();
-                            tools_registry
-                                .execute_for_agent(&active.tools, &ctx, &call.name, args)
-                                .await
+                            // The contract between agents at work together:
+                            // a file another agent is editing stays closed.
+                            let claimed = match args["path"].as_str() {
+                                Some(path)
+                                    if matches!(
+                                        call.name.as_str(),
+                                        "write" | "edit" | "multi_edit"
+                                    ) =>
+                                {
+                                    self.board
+                                        .claim(
+                                            path,
+                                            crate::contract::Claim {
+                                                session: session.id.clone(),
+                                                agent: active.name.clone(),
+                                            },
+                                        )
+                                        .map_err(|holder| crate::contract::refusal(path, &holder))
+                                }
+                                _ => Ok(()),
+                            };
+                            match claimed {
+                                Err(refusal) => ToolOutput::error(refusal),
+                                Ok(()) => {
+                                    let mut ctx = tool_ctx.clone();
+                                    ctx.call_id = call.id.clone();
+                                    tools_registry
+                                        .execute_for_agent(&active.tools, &ctx, &call.name, args)
+                                        .await
+                                }
+                            }
                         }
                         Ok(_) => ToolOutput::error("tool arguments must be a JSON object"),
                         Err(error) => {
@@ -1366,22 +1431,30 @@ impl Agent {
                         break;
                     }
                     crate::routing::Switch::Delegate(delegation) => {
-                        let summary = self.run_delegated(&mut session, &delegation, events).await;
-                        session.push(Message {
-                            role: MessageRole::User,
-                            content: crate::routing::report_message(&delegation.to, &summary),
-                            reasoning: None,
-                            tool_calls: Vec::new(),
-                            attachments: Vec::new(),
-                            tool_call_id: None,
-                            interrupted: false,
-                            error: None,
-                            model: None,
-                            message_id: None,
-                        });
-                        self.store.save(&session)?;
+                        pending_delegations.push(delegation);
                     }
                 }
+            }
+            if !pending_delegations.is_empty() {
+                let delegations = std::mem::take(&mut pending_delegations);
+                let summaries = self
+                    .run_delegations(&mut session, &delegations, events)
+                    .await;
+                for (delegation, summary) in delegations.iter().zip(summaries) {
+                    session.push(Message {
+                        role: MessageRole::User,
+                        content: crate::routing::report_message(&delegation.to, &summary),
+                        reasoning: None,
+                        tool_calls: Vec::new(),
+                        attachments: Vec::new(),
+                        tool_call_id: None,
+                        interrupted: false,
+                        error: None,
+                        model: None,
+                        message_id: None,
+                    });
+                }
+                self.store.save(&session)?;
             }
             let calls: String = completion
                 .tool_calls

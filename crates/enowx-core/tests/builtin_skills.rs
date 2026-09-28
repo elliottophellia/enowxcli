@@ -306,3 +306,10 @@ fn every_skill_directory_is_built_in() {
         assert!(!source.contains('\u{2014}'), "{name} has an em dash");
     }
 }
+
+/// A new project with an interface is always asked which theme it gets.
+#[test]
+fn brainstorming_asks_for_the_theme() {
+    let source = builtin_source("brainstorming").unwrap();
+    assert!(source.contains("light, dark, or both with a toggle"));
+}

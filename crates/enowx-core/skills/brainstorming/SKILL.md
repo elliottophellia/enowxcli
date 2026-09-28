@@ -49,6 +49,11 @@ details, or leave them to you.
      whatever the user did not ask for.
    - how it should feel, for anything with an interface: a direction (calm
      and plain, bold and editorial), not colour codes
+   - the theme, for anything with an interface, always asked when a new
+     project is scaffolded: light, dark, or both with a toggle. Recommend
+     from the product and its users (a developer tool dark, a clinic's
+     booking page light), and when "both" is chosen, both themes are built
+     and checked, not one with the other left broken
    - constraints: the stack, where it runs, the data it works with
    Ask only what you could not write the brief without: three to six
    questions is usual, never more than eight.

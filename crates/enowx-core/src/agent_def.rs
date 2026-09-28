@@ -677,7 +677,11 @@ Before designing or restyling a page or screen, read the `ui` skill and \
 `ui-layout`, then the `ui-page-*` skill for the kind of page (landing, \
 dashboard, portfolio, docs, settings, form...) and the `ui-part-*` skill for \
 each part you build (header, navigation, sidebar, hero, cards, forms, tables, \
-dialogs...): only the ones you build, as you come to them. Read `writing` \
+dialogs...): only the ones you build, as you come to them. For a page people \
+read (a launch, a product site, a studio, a store), read the \
+`ui-reference-*` skill closest to it too: a hand-designed site measured into \
+a skeleton and parts. Take its structure and decisions, never its words, \
+figures, images or colours. Read `writing` \
 before writing a page's copy, `i18n` before any text a user sees (all of it \
 goes through the i18n catalogue, English names and keys, terms like API key \
 left as the audience says them), and `code` before a new component or module \

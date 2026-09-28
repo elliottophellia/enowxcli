@@ -153,7 +153,10 @@ Each kind of page has its own skill with the skeleton to start from:
 `ui-page-landing`, `ui-page-local-business`, `ui-page-portfolio`,
 `ui-page-docs`, `ui-page-dashboard`, `ui-page-list-detail`,
 `ui-page-settings`, `ui-page-form`, `ui-page-sign-in`. Read the one for the
-page you build.
+page you build. For a page people read, a worked example measured from a
+real site sits beside them: `ui-reference-launch`, `ui-reference-saas`,
+`ui-reference-studio`, `ui-reference-marketplace` (the `ui` skill says which
+fits which page).
 
 ## 7. Section compositions (pages)
 

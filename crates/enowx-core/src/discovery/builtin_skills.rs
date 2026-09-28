@@ -2,10 +2,7 @@
 //! that every directory there is listed.
 
 pub(super) const BUILTIN: &[(&str, &str)] = &[
-    (
-        "backend",
-        include_str!("../../skills/backend/SKILL.md"),
-    ),
+    ("backend", include_str!("../../skills/backend/SKILL.md")),
     (
         "backend-api",
         include_str!("../../skills/backend-api/SKILL.md"),
@@ -69,6 +66,22 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("ui", include_str!("../../skills/ui/SKILL.md")),
     ("ui-layout", include_str!("../../skills/ui-layout/SKILL.md")),
     ("ui-audit", include_str!("../../skills/ui-audit/SKILL.md")),
+    (
+        "ui-reference-launch",
+        include_str!("../../skills/ui-reference-launch/SKILL.md"),
+    ),
+    (
+        "ui-reference-saas",
+        include_str!("../../skills/ui-reference-saas/SKILL.md"),
+    ),
+    (
+        "ui-reference-studio",
+        include_str!("../../skills/ui-reference-studio/SKILL.md"),
+    ),
+    (
+        "ui-reference-marketplace",
+        include_str!("../../skills/ui-reference-marketplace/SKILL.md"),
+    ),
     (
         "ui-stack-next",
         include_str!("../../skills/ui-stack-next/SKILL.md"),

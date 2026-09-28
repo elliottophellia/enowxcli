@@ -210,12 +210,26 @@ fn each_agent_carries_the_skills_for_its_work() {
     assert!(carried("fe").iter().any(|s| s == "ui-part-hero"));
     assert!(carried("fe").iter().any(|s| s == "ui-page-dashboard"));
     assert!(carried("fe").iter().any(|s| s == "writing"));
+    for reference in [
+        "ui-reference-launch",
+        "ui-reference-saas",
+        "ui-reference-studio",
+        "ui-reference-marketplace",
+    ] {
+        assert!(carried("fe").iter().any(|s| s == reference), "{reference}");
+        // A reference is taken for its structure: each says so, so an
+        // agent does not lift another site's words or look.
+        let source = builtin_source(reference).unwrap();
+        assert!(
+            source.contains("Take its structure and its decisions"),
+            "{reference}"
+        );
+    }
     // The reviewer judges interface and server work alike.
-    for skill in carried("fe").iter().chain(
-        carried("be")
-            .iter()
-            .filter(|s| s.starts_with("backend")),
-    ) {
+    for skill in carried("fe")
+        .iter()
+        .chain(carried("be").iter().filter(|s| s.starts_with("backend")))
+    {
         assert!(carried("review").contains(skill), "review lacks {skill}");
     }
     assert!(carried("mobile").iter().any(|s| s == "ui-part-sidebar"));

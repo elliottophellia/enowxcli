@@ -69,6 +69,41 @@ Do not fall back to the generated default: a dark page, a blue-to-purple
 gradient, glowing buttons and a grid background say "made by a model" and
 nothing about the product.
 
+### Worked references
+
+Four hand-designed sites, measured into skills: their skeleton, wireframes,
+measures and the anatomy of their parts. Read the one closest to the page
+you build, before you lay it out:
+
+| Building | Read |
+|---|---|
+| A launch, waitlist or single-product page | `ui-reference-launch` |
+| A product or SaaS site with features, proof and pricing | `ui-reference-saas` |
+| A studio, agency, consultant or project portfolio | `ui-reference-studio` |
+| A store, marketplace or catalogue | `ui-reference-marketplace` |
+
+Take their structure and their decisions: how a section is introduced, what
+stands where an icon or a stock photo would, how a card carries its facts,
+how few buttons and colours they use. Never their words, names, figures,
+logos, images or colours, and never their concept: each came from its own
+product, as yours must (above). What they share is worth keeping on any
+page:
+
+- One concept, visible in every section, not only in the hero.
+- Evidence in the image slots: the product's real output, real pieces of its
+  interface, dated numbers. Not icons in circles or stock photos.
+- A section introduced by a pair: a small label and the heading on one side,
+  the sentence that explains it on the other, over a hairline. Not a centred
+  heading and subtitle over three cards.
+- Headlines with a turn: the claim, then its consequence in the muted colour
+  or an italic.
+- Hairlines, rules and outlines instead of shadows and filled boxes; one
+  filled button per view at most.
+- Small uppercase labels with wide tracking as the page's signposts and data
+  labels, one style used everywhere.
+- A footer that says in one line what the thing is, then only the links that
+  exist.
+
 ## 2. Layout
 
 - One focal point per screen: what the user came for is the strongest

@@ -77,12 +77,18 @@ fn the_tools_card_shows_what_the_active_agent_cannot_use() {
     app.select_sidebar_tab(1);
     let side = app.side_column(W, H).join("\n");
     assert!(side.contains("BLOCKED"), "{side}");
-    for tool in ["write", "edit", "bash"] {
+    for tool in ["write", "edit", "multi_edit"] {
         assert!(
             side.contains(tool),
             "the orchestrator cannot {tool}: {side}"
         );
     }
+    // It runs commands to look and check, so bash is not blocked.
+    let blocked = side.split("BLOCKED").nth(1).unwrap_or("");
+    assert!(
+        !blocked.contains("bash"),
+        "the orchestrator can bash: {side}"
+    );
 
     app.run_command("/agent fe").expect("/agent fe");
     let side = app.side_column(W, H).join("\n");

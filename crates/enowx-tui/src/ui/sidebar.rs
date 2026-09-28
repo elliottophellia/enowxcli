@@ -3,8 +3,19 @@ use crate::text::thousands;
 
 /// Every built-in tool, busiest-first sorting aside: the list the Tools card
 /// counts calls against and marks the active agent's gaps in.
-const BUILTIN_TOOLS: [&str; 8] = [
-    "read", "write", "edit", "glob", "grep", "bash", "fetch", "todo",
+const BUILTIN_TOOLS: [&str; 12] = [
+    "read",
+    "write",
+    "edit",
+    "multi_edit",
+    "glob",
+    "grep",
+    "bash",
+    "fetch",
+    "todo",
+    "ui_check",
+    "icon",
+    "preview",
 ];
 
 /// The detail card's tabs, in the order the keys 1–4 select them.

@@ -17,6 +17,7 @@ pub mod mcp_proxy;
 mod preview_tool;
 mod search;
 mod shell;
+mod shell_guard;
 pub mod skill;
 mod todo;
 mod ui;
@@ -203,6 +204,23 @@ impl ToolRegistry {
                 "tool `{name}` is not available to this agent. Available: {}",
                 allowed_tools.join(", ")
             ));
+        }
+        // An agent with no tool that edits (the orchestrator, `review`) has
+        // `bash` to look and check, not to change files another way.
+        let edits = allowed_tools
+            .iter()
+            .any(|tool| matches!(tool.as_str(), "write" | "edit" | "multi_edit"));
+        if name == "bash" && !edits {
+            if let Some(reason) = args["command"]
+                .as_str()
+                .and_then(shell_guard::changes_files)
+            {
+                return ToolOutput::error(format!(
+                    "Not run: this command {reason}, and this agent looks and checks without \
+                     changing files, packages or the repository. Route the change to a \
+                     specialist, or report what should change."
+                ));
+            }
         }
         self.dispatch(ctx, name, args).await
     }

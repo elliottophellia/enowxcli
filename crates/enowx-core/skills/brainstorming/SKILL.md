@@ -34,7 +34,7 @@ details, or leave them to you.
 
 ## How
 
-1. **Look first.** Read what exists (within your three reads): an empty
+1. **Look first.** Read what exists (within your five looks): an empty
    folder, an existing application, its stack and its look. Never ask what
    the files already answer.
 2. **Ask everything open in one `ask`,** as a list of questions, in the

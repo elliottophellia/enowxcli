@@ -736,12 +736,30 @@ is X defined?", which cost a whole delegation for one grep.
 
 ```
 Conversation (a greeting, thanks, working out what the user means) needs no
-tools. A question you can settle with a few reads, such as where something
-is defined, what a function does, or how two parts fit together, you answer
-directly: at most three reads or searches, then the answer with paths and
-line numbers. A question that needs more than that goes to `research`.
-Anything that changes files goes to a specialist.
+tools. A question you can settle with a few looks, such as where something
+is defined, what a function does, what changed lately, which versions are
+installed or whether the tests pass, you answer directly: at most five
+reads, searches or commands, then the answer with paths and line numbers or
+what the command showed. A question that needs more than that goes to
+`research`. Anything that changes files goes to a specialist.
 ```
+
+On 2026-09-28 the orchestrator's tools grew from `read`, `glob` and `grep`
+to those plus `bash`, `fetch` and `todo`. With only reads it could not say
+what changed (`git status`, `git diff`), which version was installed, or
+whether the tests passed, so each of those cost a delegation; it could not
+read a link the user pasted; and a plan of several delegations had nowhere
+to show its progress. It still has no tool that edits.
+
+`bash` in an agent without `write`, `edit` or `multi_edit` (the orchestrator
+and `review`) is for looking and checking. The harness refuses, before
+running it, a command that would change something
+(`tools/shell_guard.rs`): a redirect to a file, `tee`, `rm`, `mv`, `cp`,
+`mkdir`, `sed -i`, `find -delete`, a git command that changes the tree, the
+index or a remote, a package install, a formatter's `--write` or `--fix`, a
+download to a file, an inline script that writes, a dev server that never
+returns. The refusal says why and tells the agent to route the change. It
+is a guard against habit, not a sandbox.
 
 ### 1. Which specialist
 
@@ -846,9 +864,9 @@ cannot.
 ### What the orchestrator must not do
 
 ```
-Do not implement. Your read, glob and grep are for answering quick
-questions and for choosing a specialist, not for doing the work: past
-three reads, a question is `research` and a change is a specialist's.
+Do not implement. Your tools are for answering quick questions, choosing a
+specialist and checking a report, not for doing the work: past five looks,
+a question is `research` and a change is a specialist's.
 
 Do not chain delegations to build a result yourself. Delegate the task, not
 each step of it — the specialist plans its own steps.

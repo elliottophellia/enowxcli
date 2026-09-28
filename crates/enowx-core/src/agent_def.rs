@@ -276,7 +276,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
         make(
             ORCHESTRATOR,
             "the agent the user talks to: answers quick questions, hands work to specialists",
-            &["read", "glob", "grep"],
+            &["read", "glob", "grep", "bash", "fetch", "todo"],
             Tier::Cheap,
             Delegation::Orchestrator,
             &["brainstorming"],
@@ -638,11 +638,22 @@ files; specialists do.
 
 WHAT YOU ANSWER YOURSELF
 Conversation (a greeting, thanks, working out what the user means) needs no \
-tools. A question you can settle with a few reads, such as where something is \
-defined, what a function does, or how two parts fit together, you answer \
-directly: at most three reads or searches, then the answer with paths and \
-line numbers. A question that needs more than that goes to `research`. \
+tools. A question you can settle with a few looks, such as where something is \
+defined, what a function does, what changed lately, which versions are \
+installed or whether the tests pass, you answer directly: at most five reads, \
+searches or commands, then the answer with paths and line numbers or what the \
+command showed. A question that needs more than that goes to `research`. \
 Anything that changes files goes to a specialist.
+
+YOUR TOOLS
+- `read`, `glob` and `grep` to look at files.
+- `bash` to look and to check: `git status`, `git log`, `git diff`, versions, \
+listing, and the project's tests or build when that answers a question or \
+confirms a report. Never to change a file, install a package, commit, push or \
+start a server: that is a specialist's work, and the harness refuses the \
+commands that do it.
+- `fetch` to read a link the user gives, so the brief carries what it says.
+- `todo` for a plan of several delegations, so the user sees where it stands.
 
 CHOOSING A SPECIALIST
 Pick the agent whose description matches the work, not the words. \"The login \
@@ -714,12 +725,14 @@ folder's name.
 AFTER A DELEGATION
 Answer the user from the report. Do not re-read the specialist's files to \
 check its work unless the report leaves something the user asked about \
-unclear. Report what came back; do not present a specialist's work as your \
-own.
+unclear. When the user will rely on a claim that the tests or the build pass, \
+one run of that command confirms it, and `git diff --stat` shows what \
+changed; that is a check, not a second review. Report what came back; do not \
+present a specialist's work as your own.
 
 WHAT YOU MUST NOT DO
-Do not implement. Your read, glob and grep are for answering quick questions \
-and for choosing a specialist, not for doing the work: past three reads, a \
+Do not implement. Your tools are for answering quick questions, choosing a \
+specialist and checking a report, not for doing the work: past five looks, a \
 question is `research` and a change is a specialist's.
 Do not chain delegations to build a result yourself. Delegate the task, not \
 each step of it; the specialist plans its own steps.
@@ -768,10 +781,13 @@ mod tests {
         let orchestrator = by_name(ORCHESTRATOR);
         // Reading is how it answers quick questions and classifies; writing
         // would let it absorb the task, and then the roster is never used.
+        // It runs commands to look and check, and the harness refuses the
+        // ones that change something (`tools/shell_guard.rs`).
         assert!(orchestrator.allows("read"));
+        assert!(orchestrator.allows("bash"));
         assert!(!orchestrator.allows("write"));
         assert!(!orchestrator.allows("edit"));
-        assert!(!orchestrator.allows("bash"));
+        assert!(!orchestrator.allows("multi_edit"));
     }
 
     /// Sessions, config and agent files written before the rename name it

@@ -33,10 +33,12 @@ body { margin: 0; font: 16px/1.5 system-ui; background: #fff; color: #1a1a1a; }
 main { max-width: 60ch; margin: 0 auto; padding: 24px 16px; }
 nav a { display: inline-block; min-height: 44px; min-width: 44px; padding: 12px; color: #1a1a1a; }
 button { min-height: 44px; min-width: 44px; padding: 0 16px; font: inherit; color: #fff; background: #1d4ed8; border: 0; }
+.skip { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 </style></head>
 <body>
+<a class="skip" href="#main">Skip to content</a>
 <nav><a href="#about">About</a></nav>
-<main>
+<main id="main">
 <h1>A clean page</h1>
 <p id="about">Plain text with a <a href="#about">link in a sentence</a> that is fine.</p>
 <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="" width="1" height="1">

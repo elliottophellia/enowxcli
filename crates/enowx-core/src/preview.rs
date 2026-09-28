@@ -675,11 +675,20 @@ const CHECK_SCRIPT: &str = r#"(async () => {
     return !!parent && getComputedStyle(el).display === 'inline'
       && parent.textContent.trim().length > el.textContent.trim().length + 20;
   };
+  // Hidden for everyone but screen readers until focused, like a skip
+  // link: a 1px box, or a clipped one. Not a touch target at rest.
+  const readerOnly = el => {
+    const r = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    return (r.width <= 2 && r.height <= 2)
+      || (cs.position === 'absolute' && cs.clip && cs.clip !== 'auto')
+      || cs.clipPath === 'inset(50%)';
+  };
   out.small_targets = [];
   if (W < 600) {
     out.small_targets = [...document.querySelectorAll('a[href], button, [role=button], input:not([type=hidden]), select, summary')]
       .filter(visible)
-      .filter(el => !inText(el) && !(el.labels && el.labels.length && (el.type === 'checkbox' || el.type === 'radio')))
+      .filter(el => !inText(el) && !readerOnly(el) && !(el.labels && el.labels.length && (el.type === 'checkbox' || el.type === 'radio')))
       .filter(el => { const r = el.getBoundingClientRect(); return r.height < 44 || r.width < 44; })
       .slice(0, 6).map(el => {
         const r = el.getBoundingClientRect();

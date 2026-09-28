@@ -428,11 +428,17 @@ pub fn check(workspace: &Path, files: &[PathBuf]) -> Vec<Finding> {
             {
                 continue;
             }
-            for (line_index, line) in text.lines().enumerate() {
+            let lines: Vec<&str> = text.lines().collect();
+            for (line_index, line) in lines.iter().enumerate() {
                 for found in regexes[index].find_iter(line) {
                     if rule.id == "colour-outside-tokens"
                         && kind == Kind::Style
                         && defines_token(line, found.start())
+                    {
+                        continue;
+                    }
+                    if rule.id == "full-screen-section"
+                        && frames_the_page(&lines, line_index, found.start(), kind)
                     {
                         continue;
                     }
@@ -499,6 +505,46 @@ fn defines_token(line: &str, at: usize) -> bool {
     let before = &line[..at];
     let start = before.rfind([';', '{']).map_or(0, |i| i + 1);
     before[start..].trim_start().starts_with("--")
+}
+
+/// Whether the match at `at` sizes the page's frame (the body, the root
+/// element, `main`, an app shell) rather than a section: an application
+/// filling the screen is not a hero pushing the page below the fold.
+fn frames_the_page(lines: &[&str], line_index: usize, at: usize, kind: Kind) -> bool {
+    static FRAME: OnceLock<Regex> = OnceLock::new();
+    let frame = FRAME.get_or_init(|| {
+        Regex::new(
+            r#"(?i)(^|[\s,>+~(<])(html|body|main|:root)\b|#(root|app|__next)\b|[.#"'\s-](app|layout|shell|frame|wrapper)([\s"'{,.:>#-]|$)"#,
+        )
+        .expect("a valid pattern")
+    });
+    let line = &lines[line_index][..at];
+    // In markup, the element the class is on: from its `<` to the match.
+    if kind == Kind::Markup {
+        if let Some(open) = line.rfind('<') {
+            return frame.is_match(&line[open..]);
+        }
+    }
+    // In a stylesheet or a `<style>` block, the selector before the nearest
+    // `{` above the declaration.
+    let mut before = line;
+    let mut index = line_index;
+    let selector = loop {
+        if let Some(open) = before.rfind('{') {
+            let head = &before[..open];
+            let start = head.rfind(['}', ';', '>']).map_or(0, |i| i + 1);
+            break head[start..].trim();
+        }
+        if before.contains('}') || index == 0 {
+            return false;
+        }
+        index -= 1;
+        before = lines[index];
+    };
+    // Only the last compound of each selector in a list says what is sized.
+    selector
+        .split(',')
+        .any(|part| frame.is_match(part.split_whitespace().last().unwrap_or("")))
 }
 
 fn excerpt(line: &str, at: usize) -> String {
@@ -575,6 +621,38 @@ mod tests {
 
     fn rules(findings: &[Finding]) -> Vec<&'static str> {
         findings.iter().map(|f| f.rule).collect()
+    }
+
+    #[test]
+    fn filling_the_screen_is_fine_for_the_frame_and_not_for_a_section() {
+        let css = ".app {\n  display: grid;\n  min-height: 100vh;\n}\nhtml, body { min-height: 100vh; }\n\
+                   .shell > main { height: 100vh; }\n.hero {\n  min-height: 100vh;\n}\n\
+                   section.intro { height: 100vh; }\n";
+        let jsx = "<body className=\"min-h-screen antialiased\">\n\
+                   <div className=\"app-shell min-h-screen\">\n\
+                   <section className=\"h-screen flex items-center\">\n";
+        let html = "<style>\n#root { min-height: 100vh; }\n.banner { height: 100vh; }\n</style>\n";
+        let (root, files) = scratch(&[
+            ("styles.css", css),
+            ("app/layout.tsx", jsx),
+            ("index.html", html),
+        ]);
+        let found: Vec<(String, usize)> = check(&root, &files)
+            .into_iter()
+            .filter(|f| f.rule == "full-screen-section")
+            .map(|f| (f.path, f.line))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("app/layout.tsx".to_owned(), 3),
+                ("index.html".to_owned(), 3),
+                ("styles.css".to_owned(), 8),
+                ("styles.css".to_owned(), 10),
+            ],
+            "the section, the banner, the hero and the intro, not the frames"
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

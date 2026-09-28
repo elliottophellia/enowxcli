@@ -8,6 +8,7 @@ pub mod catalog;
 pub mod compact;
 pub mod config;
 pub mod discovery;
+pub mod eval;
 pub mod event;
 pub mod format;
 pub mod gating;

@@ -220,6 +220,27 @@ The direction a design settles on (the look, the palette, the type, the
 theme) goes into `DESIGN.md` at the project's root, and every later change
 reads it first, so the tenth screen matches the first.
 
+### Measuring them
+
+A change to these prompts and skills is measured, not judged by one run:
+
+```sh
+cargo run -q -p enowx-core --example fe_eval                  # every case
+cargo run -q -p enowx-core --example fe_eval -- --case bakery --compare target/fe-eval/<earlier>.json
+cargo run -q -p enowx-core --example fe_eval -- --seeds       # the scoring alone, free
+```
+
+It runs five cases on the configured model, each in a fresh folder with the
+built-in agents and skills only: a bakery's one-page site, a support team's
+dashboard, a photographer's portfolio, a generated page to fix, and a
+settings page added to a clinic app that already has a `DESIGN.md`. Every
+question is answered with its first option. What each case leaves is
+scored out of 100 with `ui_check` and `preview` (a high finding costs 8, a
+dead link 4, overflow at a width 6, a missing page 40, no `DESIGN.md` 5),
+beside the steps, the cost, the skills read and whether the gate sent the
+agent back. The scores go to `target/fe-eval/` as JSON, and `--compare`
+shows each case's change from an earlier run. It spends what the runs cost.
+
 The shared rule used to allow one skill per task, which stopped agents loading
 six skills before any work. It now reads: the skill the agent's instructions
 name for the work, or the one that applies, never every skill listed.

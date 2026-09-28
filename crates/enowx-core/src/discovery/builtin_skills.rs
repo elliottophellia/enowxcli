@@ -5,174 +5,55 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("ui", include_str!("../../skills/ui/SKILL.md")),
     ("ui-layout", include_str!("../../skills/ui-layout/SKILL.md")),
     ("ui-audit", include_str!("../../skills/ui-audit/SKILL.md")),
-    (
-        "ui-page-dashboard",
-        include_str!("../../skills/ui-page-dashboard/SKILL.md"),
-    ),
-    (
-        "ui-page-docs",
-        include_str!("../../skills/ui-page-docs/SKILL.md"),
-    ),
-    (
-        "ui-page-form",
-        include_str!("../../skills/ui-page-form/SKILL.md"),
-    ),
-    (
-        "ui-page-landing",
-        include_str!("../../skills/ui-page-landing/SKILL.md"),
-    ),
-    (
-        "ui-page-list-detail",
-        include_str!("../../skills/ui-page-list-detail/SKILL.md"),
-    ),
-    (
-        "ui-page-local-business",
-        include_str!("../../skills/ui-page-local-business/SKILL.md"),
-    ),
-    (
-        "ui-page-portfolio",
-        include_str!("../../skills/ui-page-portfolio/SKILL.md"),
-    ),
-    (
-        "ui-page-settings",
-        include_str!("../../skills/ui-page-settings/SKILL.md"),
-    ),
-    (
-        "ui-page-sign-in",
-        include_str!("../../skills/ui-page-sign-in/SKILL.md"),
-    ),
-    (
-        "ui-part-avatars",
-        include_str!("../../skills/ui-part-avatars/SKILL.md"),
-    ),
-    (
-        "ui-part-badges",
-        include_str!("../../skills/ui-part-badges/SKILL.md"),
-    ),
-    (
-        "ui-part-breadcrumbs",
-        include_str!("../../skills/ui-part-breadcrumbs/SKILL.md"),
-    ),
-    (
-        "ui-part-buttons",
-        include_str!("../../skills/ui-part-buttons/SKILL.md"),
-    ),
-    (
-        "ui-part-cards",
-        include_str!("../../skills/ui-part-cards/SKILL.md"),
-    ),
-    (
-        "ui-part-charts",
-        include_str!("../../skills/ui-part-charts/SKILL.md"),
-    ),
-    (
-        "ui-part-choices",
-        include_str!("../../skills/ui-part-choices/SKILL.md"),
-    ),
-    (
-        "ui-part-cta",
-        include_str!("../../skills/ui-part-cta/SKILL.md"),
-    ),
-    (
-        "ui-part-dialogs",
-        include_str!("../../skills/ui-part-dialogs/SKILL.md"),
-    ),
-    (
-        "ui-part-drawers",
-        include_str!("../../skills/ui-part-drawers/SKILL.md"),
-    ),
-    (
-        "ui-part-faq",
-        include_str!("../../skills/ui-part-faq/SKILL.md"),
-    ),
-    (
-        "ui-part-footer",
-        include_str!("../../skills/ui-part-footer/SKILL.md"),
-    ),
-    (
-        "ui-part-forms",
-        include_str!("../../skills/ui-part-forms/SKILL.md"),
-    ),
-    (
-        "ui-part-header",
-        include_str!("../../skills/ui-part-header/SKILL.md"),
-    ),
-    (
-        "ui-part-hero",
-        include_str!("../../skills/ui-part-hero/SKILL.md"),
-    ),
-    (
-        "ui-part-images",
-        include_str!("../../skills/ui-part-images/SKILL.md"),
-    ),
-    (
-        "ui-part-links",
-        include_str!("../../skills/ui-part-links/SKILL.md"),
-    ),
-    (
-        "ui-part-lists",
-        include_str!("../../skills/ui-part-lists/SKILL.md"),
-    ),
-    (
-        "ui-part-loading",
-        include_str!("../../skills/ui-part-loading/SKILL.md"),
-    ),
-    (
-        "ui-part-menus",
-        include_str!("../../skills/ui-part-menus/SKILL.md"),
-    ),
-    (
-        "ui-part-navigation",
-        include_str!("../../skills/ui-part-navigation/SKILL.md"),
-    ),
-    (
-        "ui-part-notifications",
-        include_str!("../../skills/ui-part-notifications/SKILL.md"),
-    ),
-    (
-        "ui-part-page-header",
-        include_str!("../../skills/ui-part-page-header/SKILL.md"),
-    ),
-    (
-        "ui-part-pagination",
-        include_str!("../../skills/ui-part-pagination/SKILL.md"),
-    ),
-    (
-        "ui-part-pricing",
-        include_str!("../../skills/ui-part-pricing/SKILL.md"),
-    ),
-    (
-        "ui-part-search",
-        include_str!("../../skills/ui-part-search/SKILL.md"),
-    ),
-    (
-        "ui-part-sections",
-        include_str!("../../skills/ui-part-sections/SKILL.md"),
-    ),
-    (
-        "ui-part-sidebar",
-        include_str!("../../skills/ui-part-sidebar/SKILL.md"),
-    ),
-    (
-        "ui-part-social-proof",
-        include_str!("../../skills/ui-part-social-proof/SKILL.md"),
-    ),
-    (
-        "ui-part-tables",
-        include_str!("../../skills/ui-part-tables/SKILL.md"),
-    ),
-    (
-        "ui-part-tabs",
-        include_str!("../../skills/ui-part-tabs/SKILL.md"),
-    ),
-    (
-        "ui-part-tooltips",
-        include_str!("../../skills/ui-part-tooltips/SKILL.md"),
-    ),
+    ("ui-stack-next", include_str!("../../skills/ui-stack-next/SKILL.md")),
+    ("ui-stack-plain", include_str!("../../skills/ui-stack-plain/SKILL.md")),
+    ("ui-stack-react", include_str!("../../skills/ui-stack-react/SKILL.md")),
+    ("ui-stack-shadcn", include_str!("../../skills/ui-stack-shadcn/SKILL.md")),
+    ("ui-stack-svelte", include_str!("../../skills/ui-stack-svelte/SKILL.md")),
+    ("ui-stack-tailwind", include_str!("../../skills/ui-stack-tailwind/SKILL.md")),
+    ("ui-stack-vue", include_str!("../../skills/ui-stack-vue/SKILL.md")),
+    ("ui-page-dashboard", include_str!("../../skills/ui-page-dashboard/SKILL.md")),
+    ("ui-page-docs", include_str!("../../skills/ui-page-docs/SKILL.md")),
+    ("ui-page-form", include_str!("../../skills/ui-page-form/SKILL.md")),
+    ("ui-page-landing", include_str!("../../skills/ui-page-landing/SKILL.md")),
+    ("ui-page-list-detail", include_str!("../../skills/ui-page-list-detail/SKILL.md")),
+    ("ui-page-local-business", include_str!("../../skills/ui-page-local-business/SKILL.md")),
+    ("ui-page-portfolio", include_str!("../../skills/ui-page-portfolio/SKILL.md")),
+    ("ui-page-settings", include_str!("../../skills/ui-page-settings/SKILL.md")),
+    ("ui-page-sign-in", include_str!("../../skills/ui-page-sign-in/SKILL.md")),
+    ("ui-part-avatars", include_str!("../../skills/ui-part-avatars/SKILL.md")),
+    ("ui-part-badges", include_str!("../../skills/ui-part-badges/SKILL.md")),
+    ("ui-part-breadcrumbs", include_str!("../../skills/ui-part-breadcrumbs/SKILL.md")),
+    ("ui-part-buttons", include_str!("../../skills/ui-part-buttons/SKILL.md")),
+    ("ui-part-cards", include_str!("../../skills/ui-part-cards/SKILL.md")),
+    ("ui-part-charts", include_str!("../../skills/ui-part-charts/SKILL.md")),
+    ("ui-part-choices", include_str!("../../skills/ui-part-choices/SKILL.md")),
+    ("ui-part-cta", include_str!("../../skills/ui-part-cta/SKILL.md")),
+    ("ui-part-dialogs", include_str!("../../skills/ui-part-dialogs/SKILL.md")),
+    ("ui-part-drawers", include_str!("../../skills/ui-part-drawers/SKILL.md")),
+    ("ui-part-faq", include_str!("../../skills/ui-part-faq/SKILL.md")),
+    ("ui-part-footer", include_str!("../../skills/ui-part-footer/SKILL.md")),
+    ("ui-part-forms", include_str!("../../skills/ui-part-forms/SKILL.md")),
+    ("ui-part-header", include_str!("../../skills/ui-part-header/SKILL.md")),
+    ("ui-part-hero", include_str!("../../skills/ui-part-hero/SKILL.md")),
+    ("ui-part-images", include_str!("../../skills/ui-part-images/SKILL.md")),
+    ("ui-part-links", include_str!("../../skills/ui-part-links/SKILL.md")),
+    ("ui-part-lists", include_str!("../../skills/ui-part-lists/SKILL.md")),
+    ("ui-part-loading", include_str!("../../skills/ui-part-loading/SKILL.md")),
+    ("ui-part-menus", include_str!("../../skills/ui-part-menus/SKILL.md")),
+    ("ui-part-navigation", include_str!("../../skills/ui-part-navigation/SKILL.md")),
+    ("ui-part-notifications", include_str!("../../skills/ui-part-notifications/SKILL.md")),
+    ("ui-part-page-header", include_str!("../../skills/ui-part-page-header/SKILL.md")),
+    ("ui-part-pagination", include_str!("../../skills/ui-part-pagination/SKILL.md")),
+    ("ui-part-pricing", include_str!("../../skills/ui-part-pricing/SKILL.md")),
+    ("ui-part-search", include_str!("../../skills/ui-part-search/SKILL.md")),
+    ("ui-part-sections", include_str!("../../skills/ui-part-sections/SKILL.md")),
+    ("ui-part-sidebar", include_str!("../../skills/ui-part-sidebar/SKILL.md")),
+    ("ui-part-social-proof", include_str!("../../skills/ui-part-social-proof/SKILL.md")),
+    ("ui-part-tables", include_str!("../../skills/ui-part-tables/SKILL.md")),
+    ("ui-part-tabs", include_str!("../../skills/ui-part-tabs/SKILL.md")),
+    ("ui-part-tooltips", include_str!("../../skills/ui-part-tooltips/SKILL.md")),
     ("code", include_str!("../../skills/code/SKILL.md")),
     ("writing", include_str!("../../skills/writing/SKILL.md")),
-    (
-        "brainstorming",
-        include_str!("../../skills/brainstorming/SKILL.md"),
-    ),
+    ("brainstorming", include_str!("../../skills/brainstorming/SKILL.md")),
 ];

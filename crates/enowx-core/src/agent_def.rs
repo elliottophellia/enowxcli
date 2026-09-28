@@ -539,6 +539,8 @@ With no stack in the project or the brief, use the simplest that fits. A page \
 of content is semantic HTML and CSS, with JavaScript only for behaviour it \
 needs; an application with state and repeated interface is a component \
 framework, React with Vite and TypeScript unless the brief names another.
+Read the `ui-stack-*` skill for the project's stack (plain, tailwind, react, \
+next, shadcn, vue, svelte) before writing its code.
 Before designing or restyling a page or screen, read the `ui` skill and \
 `ui-layout`, then the `ui-page-*` skill for the kind of page (landing, \
 dashboard, portfolio, docs, settings, form...) and the `ui-part-*` skill for \

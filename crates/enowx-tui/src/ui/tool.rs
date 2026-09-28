@@ -629,43 +629,20 @@ pub(super) fn render_file_card(
     lines: &mut Vec<Line<'static>>,
     theme: &Theme,
 ) {
-    if width < 12 {
+    if width < 8 {
         return;
     }
-    let border = Style::default().fg(theme.border);
     let faint = Style::default().fg(theme.faint);
-    let file = std::path::Path::new(path);
-    let name = file
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| path.to_owned());
-    let ext = file
+    let ext = std::path::Path::new(path)
         .extension()
         .map(|e| e.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
     let syntax = crate::syntax::lookup(&ext);
-    let language = language_label(&ext);
 
-    // Top edge: `╭─ name · language ───╮`.
-    let inner = width - 2;
-    let title = if language.is_empty() {
-        format!(" {name} ")
-    } else {
-        format!(" {name} · {language} ")
-    };
-    let title = trim(&title, inner.saturating_sub(2));
-    let rule = inner.saturating_sub(1 + title.width());
-    lines.push(Line::from(vec![
-        Span::styled("╭─", border),
-        Span::styled(title, Style::default().fg(theme.muted)),
-        Span::styled(format!("{}╮", "─".repeat(rule)), border),
-    ]));
-
-    // Rows: `│ NN  code │`.
+    // Rows: `NN  code`. The frame around the opened row is the card's edge,
+    // and the row above it already names the file.
     let num_w = total.max(1).to_string().len().max(2);
-    // `│ NN  code │`: the two walls with a space inside each, and two
-    // spaces after the number.
-    let code_w = inner.saturating_sub(num_w + 4);
+    let code_w = width.saturating_sub(num_w + 2);
     let mut state = crate::syntax::State::default();
     for (index, raw) in content.lines().take(WRITE_PREVIEW_MAX).enumerate() {
         let raw = raw.replace('\t', "    ");
@@ -673,10 +650,7 @@ pub(super) fn render_file_card(
             Some(syntax) => crate::syntax::highlight(&raw, syntax, &mut state),
             None => vec![(raw.clone(), crate::syntax::Tok::Plain)],
         };
-        let mut spans = vec![
-            Span::styled("│ ", border),
-            Span::styled(format!("{:>num_w$}  ", index + 1), faint),
-        ];
+        let mut spans = vec![Span::styled(format!("{:>num_w$}  ", index + 1), faint)];
         let mut used = 0usize;
         let full: usize = runs.iter().map(|(text, _)| text.width()).sum();
         let budget = if full > code_w {
@@ -701,41 +675,18 @@ pub(super) fn render_file_card(
         }
         if full > code_w {
             spans.push(Span::styled("…", faint));
-            used += 1;
         }
-        spans.push(Span::raw(" ".repeat(code_w.saturating_sub(used))));
-        spans.push(Span::styled(" │", border));
         lines.push(Line::from(spans));
     }
     if total > WRITE_PREVIEW_MAX {
-        let more = format!("{} more lines", total - WRITE_PREVIEW_MAX);
-        let used = num_w + 2 + more.width();
         lines.push(Line::from(vec![
-            Span::styled("│ ", border),
-            Span::styled(format!("{:>num_w$}  ", "…"), faint),
-            Span::styled(more, Style::default().fg(theme.muted)),
-            Span::raw(" ".repeat(inner.saturating_sub(2 + used))),
-            Span::styled(" │", border),
+            Span::styled(format!("{:>num_w$}  ", "┈"), faint),
+            Span::styled(
+                format!("{} more lines", total - WRITE_PREVIEW_MAX),
+                Style::default().fg(theme.muted),
+            ),
         ]));
     }
-    lines.push(Line::styled(format!("╰{}╯", "─".repeat(inner)), border));
-}
-
-/// A file extension as the card names its language.
-fn language_label(ext: &str) -> String {
-    match ext {
-        "rs" => "rust",
-        "js" | "mjs" | "cjs" => "javascript",
-        "ts" => "typescript",
-        "py" => "python",
-        "rb" => "ruby",
-        "md" | "markdown" => "markdown",
-        "yml" => "yaml",
-        "sh" | "bash" | "zsh" => "shell",
-        "htm" => "html",
-        other => other,
-    }
-    .to_owned()
 }
 
 /// Rich per-line diff: header with `✎ Edit: 📄 <path> [+N/-M]`, colored
@@ -787,12 +738,12 @@ pub(super) fn render_diff(
     let del_c = Style::default().fg(theme.red);
 
     let bg = theme.subtle;
-    let border = Style::default().fg(theme.border).bg(bg);
 
     let total_target = start_line + old_lines.len().max(new_lines.len());
     let num_w = total_target.to_string().len().max(2);
-    // Layout: `  +NNN│content` — 2 space + 1 marker + num_w + 1 `│`
-    let text_w = width.saturating_sub(num_w + 4).max(1);
+    // Layout: `+NNN│content`: the marker, the number, and `│`. The frame
+    // around an opened row is the diff's outer edge.
+    let text_w = width.saturating_sub(num_w + 2).max(1);
 
     let mut old_no = start_line;
     let mut new_no = start_line;
@@ -847,7 +798,7 @@ pub(super) fn render_diff(
             DiffOp::Del(_) => blend2(bg, theme.red),
             DiffOp::Keep(_) => row_bg,
         };
-        let emph_style = content_st.bg(emph_bg).add_modifier(Modifier::BOLD);
+        let emph_style = content_st.bg(emph_bg);
         let changed: Vec<(usize, usize)> = match (op, pair.get(op_idx).and_then(|p| p.as_ref())) {
             (DiffOp::Keep(_), _) | (_, None) => Vec::new(),
             (_, Some(counterpart)) => {
@@ -879,10 +830,9 @@ pub(super) fn render_diff(
                 " ".repeat(num_w)
             };
             let marker_cell = if first { marker } else { " " };
-            let used = 2 + 1 + num_w + 1 + indent_w + chunk.chars().count();
+            let used = 1 + num_w + 1 + indent_w + chunk.chars().count();
             let pad = width.saturating_sub(used);
             let mut spans = vec![
-                Span::styled("│ ", border),
                 Span::styled(marker_cell.to_string(), marker_st.bg(row_bg)),
                 Span::styled(num_cell, num_style),
                 Span::styled("│", num_style),
@@ -904,9 +854,8 @@ pub(super) fn render_diff(
     let _ = rendered;
     if cut > 0 {
         let msg = format!("↳ {cut} more lines");
-        let pad = width.saturating_sub(2 + msg.chars().count());
+        let pad = width.saturating_sub(msg.chars().count());
         lines.push(Line::from(vec![
-            Span::styled("│ ", border),
             Span::styled(msg, dim.bg(bg)),
             Span::styled(" ".repeat(pad), Style::default().bg(bg)),
         ]));
@@ -992,7 +941,9 @@ fn lcs_diff(a: &[&str], b: &[&str]) -> Vec<DiffOp> {
 /// emitted as one opaque colour. Non-RGB themes (256-colour terminals) fall
 /// through to the unmodified background rather than guessing a mix.
 fn blend(base: ratatui::style::Color, accent: ratatui::style::Color) -> ratatui::style::Color {
-    const STRENGTH: u16 = 22; // percent of `accent` in the result
+    // Percent of `accent` in the result: enough to tell a changed row at a
+    // glance, quiet enough that a long diff does not shout.
+    const STRENGTH: u16 = 13;
     match (base, accent) {
         (ratatui::style::Color::Rgb(br, bg_, bb), ratatui::style::Color::Rgb(ar, ag, ab)) => {
             let mix = |b: u8, a: u8| -> u8 {
@@ -1098,7 +1049,9 @@ fn changed_ranges(line: &str, other: &str) -> Vec<(usize, usize)> {
         .map(|(s, e)| line[*s..*e].chars().filter(|c| !c.is_whitespace()).count())
         .sum();
     let total_bytes = line.chars().filter(|c| !c.is_whitespace()).count();
-    if total_bytes == 0 || changed_bytes * 100 >= total_bytes * 80 {
+    // Past half the line, word marks stop saying which words moved: a
+    // rewritten sentence came out as every other word highlighted.
+    if total_bytes == 0 || changed_bytes * 100 >= total_bytes * 50 {
         return Vec::new();
     }
     ranges
@@ -1144,7 +1097,7 @@ fn pair_replacements(ops: &[&DiffOp]) -> Vec<Option<String>> {
 /// own tint so the emphasis reads as "more of the same colour" rather than a
 /// different one.
 fn blend2(base: ratatui::style::Color, accent: ratatui::style::Color) -> ratatui::style::Color {
-    const STRENGTH: u16 = 46;
+    const STRENGTH: u16 = 28;
     match (base, accent) {
         (ratatui::style::Color::Rgb(br, bg_, bb), ratatui::style::Color::Rgb(ar, ag, ab)) => {
             let mix = |b: u8, a: u8| -> u8 {

@@ -73,16 +73,6 @@ fn indented(
     }
 }
 
-/// Shift every line from `from` onwards onto the text column.
-fn gutter_from(lines: &mut [Line<'static>], from: usize, theme: &Theme) {
-    for line in lines.iter_mut().skip(from) {
-        line.spans.insert(
-            0,
-            Span::styled(" ".repeat(GUTTER), Style::default().bg(theme.panel)),
-        );
-    }
-}
-
 pub(super) fn draw_transcript(frame: &mut Frame, app: &mut App, area: Rect) {
     let theme = app.theme;
     let width = area.width.max(1) as usize;
@@ -512,28 +502,34 @@ fn render_block(
                 None => "Thought".to_owned(),
             };
             tool_headers.push((id.clone(), lines.len()));
-            let chevron = if block.text.trim().is_empty() {
-                None
-            } else if expanded {
-                Some("▾")
+            let has_text = !block.text.trim().is_empty();
+            if expanded && has_text {
+                // Opened, it is framed like an opened tool row.
+                let (row, _) = frame_top(
+                    ("✻", theme.accent2),
+                    &label,
+                    Style::default().fg(theme.muted),
+                    "",
+                    None,
+                    "▾",
+                    width,
+                    theme,
+                );
+                lines.push(row);
+                let body_start = lines.len();
+                let mut body = Vec::new();
+                render_markdown(&block.text, frame_inner(width), &mut body, theme);
+                for line in body {
+                    lines.push(Line::from(
+                        line.spans
+                            .into_iter()
+                            .map(|span| Span::styled(span.content, span.style.fg(theme.muted)))
+                            .collect::<Vec<_>>(),
+                    ));
+                }
+                frame_from(lines, body_start, width, theme);
             } else {
-                Some("▸")
-            };
-            lines.push(thinking_row(&label, chevron, width, theme));
-            if expanded && !block.text.trim().is_empty() {
-                let bar = Style::default().fg(theme.border);
-                indented(lines, theme, width, |w, out| {
-                    let mut body = Vec::new();
-                    render_markdown(&block.text, w.saturating_sub(2).max(1), &mut body, theme);
-                    for line in body {
-                        let mut spans = vec![Span::styled("│ ", bar)];
-                        spans.extend(line.spans.into_iter().map(|span| {
-                            let style = span.style.fg(theme.muted);
-                            Span::styled(span.content, style)
-                        }));
-                        out.push(Line::from(spans));
-                    }
-                });
+                lines.push(thinking_row(&label, has_text.then_some("▸"), width, theme));
             }
         }
         TranscriptKind::Brief {
@@ -570,17 +566,33 @@ fn render_block(
                     .then(|| "working".to_owned()),
             };
             tool_headers.push((id.clone(), lines.len()));
-            let chevron = (brief_rows > 0).then_some(if expanded { "▾" } else { "▸" });
-            lines.push(tool_row(&parts, chevron, icon, None, width, theme));
             if expanded && brief_rows > 0 {
-                indented(lines, theme, width, |w, out| {
-                    render_markdown(&block.text, w, out, theme);
-                    for line in out.iter_mut() {
-                        for span in line.spans.iter_mut() {
-                            span.style = span.style.fg(theme.muted);
-                        }
+                // Opened, the brief is framed like an opened tool row.
+                let (right, right_style) = row_right(&parts, icon, None, theme);
+                let (row, _) = frame_top(
+                    icon,
+                    &parts.verb,
+                    Style::default().fg(theme.muted),
+                    &parts.arg,
+                    (!right.is_empty()).then_some((right, right_style)),
+                    "▾",
+                    width,
+                    theme,
+                );
+                lines.push(row);
+                let body_start = lines.len();
+                let mut body = Vec::new();
+                render_markdown(&block.text, frame_inner(width), &mut body, theme);
+                for mut line in body {
+                    for span in line.spans.iter_mut() {
+                        span.style = span.style.fg(theme.muted);
                     }
-                });
+                    lines.push(line);
+                }
+                frame_from(lines, body_start, width, theme);
+            } else {
+                let chevron = (brief_rows > 0).then_some("▸");
+                lines.push(tool_row(&parts, chevron, icon, None, width, theme));
             }
             if !report.is_empty() {
                 if expanded && brief_rows > 0 {
@@ -643,16 +655,35 @@ fn render_block(
                     subtitle,
                     body,
                 } => {
-                    let chevron = if expanded { "▾" } else { "▸" };
+                    // An opened row is the top edge of the frame around its
+                    // body; a closed one is a plain row in the list.
+                    let open = expanded || *error;
                     let header_y_marker = lines.len();
-                    let (row, path_columns) = tool_row_with_span(
-                        &header,
-                        Some(chevron),
-                        icon,
-                        waiting.as_deref(),
-                        width,
-                        theme,
-                    );
+                    let (row, path_columns) = if open {
+                        let (right, right_style) =
+                            row_right(&header, icon, waiting.as_deref(), theme);
+                        // The verb is clipped as a closed row's is, so a long
+                        // MCP name cannot crowd out what it acted on.
+                        frame_top(
+                            icon,
+                            &trim(&header.verb, VERB_COLUMN),
+                            Style::default().fg(theme.muted),
+                            &header.arg,
+                            (!right.is_empty()).then_some((right, right_style)),
+                            "▾",
+                            width,
+                            theme,
+                        )
+                    } else {
+                        tool_row_with_span(
+                            &header,
+                            Some("▸"),
+                            icon,
+                            waiting.as_deref(),
+                            width,
+                            theme,
+                        )
+                    };
                     lines.push(row);
                     tool_headers.push((id.clone(), header_y_marker));
                     // The path on the row is also a link: clicking it opens
@@ -664,14 +695,14 @@ fn render_block(
                         path_columns,
                         file_links,
                     );
-                    if expanded || *error {
-                        // Rendered two columns narrower and shifted onto the
-                        // text column afterwards, so the body sits under the
-                        // tool's name rather than under its status icon.
-                        // Lines still go straight into `lines`, which keeps
-                        // the file-link rows the renderers record correct.
+                    if open {
+                        // Rendered at the width between the frame's walls,
+                        // then walled in. Lines still go straight into
+                        // `lines`, which keeps the file-link rows the
+                        // renderers record correct.
+                        let outer = width;
                         let body_start = lines.len();
-                        let width = width.saturating_sub(GUTTER).max(1);
+                        let width = frame_inner(width);
                         if let Some(sub) = subtitle {
                             for wrapped in textwrap::wrap(&sub, width) {
                                 lines.push(Line::from(vec![
@@ -703,31 +734,22 @@ fn render_block(
                                 // the same path — safe: they either
                                 // have no escapes or the parser drops
                                 // them.
-                                let bg = theme.subtle;
-                                let border_style = Style::default().fg(theme.border).bg(bg);
                                 let pieces = crate::ansi::parse(text);
                                 let mut current: Vec<Span<'static>> = Vec::new();
                                 let mut current_w: usize = 0;
-                                // Layout: `│ content …` → 2 col gutter
-                                // (`│ `) + body + right pad to full width.
-                                let max_body_w = width.saturating_sub(3).max(1);
+                                // The frame is the border: the output sits on
+                                // the panel inside it, quieter than the
+                                // conversation, in its own colours if any.
+                                let max_body_w = width;
                                 let flush =
                                     |lines: &mut Vec<Line<'static>>,
                                      current: &mut Vec<Span<'static>>,
                                      current_w: &mut usize| {
-                                        let pad = max_body_w.saturating_sub(*current_w);
-                                        let mut row: Vec<Span<'static>> = Vec::new();
-                                        row.push(Span::styled("│ ", border_style));
-                                        row.extend(std::mem::take(current));
-                                        row.push(Span::styled(
-                                            format!("{} ", " ".repeat(pad)),
-                                            Style::default().bg(bg),
-                                        ));
-                                        lines.push(Line::from(row));
+                                        lines.push(Line::from(std::mem::take(current)));
                                         *current_w = 0;
                                     };
                                 for piece in pieces {
-                                    let style = piece.style.bg(bg);
+                                    let style = Style::default().fg(theme.muted).patch(piece.style);
                                     for segment in piece.text.split_inclusive('\n') {
                                         let is_nl = segment.ends_with('\n');
                                         let visible: String = if is_nl {
@@ -792,7 +814,7 @@ fn render_block(
                                 crate::ui::tool::render_todo(&items, width, lines, theme);
                             }
                         }
-                        gutter_from(lines, body_start, theme);
+                        frame_from(lines, body_start, outer, theme);
                     }
                 }
             }
@@ -1206,31 +1228,7 @@ fn tool_row_with_span(
     theme: &Theme,
 ) -> (Line<'static>, (u16, u16)) {
     let faint = Style::default().fg(theme.faint);
-    let dim = Style::default().fg(theme.muted);
-
-    // Right-hand side: the metric, plus any status or elapsed note.
-    let mut right = parts.metric.clone();
-    if let Some(status) = &parts.status {
-        right = if right.is_empty() {
-            status.clone()
-        } else {
-            format!("{right} · {status}")
-        };
-    }
-    if let Some(note) = waiting {
-        right = if right.is_empty() {
-            note.to_string()
-        } else {
-            format!("{right} · {note}")
-        };
-    }
-    // A failing row's count is part of the failure, so it takes the icon's
-    // colour rather than the neutral one.
-    let right_style = if parts.status.is_some() {
-        Style::default().fg(icon.1)
-    } else {
-        dim
-    };
+    let (right, right_style) = row_right(parts, icon, waiting, theme);
 
     let verb = trim(&parts.verb, VERB_COLUMN);
     let verb_pad = VERB_COLUMN.saturating_sub(unicode_width_of(&verb));
@@ -1263,6 +1261,160 @@ fn tool_row_with_span(
     spans.push(Span::styled(format!(" {}", chevron.unwrap_or(" ")), faint));
     let span = (used as u16, (used + arg_w) as u16);
     (Line::from(spans), span)
+}
+
+/// A row's right-hand text (its metric, then any status or elapsed note) and
+/// the style it is drawn in.
+fn row_right(
+    parts: &crate::ui::tool::RowParts,
+    icon: (&str, ratatui::style::Color),
+    waiting: Option<&str>,
+    theme: &Theme,
+) -> (String, Style) {
+    let mut right = parts.metric.clone();
+    for extra in [parts.status.as_deref(), waiting].into_iter().flatten() {
+        right = if right.is_empty() {
+            extra.to_owned()
+        } else {
+            format!("{right} · {extra}")
+        };
+    }
+    // A failing row's count is part of the failure, so it takes the icon's
+    // colour rather than the neutral one.
+    let style = if parts.status.is_some() {
+        Style::default().fg(icon.1)
+    } else {
+        Style::default().fg(theme.muted)
+    };
+    (right, style)
+}
+
+/// An opened row as the top edge of the frame around what it opened:
+/// `╭─ ✓ edit  path ──────── +6 −2 ▾ ─╮`. The row and its body read as one
+/// thing, not a row with a box under it. Returns the line and the columns
+/// `arg` occupies, since a path there is a link.
+#[allow(clippy::too_many_arguments)]
+fn frame_top(
+    icon: (&str, ratatui::style::Color),
+    label: &str,
+    label_style: Style,
+    arg: &str,
+    right: Option<(String, Style)>,
+    chevron: &str,
+    width: usize,
+    theme: &Theme,
+) -> (Line<'static>, (u16, u16)) {
+    let border = Style::default().fg(theme.border);
+    let right_w = right
+        .as_ref()
+        .map_or(0, |(text, _)| unicode_width_of(text) + 1);
+    // `╭─ `, the icon and a space, then ` ─` at least, ` ▾` and ` ─╮`.
+    let base = 10 + unicode_width_of(icon.0) + right_w;
+    let label = trim(label, width.saturating_sub(base + 2).max(1));
+    let label_w = unicode_width_of(&label);
+    let arg_room = width.saturating_sub(base + label_w + 4);
+    let arg = if arg.is_empty() || arg_room < 4 {
+        String::new()
+    } else {
+        trim(arg, arg_room)
+    };
+    let arg_w = unicode_width_of(&arg);
+    let arg_start = 3 + unicode_width_of(icon.0) + 1 + label_w + 2;
+    let used = base + label_w + if arg_w > 0 { 2 + arg_w } else { 0 };
+    let mut spans = vec![
+        Span::styled("╭─ ", border),
+        Span::styled(format!("{} ", icon.0), Style::default().fg(icon.1)),
+        Span::styled(label, label_style),
+    ];
+    if arg_w > 0 {
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(arg, Style::default().fg(theme.text)));
+    }
+    spans.push(Span::styled(
+        format!(" {}", "─".repeat(width.saturating_sub(used).max(1))),
+        border,
+    ));
+    if let Some((text, style)) = right {
+        spans.push(Span::styled(format!(" {text}"), style));
+    }
+    spans.push(Span::styled(
+        format!(" {chevron}"),
+        Style::default().fg(theme.faint),
+    ));
+    spans.push(Span::styled(" ─╮", border));
+    (
+        Line::from(spans),
+        (arg_start as u16, (arg_start + arg_w) as u16),
+    )
+}
+
+/// The width between a frame's walls.
+fn frame_inner(width: usize) -> usize {
+    width.saturating_sub(4).max(1)
+}
+
+/// Close the frame an opened row began: every line from `from` gets the
+/// walls, fitted to the width between them, and the bottom edge follows.
+fn frame_from(lines: &mut Vec<Line<'static>>, from: usize, width: usize, theme: &Theme) {
+    let border = Style::default().fg(theme.border);
+    let inner = frame_inner(width);
+    for line in lines.iter_mut().skip(from) {
+        let mut spans = vec![Span::styled("│ ", border)];
+        spans.extend(fit_spans(std::mem::take(line), inner, theme));
+        spans.push(Span::styled(" │", border));
+        *line = Line::from(spans);
+    }
+    lines.push(Line::styled(
+        format!("╰{}╯", "─".repeat(width.saturating_sub(2))),
+        border,
+    ));
+}
+
+/// `line` as spans exactly `width` columns wide: cut with `…` when longer,
+/// padded when shorter. The line's own style moves onto its spans so the
+/// frame's walls do not inherit it.
+fn fit_spans(line: Line<'static>, width: usize, theme: &Theme) -> Vec<Span<'static>> {
+    let base = line.style;
+    let total = line.width();
+    let budget = if total > width {
+        width.saturating_sub(1)
+    } else {
+        width
+    };
+    let mut out: Vec<Span<'static>> = Vec::new();
+    let mut used = 0usize;
+    for span in line.spans {
+        let style = base.patch(span.style);
+        let w = unicode_width_of(&span.content);
+        if used + w <= budget {
+            used += w;
+            out.push(Span::styled(span.content, style));
+            continue;
+        }
+        let mut taken = String::new();
+        for c in span.content.chars() {
+            let cw = unicode_width_of_char(c);
+            if used + cw > budget {
+                break;
+            }
+            used += cw;
+            taken.push(c);
+        }
+        out.push(Span::styled(taken, style));
+        break;
+    }
+    if total > width {
+        out.push(Span::styled("…", Style::default().fg(theme.muted)));
+        used += 1;
+    }
+    if used < width {
+        let pad = match base.bg {
+            Some(bg) => Style::default().bg(bg),
+            None => Style::default(),
+        };
+        out.push(Span::styled(" ".repeat(width - used), pad));
+    }
+    out
 }
 
 /// A `delegate` or `handoff` call that went through. Its row only repeats

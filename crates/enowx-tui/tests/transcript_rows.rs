@@ -129,8 +129,8 @@ fn a_file_write_is_a_closed_row_by_default() {
     );
 }
 
-/// Opened, it is a card: name and language on the edge, numbered lines,
-/// the rest folded, no `··` for indentation.
+/// Opened, the row becomes the top edge of the card around the file:
+/// numbered lines, the rest folded, no `··` for indentation.
 #[test]
 fn an_opened_write_is_a_file_card() {
     let mut app = TestApp::new();
@@ -138,7 +138,7 @@ fn an_opened_write_is_a_file_card() {
     click_row_of(&mut app, "w1");
     let rows = app.main_column(W, H);
     let text = rows.join("\n");
-    assert!(text.contains("╭─ index.html · html ─"), "{text}");
+    assert!(text.contains("╭─ ✓ write  site/index.html ─"), "{text}");
     assert!(text.contains("  1  <!DOCTYPE html>"), "{text}");
     assert!(
         text.contains("  4      <meta charset"),
@@ -150,7 +150,7 @@ fn an_opened_write_is_a_file_card() {
         "no indent dots: {text}"
     );
     // The card's walls line up: every row as wide as its top edge.
-    let top = rows.iter().find(|r| r.contains("╭─ index.html")).unwrap();
+    let top = rows.iter().find(|r| r.contains("╭─ ✓ write")).unwrap();
     let left = top.find('╭').unwrap();
     let width = top.trim_end().width();
     for row in rows

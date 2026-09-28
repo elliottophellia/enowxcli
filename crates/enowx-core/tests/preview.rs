@@ -348,3 +348,36 @@ async fn one_module_repeated_down_the_page_is_reported() {
     assert!(text.contains("the headline has 18 words"), "{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn themed(background: &str, text: &str) -> String {
+    format!(
+        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Theme</title>
+<style>body {{ margin: 0; padding: 16px; font: 16px/1.5 system-ui; background: {background}; color: {text}; }}</style></head>
+<body><h1>A page</h1><p>Some text.</p></body></html>"##
+    )
+}
+
+#[tokio::test]
+async fn a_charcoal_dark_theme_is_reported_and_a_real_dark_one_is_not() {
+    if no_chrome() {
+        return;
+    }
+    for (background, text, grey) in [
+        ("#1e1e1e", "#ecebe8", true),
+        ("#e5e5e5", "#16150f", true),
+        ("#0c0d0f", "#ecebe8", false),
+        ("#fafaf7", "#16150f", false),
+    ] {
+        let dir = folder(&themed(background, text));
+        let reports = preview::preview(&dir, Target::File(dir.clone()), None, &dir.join("shots"))
+            .await
+            .unwrap();
+        let text = preview::report("index.html", &reports);
+        assert_eq!(
+            reports[0].grey_background.is_some(),
+            grey,
+            "{background}: {text}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

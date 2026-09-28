@@ -63,6 +63,10 @@ pub struct WidthReport {
     /// The words in the page's first `h1`, when there are too many for a
     /// headline.
     pub long_headline: Option<usize>,
+    /// The page background, when it sits in the grey middle ground: a dark
+    /// theme that is charcoal rather than dark, or a light one that is dull
+    /// grey. As `#1e1e1e, 12% light`.
+    pub grey_background: Option<String>,
     pub console_errors: Vec<String>,
     pub screenshot: Option<PathBuf>,
 }
@@ -83,6 +87,7 @@ impl WidthReport {
             + usize::from(self.no_back_to_top)
             + usize::from(self.repeated_blocks.is_some())
             + usize::from(self.long_headline.is_some())
+            + usize::from(self.grey_background.is_some())
     }
 }
 
@@ -373,6 +378,7 @@ impl Cdp {
             no_back_to_top: found["no_back_to_top"].as_bool().unwrap_or(false),
             repeated_blocks: found["repeated_blocks"].as_str().map(str::to_owned),
             long_headline: found["long_headline"].as_u64().map(|n| n as usize),
+            grey_background: found["grey_background"].as_str().map(str::to_owned),
             console_errors: self.console_errors(session),
             screenshot: None,
         };
@@ -570,6 +576,12 @@ pub fn report(target: &str, reports: &[WidthReport]) -> String {
                  twelve or fewer (ui-part-hero)\n"
             ));
         }
+        if let Some(background) = &r.grey_background {
+            out.push_str(&format!(
+                "  the page background is {background}: a dark theme sits at 3 to 8% \
+                 lightness, a light one at 93% or more (the `ui` skill, neutrals)\n"
+            ));
+        }
         if r.h1_count != 1 {
             out.push_str(&format!("  {} h1 elements; a page has one\n", r.h1_count));
         }
@@ -747,6 +759,18 @@ const CHECK_SCRIPT: &str = r#"(async () => {
         out.repeated_blocks = kind + ' ×' + run;
       }
       run = 1;
+    }
+  }
+  // The page's background, as the reader sees it behind the content.
+  out.grey_background = null;
+  const pageBg = [document.body, document.documentElement]
+    .map(el => el && parse(getComputedStyle(el).backgroundColor))
+    .find(c => c && c.a > 0.95);
+  if (pageBg) {
+    const light = (Math.max(pageBg.r, pageBg.g, pageBg.b) + Math.min(pageBg.r, pageBg.g, pageBg.b)) / 2 / 255 * 100;
+    if (light > 9 && light < 92) {
+      const hex = '#' + [pageBg.r, pageBg.g, pageBg.b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+      out.grey_background = hex + ', ' + Math.round(light) + '% light';
     }
   }
   const h1 = document.querySelector('h1');

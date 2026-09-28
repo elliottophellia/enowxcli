@@ -138,6 +138,34 @@ nothing about the product.
 - Gradients, glass, glow and large shadows are accents with a purpose, on
   one or two elements, never the page's texture.
 
+### Neutrals decide whether it looks designed
+
+Most generated palettes fail in the neutrals, not the accent: a "dark"
+page in charcoal grey (`#1e1e1e`, `#27272a`), a light page in dull grey
+(`#e5e5e5`), text in the same grey family, everything a little muddy.
+
+- **Dark means dark.** The page background at 3 to 8% lightness: `#0a0a0a`,
+  `#0c0d0f`, `#111110`. Not `#1a1a1a` to `#2d2d2d`, which reads as a grey
+  panel, not a dark room. Raised surfaces step up by 2 to 4% each
+  (`#0c0d0f` page, `#141518` card, `#1c1d21` popover), so depth comes from
+  small steps, not from a grey base.
+- **Text on dark is off-white, not grey:** body at 88 to 94% lightness
+  (`#ecebe8`), muted text around 60 to 65% (`#9a9893`), never below 4.5:1.
+  Pure `#ffffff` body text on near-black glares; keep pure white for the
+  one thing that must pop.
+- **Light means light.** The page at 93 to 100% lightness (`#ffffff`,
+  `#fafaf7`, a warm paper `#f6f3ec`), text near-black at 8 to 15%
+  (`#16150f`), not mid-grey `#555` for body copy.
+- **Tint the neutrals** a few degrees toward the accent's hue or the
+  concept's temperature (warm ink `#12110f`, cool night `#0b0d12`) instead
+  of dead RGB greys; keep the tint subtle (saturation 3 to 10%).
+- **Borders are quiet:** 8 to 14% above the background on dark, 8 to 12%
+  below it on light, and a border that marks a control reaches 3:1.
+- **The accent is saturated enough to be the accent** against those
+  neutrals, and used on under a tenth of the screen.
+- The `preview` tool reports a page background in the grey middle ground
+  (between about 9% and 92% lightness).
+
 ## 6. Icons
 
 - One icon set for the whole product. Use the project's (look in its

@@ -599,6 +599,10 @@ each named concept and for any markup that repeats; variants are props, not \
 copies.
 - Colour, spacing, radius and type come from tokens (CSS custom properties or \
 the project's theme), never one-off values.
+- Neutrals are decided, not grey: a dark page is dark (3 to 8% lightness, such \
+as #0c0d0f, not a charcoal #1e1e1e), a light page is light (93% or more), text \
+is near-black or off-white, and the neutrals carry a slight tint of the \
+concept's temperature. The `ui` skill has the numbers.
 - Semantic HTML: `button` for actions, `a` for navigation, a `label` for every \
 input, headings in order.
 - Typed props and no `any`; minimal state, derived where it can be; no dead \

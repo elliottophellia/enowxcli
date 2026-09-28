@@ -1022,6 +1022,10 @@ impl Agent {
         // repeating itself.
         let mut last_calls = String::new();
         let mut repeats = 0u32;
+        // Interface files this turn wrote or edited, and whether the check
+        // the harness runs on them before the agent finishes has run.
+        let mut touched: Vec<String> = Vec::new();
+        let mut checked_ui = false;
         while limit == 0 || step < limit {
             if cancel.is_cancelled() {
                 stop_reason = "aborted".into();
@@ -1164,6 +1168,35 @@ impl Agent {
             });
             self.store.save(&session)?;
             if completion.tool_calls.is_empty() {
+                // An interface agent about to finish is checked once for the
+                // marks of generated work in what it changed. Told to run the
+                // check itself, a model skipped it or ran it and reported
+                // anyway; the findings now come back to it before it ends.
+                if !checked_ui && active.tools.iter().any(|t| t == "ui_check") {
+                    checked_ui = true;
+                    let files: Vec<std::path::PathBuf> = touched
+                        .iter()
+                        .filter(|path| crate::ui_check::is_interface_file(path))
+                        .map(|path| tool_ctx.workspace.join(path))
+                        .collect();
+                    let findings = crate::ui_check::check(&tool_ctx.workspace, &files);
+                    let serious = findings
+                        .iter()
+                        .filter(|f| f.severity != crate::ui_check::Severity::Low)
+                        .count();
+                    if serious > 0 {
+                        let report = crate::ui_check::report(&findings, files.len());
+                        let _ = events
+                            .send(Event::Notice {
+                                message: format!("ui_check on the files changed:\n{report}"),
+                            })
+                            .await;
+                        session.push(Message::user(crate::ui_check::gate_message(&report)));
+                        self.store.save(&session)?;
+                        step += 1;
+                        continue;
+                    }
+                }
                 stop_reason = completion.finish_reason;
                 break;
             }
@@ -1257,6 +1290,19 @@ impl Agent {
                 // results are 93% of a session's context, and the three tools
                 // that dominate — bash, read, skill_read — cannot be judged
                 // from their names.
+                if !output.is_error && matches!(call.name.as_str(), "write" | "edit" | "multi_edit")
+                {
+                    if let Some(path) = serde_json::from_str::<serde_json::Value>(&call.arguments)
+                        .ok()
+                        .and_then(|args| {
+                            args.get("path").and_then(|p| p.as_str()).map(str::to_owned)
+                        })
+                    {
+                        if !touched.contains(&path) {
+                            touched.push(path);
+                        }
+                    }
+                }
                 let stored = if self.config.typesafe.gate_tool_results
                     && matches!(
                         crate::gating::judge(

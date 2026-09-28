@@ -17,6 +17,7 @@ mod search;
 mod shell;
 pub mod skill;
 mod todo;
+mod ui;
 use fetch::FetchTool;
 use files::{EditTool, MultiEditTool, ReadTool, WriteTool};
 use search::{GlobTool, GrepTool};
@@ -97,6 +98,7 @@ impl Default for ToolRegistry {
         registry.register(WriteTool);
         registry.register(EditTool);
         registry.register(MultiEditTool);
+        registry.register(ui::UiCheckTool);
         registry.register(GlobTool);
         registry.register(GrepTool);
         registry.register(BashTool);

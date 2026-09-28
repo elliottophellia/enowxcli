@@ -13,7 +13,13 @@ fn a_multi_edit_shows_each_change() {
         "Updated styles.css: 2 edits, at lines 4, 12",
     );
     let screen = app.render_to_text(120, 40).join("\n");
-    assert!(screen.contains("edit") && screen.contains("styles.css"), "{screen}");
+    assert!(
+        screen.contains("edit") && screen.contains("styles.css"),
+        "{screen}"
+    );
     assert!(screen.contains("+2 -2 · 2 edits"), "{screen}");
-    assert!(screen.contains("var(--danger)") && screen.contains("var(--accent)"), "{screen}");
+    assert!(
+        screen.contains("var(--danger)") && screen.contains("var(--accent)"),
+        "{screen}"
+    );
 }

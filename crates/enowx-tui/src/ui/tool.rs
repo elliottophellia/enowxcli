@@ -299,7 +299,11 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
             let lines: Vec<usize> = result
                 .split("at lines ")
                 .nth(1)
-                .map(|list| list.split(", ").filter_map(|n| n.trim().parse().ok()).collect())
+                .map(|list| {
+                    list.split(", ")
+                        .filter_map(|n| n.trim().parse().ok())
+                        .collect()
+                })
                 .unwrap_or_default();
             let (mut adds, mut dels) = (0, 0);
             let diffs: Vec<(String, String, usize)> = edits

@@ -133,6 +133,17 @@ impl App {
             let turn = turn.clone();
             match turn.message.role {
                 MessageRole::User => {
+                    // The harness's check of an interface agent's work reads
+                    // as the notice it showed live, not as the user speaking.
+                    if let Some(report) =
+                        enowx_core::ui_check::parse_gate_message(&turn.message.content)
+                    {
+                        self.show(
+                            TranscriptKind::Notice,
+                            format!("ui_check on the files changed:\n{report}"),
+                        );
+                        continue;
+                    }
                     if let Some((agent, report)) =
                         enowx_core::routing::parse_report_message(&turn.message.content)
                     {

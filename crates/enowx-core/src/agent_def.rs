@@ -224,6 +224,19 @@ pub fn builtin_agents() -> Vec<AgentDef> {
         "bash",
         "todo",
     ];
+    // The interface agents also check their work for the marks of generated
+    // interfaces.
+    const INTERFACE_TOOLS: &[&str] = &[
+        "read",
+        "write",
+        "edit",
+        "multi_edit",
+        "glob",
+        "grep",
+        "bash",
+        "todo",
+        "ui_check",
+    ];
 
     // The built-in skills each carries: interface work gets `ui` and
     // every `ui-page-*` and `ui-part-*`, anything that writes code gets `code`, anything whose
@@ -272,7 +285,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             "fe",
             "frontend and interface design: pages, components, styling, accessibility, \
              React/Vue/Svelte, bundlers",
-            FULL,
+            INTERFACE_TOOLS,
             Tier::Balanced,
             Delegation::Librarian,
             &interface,
@@ -335,7 +348,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
         make(
             "mobile",
             "iOS, Android, React Native, Flutter, native APIs",
-            FULL,
+            INTERFACE_TOOLS,
             Tier::Balanced,
             Delegation::Librarian,
             &mobile,
@@ -395,14 +408,14 @@ pub fn builtin_agents() -> Vec<AgentDef> {
         make(
             "review",
             "reads diffs and code for defects; never edits",
-            &["read", "glob", "grep", "bash", "todo"],
+            &["read", "glob", "grep", "bash", "todo", "ui_check"],
             Tier::Strong,
             Delegation::Librarian,
             &interface,
             "You review code and diffs for defects. You do not edit: a review that \
              rewrites the code is not a review.\n\
-             - For an interface, read `ui-audit` and report the marks of generated \
-             work too: invented figures, dead controls, default gradients, identical \
+             - For an interface, run `ui_check`, read `ui-audit` to judge its findings, \
+             and report the marks of generated work too: invented figures, dead controls, default gradients, identical \
              card grids, buzzword copy, broken phone layouts.\n\
              - For each finding: what breaks, under what input, and where (path and line). \
              Rank by consequence, not by how easy the fix is.\n\
@@ -532,9 +545,9 @@ dialogs...): only the ones you build, as you come to them. Read `writing` \
 before writing a page's copy, and `code` before a new component or module of \
 any size.
 An interface that already exists is audited before it is changed: to improve, \
-restyle, fix the look of or review one, read `ui-audit`, search the code for \
-the marks of generated work, list what you found by priority, then fix what \
-the task covers. A new look over the same faults is not an improvement.
+restyle, fix the look of or review one, run `ui_check` on it and read \
+`ui-audit` for how to judge what it finds, list the findings by priority, then \
+fix what the task covers. A new look over the same faults is not an improvement.
 
 DIRECTION
 Use the project's direction. With none, set one from what the product is and \
@@ -585,8 +598,8 @@ plausible guesses: a guess reads as a promise the business never made.
 DONE
 Build it and run the project's linter and tests; with none, read the files \
 back. Check the layout at a phone width and a wide one by reading the CSS for \
-those widths, and search the CSS for colour and size values written outside \
-the tokens. Say in your report, briefly: the direction, the stack and icon \
+those widths, and run `ui_check` on what you changed: the harness runs it too \
+before you finish, and sends you back to what it finds. Say in your report, briefly: the direction, the stack and icon \
 set you chose and why, what you verified, and what is a placeholder.";
 
 /// The orchestrator's prompt.

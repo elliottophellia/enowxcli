@@ -15,9 +15,10 @@ wrong with it produces a different generic page.
 1. **Read the structure**: the page files, the components, the stylesheet or
    theme, `DESIGN.md` if any. Note the direction the project already has.
    An audit does not replace the owner's direction with yours.
-2. **Search**: run the searches in section 2 with `grep` over the source
-   (never `node_modules`, build output or source maps). Each hit is a
-   candidate, not a verdict.
+2. **Search**: run the `ui_check` tool on the interface; it runs most of the
+   searches in section 2 in one pass and lists the hits by priority. Use
+   `grep` for anything it does not cover. Each hit is a candidate, not a
+   verdict.
 3. **Judge each candidate**: a technique is slop when it is there by default
    rather than for a reason (section 3). A gradient in the brand's own
    palette is fine; the default blue-to-purple on every section is not.

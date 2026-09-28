@@ -20,6 +20,7 @@ pub mod routing;
 pub mod session;
 pub mod systemone;
 pub mod tools;
+pub mod ui_check;
 
 pub use agent::{Agent, RunRequest};
 pub use agent_def::{builtin_agents, AgentDef, Delegation, Tier};

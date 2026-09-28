@@ -49,6 +49,23 @@ fn script_writes() -> &'static regex::Regex {
     })
 }
 
+/// A place a command may write without touching the project: the system's
+/// scratch space, or nowhere at all.
+fn scratch(target: &str) -> bool {
+    let target = target.trim_matches(['"', '\'']);
+    [
+        "/dev/",
+        "/tmp/",
+        "/private/tmp/",
+        "/var/folders/",
+        "$TMPDIR",
+        "${TMPDIR",
+    ]
+    .iter()
+    .any(|prefix| target.starts_with(prefix))
+        || target == "-"
+}
+
 /// Programs that change files whatever their arguments.
 const WRITERS: &[&str] = &[
     "rm", "rmdir", "mv", "cp", "touch", "mkdir", "ln", "chmod", "chown", "truncate", "unlink",
@@ -85,7 +102,12 @@ fn judge(program: &str, args: &[&str]) -> Option<String> {
         .copied()
         .unwrap_or("");
 
-    if WRITERS.contains(&program) {
+    // `tee` into scratch space is looking with a copy kept aside.
+    let writes_only_scratch = args
+        .iter()
+        .filter(|a| !a.starts_with('-'))
+        .all(|a| scratch(a));
+    if WRITERS.contains(&program) && !(program == "tee" && writes_only_scratch) {
         return Some(format!("runs `{program}`"));
     }
     if matches!(program, "sed" | "perl" | "ruby")
@@ -113,17 +135,22 @@ fn judge(program: &str, args: &[&str]) -> Option<String> {
     if let Some(flag) = ["--write", "--fix"].into_iter().find(|flag| has(flag)) {
         return Some(format!("rewrites files with `{flag}`"));
     }
+    let output_to = |flags: &[&str]| {
+        args.windows(2)
+            .find(|pair| flags.contains(&pair[0]))
+            .map(|pair| pair[1])
+    };
     if program == "wget"
         && !args
             .iter()
             .any(|a| matches!(*a, "-O-" | "-qO-" | "--spider"))
+        && !output_to(&["-O", "--output-document"]).is_some_and(scratch)
     {
         return Some("downloads a file with `wget`".into());
     }
     if program == "curl"
-        && args
-            .iter()
-            .any(|a| matches!(*a, "-o" | "-O" | "--output" | "--remote-name"))
+        && (args.iter().any(|a| matches!(*a, "-O" | "--remote-name"))
+            || output_to(&["-o", "--output"]).is_some_and(|to| !scratch(to)))
     {
         return Some("downloads a file with `curl -o`".into());
     }
@@ -397,7 +424,7 @@ fn redirect_target(bare: &str) -> Option<String> {
             .skip_while(|c| c.is_whitespace())
             .take_while(|c| !c.is_whitespace() && !matches!(c, ';' | '|' | '&' | ')' | '<' | '>'))
             .collect();
-        let harmless = target.is_empty() || target.starts_with("/dev/");
+        let harmless = target.is_empty() || scratch(&target);
         if !harmless {
             return Some(target);
         }
@@ -447,6 +474,10 @@ mod tests {
             "node -e \"console.log(require('./package.json').version)\"",
             "curl -s https://example.com/health",
             "tar -tzf release.tgz",
+            "curl -s https://api.github.com/users/x -o /tmp/x.json && python3 -c 'print(1)'",
+            "curl -s -o /dev/null -w '%{http_code}' https://example.com",
+            "npm test > $TMPDIR/out.log 2>&1",
+            "git log | tee /tmp/log.txt",
         ] {
             assert_eq!(changes_files(command), None, "{command}");
         }

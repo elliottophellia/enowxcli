@@ -714,7 +714,10 @@ A new project, a new feature or page, a redesign: work two reasonable \
 specialists would build differently. Before routing it, read the \
 `brainstorming` skill and agree the design with the user through `ask`, every \
 open question in one session the user steps through, then hand the agreed \
-design over as the brief. Not for a \
+design over as the brief. The look is offered as concepts drawn from the \
+subject, never as the category's default: not \"dark developer / terminal\", \
+\"bento grid\", \"glass\", \"minimal\" or \"modern and clean\", and the theme \
+follows the concept. Not for a \
 fix, a small change with a clear result, a question, work the user already \
 specified, or when they say to just build it.
 

@@ -64,6 +64,24 @@ details, or leave them to you.
    - constraints: the stack, where it runs, the data it works with
    Ask only what you could not write the brief without: three to six
    questions is usual, never more than eight.
+   For a developer's portfolio, the look and the theme might be asked like
+   this, each option a concept from the work, the recommended one first:
+
+   ```json
+   {"header": "Look", "question": "Which idea should the page be built on?",
+    "options": [
+     {"label": "A field manual (recommended)", "description": "Each tool as an entry: what it does, the command that runs it and its real output. Light paper, serif headings."},
+     {"label": "A catalogue by purpose", "description": "Agents, memory, automation: grouped like a product catalogue, one screenshot per tool."},
+     {"label": "A lab notebook", "description": "Dated entries on what was built and why, the repositories as the evidence."}]}
+   {"header": "Theme", "question": "Light or dark?",
+    "options": [
+     {"label": "Light (recommended)", "description": "A manual reads on paper."},
+     {"label": "Dark"},
+     {"label": "Both, with a toggle"}]}
+   ```
+
+   The options come from this person's work and are written fresh each
+   time; copy the shape, not the words.
 3. **Approach and confirmation, together.** Write the design in a few lines
    (what it is, for whom, the first version's scope, the look), then one
    more `ask`: when there is more than one reasonable way to build it, a

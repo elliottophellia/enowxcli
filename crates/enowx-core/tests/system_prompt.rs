@@ -299,6 +299,7 @@ fn the_orchestrator_brainstorms_only_when_the_shape_is_open() {
         "read the `brainstorming` skill",
         "Not for a fix, a small change with a clear result",
         "never as prose",
+        "concepts drawn from the subject, never as the category's default",
     ] {
         assert!(orchestrator.prompt.contains(needed), "missing {needed:?}");
     }

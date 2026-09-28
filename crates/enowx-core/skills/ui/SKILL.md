@@ -239,6 +239,9 @@ page in charcoal grey (`#1e1e1e`, `#27272a`), a light page in dull grey
 - Every control does something real: links go to pages or sections that
   exist, buttons act, forms submit and confirm. A control that cannot work
   yet is removed, or visibly labelled "Coming soon".
+- A control that cannot be used now says why, and offers what can be done
+  instead ("On loan until 3 Oct · Reserve"), never a greyed-out button with no
+  reason.
 - A placeholder reads as a placeholder ("[your email]"). The note on how to
   fill it in goes in the README, never on the page where visitors read it.
 - Forms: a visible label for each field, the error beside the field in words,

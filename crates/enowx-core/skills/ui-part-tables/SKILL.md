@@ -28,6 +28,8 @@ icons, states, accessibility) are in the `ui` skill, the measures in
     ghost or outline buttons, in a labelled menu when more. Never the page's
     filled primary button repeated on every row.
   - An empty state in the table's place, and on a phone either a scroll
-    container with a visible edge or a reflow to one card per row.
+    container with a visible edge or a reflow to one compact card per row:
+    the identifying field as the heading, the rest as a meta line and a
+    status line, without repeating every column's label on every card.
 - Avoid: Name / Status / Date / Actions whatever the data is, a three-dot
   menu on every row with nothing real in it, a table where a list would do.

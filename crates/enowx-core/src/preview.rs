@@ -766,6 +766,9 @@ const CHECK_SCRIPT: &str = r#"(async () => {
   const shape = el => el.tagName + '.' + [...el.classList].sort().join('.') + '>'
     + [...el.children].map(c => c.tagName).join(',');
   for (const parent of document.querySelectorAll('body *')) {
+    // Table rows are meant to repeat, even when a phone lays them out as
+    // cards.
+    if (parent.tagName === 'TBODY' || parent.tagName === 'TABLE' || parent.getAttribute('role') === 'rowgroup') continue;
     const kids = [...parent.children].filter(el => {
       const r = el.getBoundingClientRect();
       return r.height > 120 && r.width > W * 0.4;

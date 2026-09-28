@@ -23,6 +23,28 @@ it, and write it as one line in your report:
 > plain, one warm accent, no motion beyond hover.
 
 Hold it on every screen. A direction you cannot state in a line is not one.
+
+Write it down in `DESIGN.md` at the project's root when the project has
+none, so every later change keeps to it. Keep it short, decisions not
+essays:
+
+```markdown
+# Design
+
+Direction: a booking page for a neighbourhood physio clinic, calm and plain.
+Audience: adults booking a first visit, many on phones.
+Theme: light only.
+Palette: paper #F6F2E9, ink #15302A, muted #4C6058, accent #0F6B4F (the one
+primary action), line #DCD4C4. Defined as tokens in styles.css.
+Type: Fraunces for headings, Plus Jakarta Sans for text; scale 14/16/20/25/31/39.
+Spacing: 4px base, tokens --s-1 to --s-9. Radii 6/12. Shadows only on overlays.
+Icons: Tabler, outline, 20px beside text.
+Motion: hover and focus only.
+Placeholders: clinic name, phone, address, hours, prices (listed in README).
+```
+
+Read it before every change, and update it when the user changes a
+decision.
 Do not fall back to the generated default: a dark page, a blue-to-purple
 gradient, glowing buttons and a grid background say "made by a model" and
 nothing about the product.

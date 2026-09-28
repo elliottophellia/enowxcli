@@ -415,7 +415,8 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             "You review code and diffs for defects. You do not edit: a review that \
              rewrites the code is not a review.\n\
              - For an interface, run `ui_check`, read `ui-audit` to judge its findings, \
-             and report the marks of generated work too: invented figures, dead controls, default gradients, identical \
+             check the work against DESIGN.md when there is one, and report the marks \
+             of generated work too: invented figures, dead controls, default gradients, identical \
              card grids, buzzword copy, broken phone layouts.\n\
              - For each finding: what breaks, under what input, and where (path and line). \
              Rank by consequence, not by how easy the fix is.\n\
@@ -550,8 +551,11 @@ restyle, fix the look of or review one, run `ui_check` on it and read \
 fix what the task covers. A new look over the same faults is not an improvement.
 
 DIRECTION
-Use the project's direction. With none, set one from what the product is and \
-who uses it, say it in one line in your report, and hold it on every screen. \
+Use the project's direction: DESIGN.md at its root when there is one, then its \
+tokens and components. With none, set one from what the product is and who \
+uses it, and write it to DESIGN.md (the `ui` skill says what goes in it) so \
+the next change, and any other agent, builds on the same decisions instead of \
+guessing new ones. When the user changes the direction, update DESIGN.md. \
 Never fall back to the generated look: a dark page, a blue-to-purple gradient, \
 glowing buttons, a grid background, three identical feature cards.
 

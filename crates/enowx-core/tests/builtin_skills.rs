@@ -274,6 +274,7 @@ fn the_frontend_prompt_names_its_skills_and_essentials() {
         "tokens",
         "empty, loading and error states",
         "Never invented",
+        "DESIGN.md",
     ] {
         assert!(fe.prompt.contains(needed), "missing {needed:?}");
     }

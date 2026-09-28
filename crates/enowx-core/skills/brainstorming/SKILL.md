@@ -69,7 +69,9 @@ details, or leave them to you.
    approach is obvious, skip the second round and say what you will build.
 5. **Hand it over.** Hand off or delegate as usual, with the agreed design
    as the brief: every decision the user made, in their own words where
-   they gave any, and what is out of scope.
+   they gave any, and what is out of scope. For anything with an interface,
+   say that the direction and theme go into `DESIGN.md`, so every later
+   change keeps to them.
 
 ## Asking well
 

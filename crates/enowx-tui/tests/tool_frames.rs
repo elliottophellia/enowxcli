@@ -108,3 +108,66 @@ fn a_closed_row_stays_one_plain_row() {
     assert!(!rows.iter().any(|r| r.contains('╭') && r.contains("bash")));
     assert!(!rows.iter().any(|r| r.contains("built in 366ms")));
 }
+
+fn page(lines: usize, changed: &[usize]) -> String {
+    (1..=lines)
+        .map(|n| {
+            if changed.contains(&n) {
+                format!("line {n} changed\n")
+            } else {
+                format!("line {n}\n")
+            }
+        })
+        .collect()
+}
+
+/// A new file says so and shows its first lines; a replaced file shows what
+/// changed, as an edit does, not the whole new file again.
+#[test]
+fn a_write_shows_a_new_file_or_what_it_changed() {
+    let mut app = TestApp::in_conversation();
+    let args =
+        |content: &str| serde_json::json!({"path": "src/site.ts", "content": content}).to_string();
+    app.push_tool(
+        "w1",
+        "write",
+        &args(&page(40, &[])),
+        "Created src/site.ts (40 lines)",
+    );
+    app.push_tool(
+        "w2",
+        "write",
+        &args(&page(40, &[7, 31])),
+        "Replaced src/site.ts (40 lines; +2 -2)",
+    );
+    app.set_tool_before("w2", &page(40, &[]));
+    let rows = app.render_to_text(W, H);
+    let text = rows.join("\n");
+    assert!(text.contains("new · 40 lines ▸"), "{text}");
+    assert!(text.contains("+2 -2 ▸"), "{text}");
+
+    app.expand_tool("w1");
+    app.expand_tool("w2");
+    let rows = app.render_to_text(W, H);
+    let new_file = frame(&rows, "✓ write  src/site.ts ─");
+    assert!(
+        new_file.iter().any(|r| r.contains(" 1  line 1")),
+        "{new_file:#?}"
+    );
+    assert!(
+        new_file.iter().any(|r| r.contains("28 more lines")),
+        "{new_file:#?}"
+    );
+
+    let second = rows.iter().rposition(|r| r.contains("╭─ ✓ write")).unwrap();
+    let replaced = frame(&rows[second..], "✓ write");
+    let body = replaced.join("\n");
+    assert!(
+        body.contains("line 7 changed") && body.contains("line 31 changed"),
+        "{body}"
+    );
+    assert!(
+        !body.contains("line 20\n") && !body.contains(" line 20 "),
+        "unchanged middle is left out: {body}"
+    );
+}

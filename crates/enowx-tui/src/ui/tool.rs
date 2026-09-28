@@ -418,8 +418,20 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
             let path = str_arg(&parsed, "path").unwrap_or("").to_string();
             let content = str_arg(&parsed, "content").unwrap_or("");
             let n = content.lines().count();
+            // The result says whether the file is new ("Created …") or was
+            // replaced ("Replaced … (N lines; +A -B)"), and the row says so.
+            let metric = if result.starts_with("Created ") {
+                format!("new · {}", counted(n, "line", "lines"))
+            } else if let Some((_, change)) = result
+                .strip_prefix("Replaced ")
+                .and_then(|rest| rest.rsplit_once("; "))
+            {
+                change.trim_end_matches(')').to_owned()
+            } else {
+                counted(n, "line", "lines")
+            };
             ToolRender::Detail {
-                header: RowParts::new("write", path.clone(), counted(n, "line", "lines")),
+                header: RowParts::new("write", path.clone(), metric),
                 subtitle: None,
                 body: ToolBody::Preview {
                     path: path.clone(),
@@ -687,6 +699,60 @@ pub(super) fn render_file_card(
             ),
         ]));
     }
+}
+
+/// The most changed regions a replaced file shows.
+pub(super) const MAX_HUNKS: usize = 4;
+
+/// The changed regions between two versions of a file, each with `context`
+/// unchanged lines around it, as `(old, new, first line)` the way an edit's
+/// diff is drawn. Empty when nothing changed or the files are too large to
+/// compare line by line.
+pub(super) fn hunks(old: &str, new: &str, context: usize) -> Vec<(String, String, usize)> {
+    let a: Vec<&str> = old.split('\n').collect();
+    let b: Vec<&str> = new.split('\n').collect();
+    if a.len().saturating_mul(b.len()) > 4_000_000 {
+        return Vec::new();
+    }
+    let ops = lcs_diff(&a, &b);
+    let mut ranges: Vec<(usize, usize)> = Vec::new();
+    for (at, op) in ops.iter().enumerate() {
+        if matches!(op, DiffOp::Keep(_)) {
+            continue;
+        }
+        let start = at.saturating_sub(context);
+        let end = (at + 1 + context).min(ops.len());
+        match ranges.last_mut() {
+            Some(last) if start <= last.1 => last.1 = last.1.max(end),
+            _ => ranges.push((start, end)),
+        }
+    }
+    // Where each op falls in the new file, for the gutter's numbers.
+    let mut line_of = Vec::with_capacity(ops.len());
+    let mut line = 1usize;
+    for op in &ops {
+        line_of.push(line);
+        if !matches!(op, DiffOp::Del(_)) {
+            line += 1;
+        }
+    }
+    ranges
+        .into_iter()
+        .map(|(start, end)| {
+            let (mut before, mut after) = (Vec::new(), Vec::new());
+            for op in &ops[start..end] {
+                match op {
+                    DiffOp::Keep(text) => {
+                        before.push(text.as_str());
+                        after.push(text.as_str());
+                    }
+                    DiffOp::Del(text) => before.push(text.as_str()),
+                    DiffOp::Add(text) => after.push(text.as_str()),
+                }
+            }
+            (before.join("\n"), after.join("\n"), line_of[start])
+        })
+        .collect()
 }
 
 /// Rich per-line diff: header with `✎ Edit: 📄 <path> [+N/-M]`, colored

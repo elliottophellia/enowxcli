@@ -465,6 +465,7 @@ fn render_block(
     retry_attempt: u32,
     retry_max: u32,
     tool_expanded: &std::collections::HashMap<String, bool>,
+    tool_before: &std::collections::HashMap<String, String>,
     lines: &mut Vec<Line<'static>>,
     tool_headers: &mut Vec<(String, usize)>,
     file_links: &mut Vec<FileLink>,
@@ -627,7 +628,22 @@ fn render_block(
             } else {
                 None
             };
-            let render = classify(name, args, result);
+            let mut render = classify(name, args, result);
+            // A write that replaced a file shows what changed, as an edit
+            // does, rather than the whole new file.
+            if let (ToolRender::Detail { body, .. }, Some(before)) =
+                (&mut render, tool_before.get(id))
+            {
+                let content = serde_json::from_str::<serde_json::Value>(args)
+                    .ok()
+                    .and_then(|v| v["content"].as_str().map(str::to_owned))
+                    .unwrap_or_default();
+                let mut changed = crate::ui::tool::hunks(before, &content, 2);
+                if name == "write" && !changed.is_empty() {
+                    changed.truncate(crate::ui::tool::MAX_HUNKS);
+                    *body = ToolBody::Diffs(changed);
+                }
+            }
             let default_expand = crate::ui::tool::opens_by_default(name, show_tool_output);
             let expanded = tool_expanded.get(id).copied().unwrap_or(default_expand);
             match render {
@@ -1014,6 +1030,7 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 }
                 running.hash(&mut hasher);
                 error.hash(&mut hasher);
+                app.tool_before.contains_key(id).hash(&mut hasher);
                 // Must match the renderer exactly, or a row would be cached
                 // in one state and drawn in the other.
                 let default_expand = crate::ui::tool::opens_by_default(name, show_tool_output);
@@ -1116,6 +1133,7 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 retry_attempt,
                 retry_max,
                 &app.tool_expanded,
+                &app.tool_before,
                 &mut lines,
                 &mut tool_headers,
                 &mut file_links,

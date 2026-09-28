@@ -89,6 +89,8 @@ impl Tool for WriteTool {
         let raw = string_arg(&args, "path")?;
         let content = string_arg(&args, "content")?;
         let path = resolve_for_write(&ctx.workspace, raw)?;
+        // Kept so the result can say what changed, and the interface show it.
+        let before = std::fs::read_to_string(&path).ok();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -138,12 +140,45 @@ impl Tool for WriteTool {
                 let _ = crate::format::format_file(&fmt, &path).await;
             }
         }
-        Ok(ToolOutput::ok(format!(
-            "Wrote {} bytes to {}",
-            content.len(),
-            display_path(&ctx.workspace, &path)
-        )))
+        let shown = display_path(&ctx.workspace, &path);
+        let lines = content.lines().count();
+        let mut output = match &before {
+            None => ToolOutput::ok(format!("Created {shown} ({lines} lines)")),
+            Some(old) => {
+                let (added, removed) = line_changes(old, content);
+                ToolOutput::ok(format!(
+                    "Replaced {shown} ({lines} lines; +{added} -{removed})"
+                ))
+            }
+        };
+        // A file too large to diff on screen is not worth carrying there.
+        output.before = before.filter(|old| old.len() <= 512 * 1024);
+        Ok(output)
     }
+}
+
+/// Lines `new` has that `old` did not, and the reverse, counted as multisets:
+/// exact for additions and removals, and linear where a real diff of two
+/// large files would be quadratic.
+fn line_changes(old: &str, new: &str) -> (usize, usize) {
+    let mut count: std::collections::HashMap<&str, isize> = std::collections::HashMap::new();
+    for line in old.lines() {
+        *count.entry(line).or_default() -= 1;
+    }
+    for line in new.lines() {
+        *count.entry(line).or_default() += 1;
+    }
+    let added = count
+        .values()
+        .filter(|n| **n > 0)
+        .map(|n| *n as usize)
+        .sum();
+    let removed = count
+        .values()
+        .filter(|n| **n < 0)
+        .map(|n| (-*n) as usize)
+        .sum();
+    (added, removed)
 }
 
 /// Several replacements in one file, in one call. Each call re-sends the

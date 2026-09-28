@@ -50,6 +50,9 @@ pub struct ToolCtx {
 pub struct ToolOutput {
     pub content: String,
     pub is_error: bool,
+    /// What a file held before this call replaced it, so the interface can
+    /// show the change. Never sent to the model.
+    pub before: Option<String>,
 }
 
 impl ToolOutput {
@@ -57,6 +60,7 @@ impl ToolOutput {
         Self {
             content: content.into(),
             is_error: false,
+            before: None,
         }
     }
 
@@ -64,6 +68,7 @@ impl ToolOutput {
         Self {
             content: content.into(),
             is_error: true,
+            before: None,
         }
     }
 }
@@ -390,8 +395,14 @@ fn resolve_for_write(root: &Path, raw: &str) -> Result<PathBuf> {
     Ok(path)
 }
 
+/// `path` relative to the workspace. A path that exists comes back
+/// canonical (`/private/var/…` for `/var/…` on macOS), so the workspace is
+/// compared canonical too, or the same file would be named two ways.
 fn display_path(root: &Path, path: &Path) -> String {
+    let canonical_root = root.canonicalize().ok();
     path.strip_prefix(root)
+        .ok()
+        .or_else(|| path.strip_prefix(canonical_root.as_deref()?).ok())
         .unwrap_or(path)
         .to_string_lossy()
         .into_owned()
@@ -399,6 +410,25 @@ fn display_path(root: &Path, path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A write says whether it created the file or replaced one, and a
+    /// replacement carries the old content for the interface's diff.
+    #[tokio::test]
+    async fn a_write_says_whether_the_file_was_new() {
+        let (ctx, root) = temp_ctx();
+        let registry = ToolRegistry::default();
+        let write = |content: &str| serde_json::json!({"path": "src/site.ts", "content": content});
+        let first = registry.dispatch(&ctx, "write", write("a\nb\nc\n")).await;
+        assert_eq!(first.content, "Created src/site.ts (3 lines)");
+        assert_eq!(first.before, None);
+
+        let second = registry
+            .dispatch(&ctx, "write", write("a\nB\nc\nd\n"))
+            .await;
+        assert_eq!(second.content, "Replaced src/site.ts (4 lines; +2 -1)");
+        assert_eq!(second.before.as_deref(), Some("a\nb\nc\n"));
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[tokio::test]
     async fn multi_edit_applies_every_edit_in_one_call() {

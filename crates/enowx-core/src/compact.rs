@@ -124,7 +124,7 @@ fn outcome_of(name: &str, result: &Message) -> String {
             }
         }
         // `write` and `edit` already answer in one status line
-        // ("Wrote 412 bytes to src/auth.rs", "Updated src/auth.rs at line 88").
+        // ("Created src/auth.rs (88 lines)", "Updated src/auth.rs at line 88").
         "write" | "edit" => first_line(content).unwrap_or_default(),
         // Shell results start with `exit N`; keep the code and a line count,
         // never the output itself.

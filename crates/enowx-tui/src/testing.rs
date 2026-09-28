@@ -439,6 +439,14 @@ impl TestApp {
     }
 
     /// The agent the next message asks a new session to start with.
+    /// What the file held before write call `id` replaced it, as the result
+    /// event carries it.
+    pub fn set_tool_before(&mut self, id: &str, before: &str) {
+        self.inner
+            .tool_before
+            .insert(id.to_owned(), before.to_owned());
+    }
+
     /// Give `agent` a model of its own, as `agent.models` in the config does.
     pub fn set_agent_model(&mut self, agent: &str, model: &str) {
         self.inner

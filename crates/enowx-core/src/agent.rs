@@ -1283,6 +1283,7 @@ impl Agent {
                         name: call.name.clone(),
                         content: output.content.clone(),
                         is_error: output.is_error,
+                        before: output.before.clone(),
                     })
                     .await;
                 // The transcript already has the full result; what is decided

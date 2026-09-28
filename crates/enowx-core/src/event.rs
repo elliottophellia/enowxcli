@@ -34,6 +34,9 @@ pub enum Event {
         name: String,
         content: String,
         is_error: bool,
+        /// What a written file held before the call replaced it, for the
+        /// interface to show as a diff. `None` for a new file or another tool.
+        before: Option<String>,
     },
     /// A tool result was carried forward trimmed rather than whole. Reported
     /// so a feature that quietly removes text from the model's context can be

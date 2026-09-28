@@ -148,6 +148,10 @@ pub(crate) struct App {
     /// Per-block override of `show_tool_output`. Keyed by the tool call id so
     /// re-renders keep the same open/closed state after a scroll or resize.
     pub(crate) tool_expanded: std::collections::HashMap<String, bool>,
+    /// What a file held before a `write` replaced it, by call id, so the row
+    /// can show the change as a diff. Not kept in the session file: a resumed
+    /// write shows the new content instead.
+    pub(crate) tool_before: std::collections::HashMap<String, String>,
     /// (tool_id, line_index_in_wrapped_transcript) captured by the renderer
     /// each frame so a click on the header line can toggle expansion.
     pub(crate) tool_header_markers: Vec<(String, usize)>,
@@ -330,6 +334,7 @@ impl App {
             reasoning_seq: 0,
             show_tool_output: true,
             tool_expanded: std::collections::HashMap::new(),
+            tool_before: std::collections::HashMap::new(),
             tool_header_markers: Vec::new(),
             tool_header_rects: Vec::new(),
             transcript_area: None,

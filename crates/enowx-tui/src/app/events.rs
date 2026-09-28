@@ -197,8 +197,12 @@ impl App {
                 id,
                 content,
                 is_error,
+                before,
                 ..
             } => {
+                if let Some(before) = before {
+                    self.tool_before.insert(id.clone(), before);
+                }
                 // Answered here or not, the question is over once its call
                 // has a result.
                 if self.question.as_ref().is_some_and(|q| q.id == id) {

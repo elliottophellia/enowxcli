@@ -751,11 +751,11 @@ impl Agent {
         parent: &mut Session,
         delegations: &[crate::routing::Delegation],
         events: &mpsc::Sender<Event>,
-    ) -> Vec<String> {
+    ) -> Vec<crate::event::DelegationReport> {
         let started = self.start_branches(parent, delegations, events).await;
         let reports = self.finish_branches(delegations, started, events).await;
         self.absorb_reports(parent, &reports);
-        reports.into_iter().map(|report| report.summary).collect()
+        reports
     }
 
     /// Start a branch for each delegation: records, events and the lineage the
@@ -769,6 +769,54 @@ impl Agent {
     ) -> Vec<Result<Session, crate::event::DelegationReport>> {
         let mut started = Vec::new();
         for delegation in delegations {
+            // Continuing an earlier delegation: its own session, as it left it.
+            if let Some(id) = &delegation.resume {
+                let resumed = self.store.load(id).ok().filter(|branch| {
+                    branch.parent.as_deref() == Some(parent.id.as_str())
+                        && crate::agent_def::canonical_name(&branch.agent)
+                            == crate::agent_def::canonical_name(&delegation.to)
+                });
+                let Some(branch) = resumed else {
+                    let summary = format!(
+                        "failed before changing anything: could not resume `{id}`: no delegation \
+                         of this conversation to `{}` has that session",
+                        delegation.to
+                    );
+                    let _ = events
+                        .send(Event::DelegationFinished {
+                            agent: delegation.to.clone(),
+                            summary: summary.clone(),
+                            session_id: id.clone(),
+                            failed: true,
+                        })
+                        .await;
+                    started.push(Err(crate::event::DelegationReport {
+                        agent: delegation.to.clone(),
+                        session_id: id.clone(),
+                        summary,
+                        failed: true,
+                    }));
+                    continue;
+                };
+                self.board.branch(&branch.id, &parent.id);
+                if let Some(record) = parent
+                    .delegations
+                    .iter_mut()
+                    .rev()
+                    .find(|record| record.session_id == branch.id)
+                {
+                    record.failed = false;
+                }
+                let _ = events
+                    .send(Event::DelegationStarted {
+                        agent: delegation.to.clone(),
+                        task: delegation.task.clone(),
+                        session_id: branch.id.clone(),
+                    })
+                    .await;
+                started.push(Ok(branch));
+                continue;
+            }
             let branch = parent.branch(&delegation.to);
             if let Err(error) = self.store.save(&branch) {
                 // Said on screen as well as to the caller: the delegate call
@@ -977,7 +1025,11 @@ impl Agent {
         for report in &reports {
             session.push(Message {
                 role: MessageRole::User,
-                content: crate::routing::report_message(&report.agent, &report.summary),
+                content: crate::routing::report_message_for(
+                    &report.agent,
+                    &report.session_id,
+                    &report.summary,
+                ),
                 reasoning: None,
                 tool_calls: Vec::new(),
                 attachments: Vec::new(),
@@ -1737,13 +1789,17 @@ impl Agent {
                     step += 1;
                     continue;
                 }
-                let summaries = self
+                let reports = self
                     .run_delegations(&mut session, &delegations, events)
                     .await;
-                for (delegation, summary) in delegations.iter().zip(summaries) {
+                for report in reports {
                     session.push(Message {
                         role: MessageRole::User,
-                        content: crate::routing::report_message(&delegation.to, &summary),
+                        content: crate::routing::report_message_for(
+                            &report.agent,
+                            &report.session_id,
+                            &report.summary,
+                        ),
                         reasoning: None,
                         tool_calls: Vec::new(),
                         attachments: Vec::new(),

@@ -1388,7 +1388,11 @@ one `ask` before the first wave when there was no brainstorm): `test`, \
 made. A check the user did not choose is not delegated; when they chose none, \
 there is no check wave, and your answer says the work was not tested or \
 reviewed beyond the specialists' own checks.
-Then answer the user with what was built. A wave waits only for the wave \
+Then answer the user with what was built. A part that failed, ran out of \
+steps or ended with no report is continued, not started over: delegate to the \
+same specialist with `resume` set to the session id its report ends with, and a \
+task saying what is left. It keeps what it read and changed. The same for a \
+follow-up on a part that finished. A wave waits only for the wave \
 before it. The parts of a wave run in the background: once you have delegated \
 it, end your turn with one line saying who is working on what, and do not \
 wait, poll or read their files. When they have all finished, their reports \

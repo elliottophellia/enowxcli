@@ -36,6 +36,11 @@ pub struct Delegation {
     pub writes: Vec<String>,
     /// Paths it expects to read. Overlapping reads are harmless.
     pub reads: Vec<String>,
+    /// An earlier delegation's session to continue instead of starting a new
+    /// one: the specialist keeps its transcript, what it read and changed,
+    /// and takes `task` as its next message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume: Option<String>,
 }
 
 /// Why a switch was refused. Returned to the model so it can correct itself
@@ -248,6 +253,18 @@ fn globs_overlap(a: &str, b: &str) -> bool {
 /// this pair rather than each spelling the format.
 pub fn report_message(agent: &str, summary: &str) -> String {
     format!("[delegation to `{agent}` finished]\n{summary}")
+}
+
+/// A report with the session it came from, so the orchestrator can have the
+/// same specialist continue rather than start over.
+pub fn report_message_for(agent: &str, session_id: &str, summary: &str) -> String {
+    report_message(
+        agent,
+        &format!(
+            "{summary}\n\n(session `{session_id}`: to have `{agent}` continue this work, \
+             delegate to it again with `resume` set to this id)"
+        ),
+    )
 }
 
 /// The agent and report in a `report_message`; None for any other text.
@@ -555,6 +572,15 @@ pub fn routing_schemas(hand_off: HandOff) -> Vec<serde_json::Value> {
                             "cheap | balanced | strong. Start one lower than feels \
                              right; the ladder promotes on failure."
                     },
+                    "resume": {
+                        "type": "string",
+                        "description":
+                            "the session id an earlier report gave, to have that same \
+                             specialist continue its work (after a failure, running out \
+                             of steps, or for a follow-up) instead of starting over: it \
+                             keeps everything it read and changed, and `task` is its next \
+                             message, saying what is left"
+                    },
                 },
                 "required": ["agent", "task"]
             }
@@ -666,6 +692,7 @@ pub fn parse_switch(name: &str, args: &serde_json::Value) -> Option<Switch> {
                 .and_then(Tier::parse),
             writes: list("writes"),
             reads: list("reads"),
+            resume: Some(text("resume")).filter(|id| !id.is_empty()),
         })),
         _ => None,
     }

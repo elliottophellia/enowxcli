@@ -197,18 +197,18 @@ the tool calls, not from what the agent said.
 | What came back | Do |
 |---|---|
 | Failed before changing anything (wrong agent, declined, no model) | Route it again, or re-delegate with a better brief |
-| `PARTIAL FAILURE`, or out of steps with files changed | Retry once, same specialist, the brief listing what changed (below); a second failure goes to the user with the files left half-done |
+| `PARTIAL FAILURE`, `NO REPORT`, or out of steps | Continue it: `delegate` to the same specialist with `resume` set to the session id its report ends with, and a task saying what is left (below). It keeps everything it read and changed, so nothing is redone. A second failure goes to the user with the files left half-done |
 | It needed a file another part owns | Give that change to the file's owner, or the file to one part in the next wave |
 | A contract mismatch (`/api/product` against `/api/products`) | Fix the contract in both briefs and route the change to one side |
 | A question only the user can answer | `ask` the user, with options, then re-delegate |
-| It went in circles or misread the problem | Re-delegate with the specific issue, one tier up |
+| It went in circles or misread the problem | Continue it with `resume`, naming the specific issue, one tier up; a fresh delegation only when its context is the problem |
+| A follow-up on a part that finished (a finding, a change the user asked for) | `resume` its session too: it already knows those files |
 | Findings from the check wave | Blockers and majors to the owners of the files, finding as brief; minors listed for the user |
 
 ```
-Previous attempt ran out of steps. Already changed:
-  src/app/cart/page.tsx       created
-  src/app/cart/use-cart.ts    edited
-Continue from there; do not redo work that is done.
+delegate(agent: "fe", resume: "<session id from its report>",
+  task: "You ran out of steps. The cart page is written; what is left is the
+  quantity stepper and the empty state (FR-6). Finish those, check, and report.")
 ```
 
 Never absorb a part's work yourself: you have no tool that edits code, and

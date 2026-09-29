@@ -356,9 +356,12 @@ impl App {
                 // Match on the branch id: the same agent can be delegated to
                 // more than once in a session, and marking the first one
                 // finished would leave a later run showing as done.
+                // The latest: a delegation continued with `resume` is listed
+                // again under the same branch.
                 if let Some(entry) = self
                     .delegations
                     .iter_mut()
+                    .rev()
                     .find(|d| d.session_id == session_id)
                 {
                     entry.state = outcome;

@@ -1,4 +1,4 @@
-//! The home screen: a new conversation opens on the wordmark and the
+//! The home screen: a new conversation opens on the mark and the
 //! composer in the middle, with no sidebar, and the first message brings the
 //! chat layout.
 
@@ -6,8 +6,11 @@ use enowx_tui::testing::TestApp;
 
 const W: u16 = 100;
 const H: u16 = 30;
-/// The top row of `enow`, which only the wordmark draws.
-const LETTERS: &str = "▄█▀▀█▄ ██▀▀█▄ ▄█▀▀█▄";
+/// A full row of the mark's grid: five cells two columns wide. Its top row
+/// is the first one found.
+const MARK: &str = "██ ██ ██ ██ ██";
+/// The brand's orange, the mark's centre cell.
+const BRAND: ratatui::style::Color = ratatui::style::Color::Rgb(255, 90, 54);
 
 fn ready() -> TestApp {
     let mut app = TestApp::new();
@@ -40,7 +43,7 @@ fn a_new_conversation_opens_on_the_home_screen() {
     let rows = app.render_to_text(W, H);
     assert!(app.is_home());
     assert!(app.side_area().is_none(), "no side column: {rows:#?}");
-    assert!(find(&rows, LETTERS).is_some(), "the wordmark: {rows:#?}");
+    assert!(find(&rows, MARK).is_some(), "the mark: {rows:#?}");
     let keys = rows.last().expect("the status bar");
     assert!(
         keys.contains("Ctrl+P"),
@@ -69,13 +72,13 @@ fn the_state_agent_and_model_sit_under_the_composer() {
     assert_eq!(ready_x, prompt_x + 1, "{under}");
 }
 
-/// The wordmark and the composer share a centre, and the composer sits
-/// under the wordmark, not at the bottom of the window.
+/// The mark and the composer share a centre, and the composer sits under
+/// the mark, not at the bottom of the window.
 #[test]
-fn the_composer_sits_in_the_middle_under_the_wordmark() {
+fn the_composer_sits_in_the_middle_under_the_mark() {
     let mut app = settled(ready());
     let rows = app.render_to_text(W, H);
-    let (logo_x, logo_y) = find(&rows, LETTERS).expect("the wordmark");
+    let (logo_x, logo_y) = find(&rows, MARK).expect("the mark");
     let (box_x, box_y) = find(&rows, "╭").expect("the composer");
     let box_right = rows[box_y].chars().count() - 1;
     let left = box_x;
@@ -84,13 +87,13 @@ fn the_composer_sits_in_the_middle_under_the_wordmark() {
         left.abs_diff(right) <= 1,
         "centred: {left} and {right} free"
     );
-    assert!(box_y > logo_y, "under the wordmark");
+    assert!(box_y > logo_y, "under the mark");
     assert!(
         box_y < H as usize / 2 + 4,
         "in the middle, not at the bottom"
     );
-    // The wordmark centred over the composer, to half a column.
-    let logo_centre = logo_x * 2 + 41;
+    // The mark centred over the composer, to half a column.
+    let logo_centre = logo_x * 2 + 14;
     let box_centre = box_x + box_right;
     assert!(logo_centre.abs_diff(box_centre) <= 1, "{rows:#?}");
 }
@@ -153,7 +156,7 @@ fn a_ready_app_names_the_workspace_and_version() {
 }
 
 /// The command list opens below the composer, where there is room, rather
-/// than over the wordmark.
+/// than over the mark.
 #[test]
 fn commands_open_under_the_composer() {
     let mut app = settled(ready());
@@ -162,60 +165,64 @@ fn commands_open_under_the_composer() {
     let (_, box_bottom) = find(&rows, "╰").expect("the composer");
     let (_, list) = find(&rows, "COMMANDS").expect("the command list");
     assert_eq!(list, box_bottom + 1, "{rows:#?}");
-    assert!(find(&rows, LETTERS).is_some(), "the wordmark stays");
+    assert!(find(&rows, MARK).is_some(), "the mark stays");
 }
 
-/// A short window gives up the wordmark, never the composer.
+/// A short window gives up the mark, never the composer.
 #[test]
 fn a_short_window_keeps_the_composer() {
     for (w, h) in [(60, 12), (30, 10), (20, 8)] {
         let mut app = settled(ready());
         let rows = app.render_to_text(w, h);
-        assert!(find(&rows, LETTERS).is_none(), "{w}x{h}: {rows:#?}");
+        assert!(find(&rows, MARK).is_none(), "{w}x{h}: {rows:#?}");
         assert!(find(&rows, "❯").is_some(), "{w}x{h}: {rows:#?}");
     }
 }
 
-/// The letters fade in during the opening and are the text colour after it.
+/// The centre cell lights first, in the brand's orange, and stays lit.
 #[test]
-fn the_letters_fade_in() {
+fn the_centre_lights_first_and_stays() {
     let mut app = settled(ready());
     let rows = app.render_to_text(W, H);
-    let (x, y) = find(&rows, LETTERS).expect("the wordmark");
-    // The `█` after the first `▄`: both of its pixels are the `e`.
-    let (x, y) = (x as u16 + 1, y as u16);
-    let text = app.theme_colour("text");
-    assert_eq!(app.cell_colours(W, H, x, y).1, text, "settled");
-    app.home_at(0.05);
-    let (symbol, fg, _) = app.cell_colours(W, H, x, y);
-    assert!(
-        symbol.trim().is_empty() || fg != text,
-        "still fading in at 0.05s: {symbol:?} {fg:?}"
+    let (x, y) = find(&rows, MARK).expect("the mark");
+    let centre = (x as u16 + 6, y as u16 + 3);
+    app.home_at(0.02);
+    assert_ne!(
+        app.cell_colours(W, H, centre.0, centre.1).1,
+        BRAND,
+        "not yet"
     );
+    for at in [2.0, 3.8, 6.0] {
+        app.home_at(at);
+        assert_eq!(
+            app.cell_colours(W, H, centre.0, centre.1).1,
+            BRAND,
+            "at {at}s"
+        );
+    }
 }
 
-/// Once the opening is over, only the dot where the strokes cross moves.
+/// Around it the X lights outward, holds, goes out and lights again: the
+/// screen keeps a slow loop while it waits.
 #[test]
-fn the_dot_breathes() {
+fn the_x_lights_and_goes_out_in_a_loop() {
     let mut app = settled(ready());
     let rows = app.render_to_text(W, H);
-    let (_, y) = find(&rows, LETTERS).expect("the wordmark");
-    let x = rows[y].chars().count() - 1;
-    let (x, y) = (x as u16, y as u16);
-    app.home_at(10.0);
-    let (symbol, one, _) = app.cell_colours(W, H, x, y);
-    assert_eq!(symbol, "█", "the dot");
-    app.home_at(11.2);
-    let (_, other, _) = app.cell_colours(W, H, x, y);
-    assert_ne!(one, other, "half a breath later it has changed");
-    let letter = find(&rows, LETTERS).map(|(x, _)| x as u16 + 1).unwrap();
-    app.home_at(10.0);
-    let still = app.cell_colours(W, H, letter, y).1;
-    app.home_at(11.2);
+    let (x, y) = find(&rows, MARK).expect("the mark");
+    let corner = (x as u16, y as u16);
+    let grid_cell = (x as u16 + 3, y as u16);
+    let text = app.theme_colour("text");
+    app.home_at(2.0);
+    assert_eq!(app.cell_colours(W, H, corner.0, corner.1).1, text, "lit");
+    let grid = app.cell_colours(W, H, grid_cell.0, grid_cell.1).1;
+    assert_ne!(grid, text, "the rest of the grid stays faint");
+    app.home_at(3.8);
+    assert_eq!(app.cell_colours(W, H, corner.0, corner.1).1, grid, "out");
+    app.home_at(6.0);
     assert_eq!(
-        app.cell_colours(W, H, letter, y).1,
-        still,
-        "the letters stay"
+        app.cell_colours(W, H, corner.0, corner.1).1,
+        text,
+        "lit again"
     );
 }
 
@@ -306,4 +313,19 @@ fn the_empty_composer_says_what_it_is_for() {
     let rows = app.render_to_text(W, H);
     assert!(find(&rows, hint).is_none(), "{rows:#?}");
     assert!(find(&rows, "fix the login bug").is_some());
+}
+
+/// While a turn runs, the mark in braille turns in front of the state.
+#[test]
+fn a_running_turn_shows_the_mark_turning() {
+    let mut app = TestApp::in_conversation();
+    let idle = app.status_bar(W, H);
+    assert!(!idle.contains('⡱'), "{idle}");
+    let _cancel = app.start_fake_turn();
+    let frames = ["⠰⠆", "⡱⢎", "⠀⠀"];
+    let bar = app.status_bar(W, H);
+    assert!(
+        frames.iter().any(|f| bar.contains(&format!("{f} "))) && bar.contains("WORKING"),
+        "{bar}"
+    );
 }

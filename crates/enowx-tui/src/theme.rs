@@ -3,6 +3,9 @@
 
 use ratatui::style::Color;
 
+/// The brand's orange: the centre cell of the mark, on every theme.
+pub const BRAND: Color = Color::Rgb(255, 90, 54);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Theme {
     pub name: &'static str,

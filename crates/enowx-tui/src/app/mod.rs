@@ -503,7 +503,7 @@ impl App {
     }
 
     pub(crate) fn spinner(&self) -> &'static str {
-        let frame = self.activity_since.elapsed().as_millis() / 90;
+        let frame = self.activity_since.elapsed().as_millis() / 120;
         SPINNER[frame as usize % SPINNER.len()]
     }
 

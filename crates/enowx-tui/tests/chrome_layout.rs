@@ -200,7 +200,12 @@ fn the_status_bar_leads_with_the_state() {
 
     app.start_fake_turn();
     let busy = app.status_bar(W, H);
-    assert!(busy.trim_start().starts_with("WORKING"), "busy: {busy}");
+    // After the mark, which turns in braille in front of it.
+    let state = busy
+        .trim_start()
+        .trim_start_matches(|c| ('\u{2800}'..='\u{28ff}').contains(&c))
+        .trim_start();
+    assert!(state.starts_with("WORKING"), "busy: {busy}");
     assert!(!busy.contains("READY"), "and not both at once: {busy}");
 }
 

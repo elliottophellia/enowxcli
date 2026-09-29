@@ -81,4 +81,6 @@ impl Activity {
     }
 }
 
-pub(crate) const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+/// The mark in braille, as the working indicator: its centre lights, then the
+/// whole X, which holds and goes out from the ends inward. Two columns wide.
+pub(crate) const SPINNER: [&str; 8] = ["⠰⠆", "⡱⢎", "⡱⢎", "⡱⢎", "⡱⢎", "⡱⢎", "⠰⠆", "⠀⠀"];

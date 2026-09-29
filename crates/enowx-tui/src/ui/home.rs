@@ -2,7 +2,7 @@
 //!
 //! No sidebar and no transcript box. Until the first message there is
 //! nothing for them to show, so the window holds one block in its middle:
-//! the wordmark, the composer, and under it the state, agent and model the
+//! the mark, the composer, and under it the state, agent and model the
 //! status bar shows everywhere else, with where the agent will work (or what
 //! to set up before it can) and the version. The status bar keeps only its
 //! keys, on the columns they have in the chat layout.
@@ -14,51 +14,33 @@ use super::*;
 use ratatui::style::Color;
 use std::time::Instant;
 
-/// The enowX wordmark, one character per pixel: `#` a letter, `b` the X's
-/// long stroke, `s` its short one, `o` the dot where they cross.
-///
-/// Drawn from the brand wordmark (`assets/brand/logos`) at two-pixel strokes,
-/// the weight the letters have at this size. The SVG's own paths rasterised
-/// at this size filled the whole X: its strokes are a third of its width.
-const WORDMARK: [&str; 10] = [
-    "...............................bb......ss",
-    "................................bb....ss.",
-    ".................................bb..ss..",
-    "..................................bbss...",
-    ".####..#####...####..##....##......oo....",
-    "##..##.##..##.##..##.##....##......oo....",
-    "######.##..##.##..##.##.##.##.....ssbb...",
-    "##.....##..##.##..##.##.##.##....ss..bb..",
-    "##..##.##..##.##..##.########...ss....bb.",
-    ".####..##..##..####...##..##...ss......bb",
-];
+/// The enowX mark: an X of lit cells on a 5 by 5 grid, its centre cell in
+/// the brand colour. Cells are 2 by 2 pixels with a pixel between them, and a
+/// character cell holds two pixel rows, so the mark is 14 columns by 7 rows.
+const CELLS: usize = 5;
+const CELL: usize = 2;
+const PITCH: usize = CELL + 1;
+const LOGO_W: u16 = (CELLS * PITCH - 1) as u16;
+const LOGO_H: u16 = LOGO_W / 2;
 
-/// The wordmark's size on screen: a character cell holds two pixel rows.
-const LOGO_W: u16 = 41;
-const LOGO_H: u16 = 5;
-
-/// The composer's narrowest: eight columns past the wordmark on each side.
-const HOME_MIN_W: u16 = LOGO_W + 16;
-/// And its widest, so a message on a very wide window still wraps at a
-/// measure that can be read back.
+/// The composer's narrowest, and its widest, so a message on a very wide
+/// window still wraps at a measure that can be read back.
+const HOME_MIN_W: u16 = 57;
 const HOME_MAX_W: u16 = 120;
 /// What the empty composer says it is for.
 const PLACEHOLDER: &str = "Ask, or type / for commands";
 
-/// The opening, in seconds from the moment the screen went up. The X's long
-/// stroke draws first, top to bottom; the short one follows from both ends
-/// towards the middle; then the dot where they cross lights up. The letters
-/// fade in over the same stretch, a beat apart.
-const LONG_STROKE_ROW: f32 = 0.035;
-const SHORT_STROKE_FROM: f32 = 0.30;
-const SHORT_STROKE_ROW: f32 = 0.075;
-const DOT_ON: f32 = 0.60;
-const DOT_LIT: f32 = 0.80;
-const LETTER_FADE: f32 = 0.60;
-const LETTER_STAGGER: f32 = 0.05;
-/// After the opening only the dot moves: one slow breath, so the screen
-/// reads as ready without anything competing with the composer.
-const BREATH: f32 = 2.4;
+/// The mark's motion, in seconds, repeated for as long as the screen is up.
+/// The centre lights first and stays; the rings around it light outward, hold,
+/// and go out inward, and the next round lights them again.
+const ROUND: f32 = 4.0;
+const CENTRE_ON: f32 = 0.15;
+const RING_STAGGER: f32 = 0.2;
+const RING_FADE_IN: f32 = 0.22;
+const RINGS_OUT: f32 = 3.0;
+const RING_FADE_OUT: f32 = 0.3;
+/// How much of the text colour a cell of the grid keeps while it is not lit.
+const GRID: f32 = 0.12;
 
 pub(super) fn draw_home(frame: &mut Frame, app: &mut App, area: Rect) {
     let elapsed = app
@@ -75,7 +57,7 @@ pub(super) fn draw_home(frame: &mut Frame, app: &mut App, area: Rect) {
     draw_keys(frame, app, status);
 
     const FRAME: u16 = 2;
-    // The wordmark goes first when space runs out; the composer never does.
+    // The mark goes first when space runs out; the composer never does.
     let show_logo = body.width >= LOGO_W + 2 && body.height >= LOGO_H + FRAME + 8;
     let logo_rows = if show_logo { LOGO_H + 1 } else { 0 };
     // Sized for a one-line composer, and for the line under it; a second
@@ -94,7 +76,7 @@ pub(super) fn draw_home(frame: &mut Frame, app: &mut App, area: Rect) {
     let (input, row, col) = input_rows(&app.input, app.cursor, field_w);
     let ih = (input.len().clamp(1, 8) as u16 + FRAME).min((body.height / 2).max(FRAME + 1));
     // Centred for a one-line composer. One that grows with the message grows
-    // down, so the wordmark stays put, and moves up only when it would pass
+    // down, so the mark stays put, and moves up only when it would pass
     // the bottom.
     let top = (body.y + body.height.saturating_sub(block(info_h)) / 2)
         .min(body.bottom().saturating_sub(logo_rows + ih + info_h))
@@ -102,7 +84,7 @@ pub(super) fn draw_home(frame: &mut Frame, app: &mut App, area: Rect) {
 
     if show_logo {
         let at = Rect::new(body.x + (body.width - LOGO_W) / 2, top, LOGO_W, LOGO_H);
-        draw_wordmark(frame, &app.theme, at, elapsed);
+        draw_mark(frame, &app.theme, at, elapsed);
     }
     let boxed = Rect::new(
         body.x + body.width.saturating_sub(box_w) / 2,
@@ -120,7 +102,7 @@ pub(super) fn draw_home(frame: &mut Frame, app: &mut App, area: Rect) {
     let matches = app.command_matches();
     if !matches.is_empty() {
         // Under the composer, in place of the lines it covers, and over the
-        // wordmark only when the window is too short for that.
+        // mark only when the window is too short for that.
         let wanted = matches.len().min(10) as u16 + FRAME;
         let above = boxed.y.saturating_sub(body.y);
         if below > FRAME {
@@ -255,7 +237,7 @@ fn tail(text: &str, width: usize) -> String {
     format!("…{}", keep.iter().collect::<String>())
 }
 
-fn draw_wordmark(frame: &mut Frame, theme: &Theme, at: Rect, elapsed: f32) {
+fn draw_mark(frame: &mut Frame, theme: &Theme, at: Rect, elapsed: f32) {
     let buf = frame.buffer_mut();
     let area = buf.area;
     for row in 0..LOGO_H {
@@ -278,59 +260,30 @@ fn draw_wordmark(frame: &mut Frame, theme: &Theme, at: Rect, elapsed: f32) {
     }
 }
 
-/// One pixel of the wordmark at `elapsed` seconds into the opening, or None
-/// while it has not appeared.
+/// One pixel of the mark at `elapsed` seconds, or None between cells.
 fn pixel(theme: &Theme, x: usize, y: usize, elapsed: f32) -> Option<Color> {
-    match WORDMARK[y].as_bytes()[x] {
-        b'#' => {
-            let letter = (x / 7).min(3) as f32;
-            let shown = ease_out((elapsed - letter * LETTER_STAGGER) / LETTER_FADE);
-            (shown > 0.0).then(|| mix(theme.canvas, theme.text, shown))
-        }
-        b'b' => long_stroke(theme, y, elapsed),
-        b's' => {
-            let from_end = y.min(WORDMARK.len() - 1 - y) as f32;
-            let shade = (y / 2).min(LOGO_H as usize - 1 - y / 2) as f32;
-            (elapsed >= SHORT_STROKE_FROM + from_end * SHORT_STROKE_ROW)
-                .then(|| mix(theme.accent2, theme.accent, 0.25 * shade / 2.0))
-        }
-        b'o' => {
-            // Until it lights, the dot is the long stroke it sits on.
-            if elapsed < DOT_ON {
-                return long_stroke(theme, y, elapsed);
-            }
-            // One colour for both of its pixel rows: it is a single mark.
-            let stroke = long_stroke_colour(theme, DOT_ROW);
-            if elapsed < DOT_LIT {
-                return Some(mix(
-                    stroke,
-                    theme.text,
-                    (elapsed - DOT_ON) / (DOT_LIT - DOT_ON),
-                ));
-            }
-            let breath = 0.5 + 0.5 * (std::f32::consts::TAU * (elapsed - DOT_LIT) / BREATH).cos();
-            Some(mix(stroke, theme.text, 0.35 + 0.65 * breath))
-        }
-        _ => None,
+    if x % PITCH == CELL || y % PITCH == CELL {
+        return None;
     }
+    let (col, row) = (x / PITCH, y / PITCH);
+    let grid = mix(theme.canvas, theme.text, GRID);
+    if row != col && row != CELLS - 1 - col {
+        return Some(grid);
+    }
+    let ring = row.abs_diff(CELLS / 2).max(col.abs_diff(CELLS / 2));
+    if ring == 0 {
+        let lit = ease_out((elapsed - CENTRE_ON) / RING_FADE_IN);
+        return Some(mix(grid, crate::theme::BRAND, lit));
+    }
+    Some(mix(grid, theme.text, ring_lit(ring, elapsed % ROUND)))
 }
 
-fn long_stroke(theme: &Theme, y: usize, elapsed: f32) -> Option<Color> {
-    (elapsed >= y as f32 * LONG_STROKE_ROW).then(|| long_stroke_colour(theme, y))
-}
-
-/// The pixel row the dot starts on.
-const DOT_ROW: usize = 4;
-
-/// Towards the second accent as it descends, the way the brand's stroke
-/// runs from sky to indigo. Stepped per character row, not per pixel row,
-/// so a cell's two halves share a colour and draw as one block.
-fn long_stroke_colour(theme: &Theme, y: usize) -> Color {
-    mix(
-        theme.accent,
-        theme.accent2,
-        0.35 * (y / 2) as f32 / (LOGO_H - 1) as f32,
-    )
+/// How lit a ring is, from 0 to 1, `t` seconds into a round: on from the
+/// centre outward, off from the outside inward.
+fn ring_lit(ring: usize, t: f32) -> f32 {
+    let on = CENTRE_ON + ring as f32 * RING_STAGGER;
+    let off = RINGS_OUT + (CELLS / 2 - ring) as f32 * RING_STAGGER;
+    ease_out((t - on) / RING_FADE_IN) * (1.0 - ease_out((t - off) / RING_FADE_OUT))
 }
 
 fn ease_out(progress: f32) -> f32 {
@@ -357,11 +310,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_wordmark_is_one_rectangle() {
-        for row in WORDMARK {
-            assert_eq!(row.len(), LOGO_W as usize, "{row}");
-        }
-        assert_eq!(WORDMARK.len(), 2 * LOGO_H as usize);
+    fn the_rings_light_outward_and_go_out_inward_every_round() {
+        assert_eq!((LOGO_W, LOGO_H), (14, 7));
+        assert_eq!(ring_lit(1, 0.0), 0.0);
+        assert!(ring_lit(1, 0.6) > ring_lit(2, 0.6), "the inner ring first");
+        assert_eq!(ring_lit(2, 2.0), 1.0, "both held");
+        assert!(
+            ring_lit(2, 3.35) < ring_lit(1, 3.35),
+            "the outer ring out first"
+        );
+        assert_eq!(ring_lit(1, 3.9), 0.0, "dark before the next round");
     }
 
     #[test]

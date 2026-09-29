@@ -105,6 +105,9 @@ tokens and two or three classes every section uses, and nothing sets its own:
   `margin-top: auto`).
 - The page's first content has room above it: the header's own height, or
   `--section` at the top of the first section.
+- With Tailwind, the same measures are theme tokens and a `page` utility
+  (`ui-stack-tailwind`, section 4), and its table maps each line below to
+  classes.
 
 ### Reading `preview`'s layout lines
 

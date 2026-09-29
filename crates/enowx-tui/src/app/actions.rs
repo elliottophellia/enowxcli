@@ -393,6 +393,8 @@ impl App {
             "attach" => self.open_attach()?,
             "typesafe" => self.open_typesafe(),
             "theme" => self.open_themes(),
+            "effort" if !args.trim().is_empty() => self.choose_effort(args)?,
+            "effort" => self.open_effort()?,
             "skills" => self.open_skills(),
             "mcp" => self.open_mcp(),
             "compact" => self.start_compact()?,
@@ -424,6 +426,67 @@ impl App {
         }
         Ok(())
     }
+    /// The thinking efforts the model in use offers, as models.dev lists
+    /// them, with the provider's default first.
+    pub(crate) fn open_effort(&mut self) -> Result<()> {
+        let model = &self.config.model;
+        // Said on the status line rather than as an error: a model without
+        // levels is a fact about it, not something that went wrong.
+        if model.efforts.is_empty() {
+            self.status = if model.active.is_empty() {
+                "No model is in use: pick one with /model first".to_owned()
+            } else {
+                format!(
+                    "{} has no thinking effort to choose (models.dev lists none)",
+                    model.active
+                )
+            };
+            return Ok(());
+        }
+        self.modal_items = std::iter::once((
+            "default".to_owned(),
+            "Whatever the provider does when none is asked for".to_owned(),
+        ))
+        .chain(model.efforts.iter().map(|level| {
+            let what = match level.as_str() {
+                "none" => "No thinking: fastest, for simple turns",
+                "minimal" => "Barely any thinking",
+                "low" => "Light thinking: quick and cheap",
+                "medium" => "Balanced",
+                "high" => "Thorough: slower, more tokens",
+                "xhigh" => "Very thorough",
+                "max" => "As much as the model allows: slowest and costliest",
+                _ => "",
+            };
+            (level.clone(), what.to_owned())
+        }))
+        .collect();
+        self.modal_cursor = self
+            .modal_items
+            .iter()
+            .position(|(level, _)| {
+                *level == model.effort || (model.effort.is_empty() && level == "default")
+            })
+            .unwrap_or(0);
+        self.modal = Modal::Effort;
+        Ok(())
+    }
+
+    /// Ask the model in use to think at `level` from the next call on.
+    pub(crate) fn choose_effort(&mut self, level: &str) -> Result<()> {
+        let mut next = self.config.clone();
+        next.set_effort(level)?;
+        let shown = if next.model.effort.is_empty() {
+            "provider default".to_owned()
+        } else {
+            next.model.effort.clone()
+        };
+        self.adopt(next);
+        self.modal = Modal::None;
+        self.status = format!("thinking effort: {shown}");
+        Ok(())
+    }
+
     pub(crate) fn open_themes(&mut self) {
         self.modal = Modal::Themes;
         self.modal_cursor = THEMES
@@ -474,6 +537,12 @@ impl App {
             }
             Modal::Themes => {
                 self.select_theme(self.modal_cursor)?;
+                self.modal = Modal::None;
+            }
+            Modal::Effort => {
+                if let Some((level, _)) = self.modal_items.get(self.modal_cursor).cloned() {
+                    return self.choose_effort(&level);
+                }
                 self.modal = Modal::None;
             }
             Modal::Attach => {

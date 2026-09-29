@@ -48,6 +48,52 @@ pub struct CatalogModel {
     pub cost: CatalogCost,
     #[serde(default)]
     pub modalities: CatalogModalities,
+    /// How the model's thinking can be set: effort levels, a token budget,
+    /// or on and off.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reasoning_options: Vec<ReasoningOption>,
+}
+
+/// One way a model's thinking can be set, as models.dev lists it:
+/// `{"type":"effort","values":["low","high"]}`, `{"type":"budget_tokens",
+/// "min":1024}` or `{"type":"toggle"}`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReasoningOption {
+    #[serde(rename = "type", default)]
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub values: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<u64>,
+}
+
+impl CatalogModel {
+    /// The thinking efforts the user can choose for this model, weakest
+    /// first: the effort levels it lists; `low`, `medium` and `high` for one
+    /// set by a token budget, which OpenAI-compatible gateways map to one;
+    /// and `none` first when thinking can be turned off. Empty for a model
+    /// that does not think or says nothing about how.
+    pub fn efforts(&self) -> Vec<String> {
+        if !self.reasoning {
+            return Vec::new();
+        }
+        let has = |kind: &str| self.reasoning_options.iter().any(|o| o.kind == kind);
+        let mut levels: Vec<String> = self
+            .reasoning_options
+            .iter()
+            .find(|o| o.kind == "effort")
+            .map(|o| o.values.clone())
+            .unwrap_or_default();
+        if levels.is_empty() && has("budget_tokens") {
+            levels = ["low", "medium", "high"].map(String::from).to_vec();
+        }
+        if has("toggle") && !levels.iter().any(|l| l == "none") {
+            levels.insert(0, "none".to_owned());
+        }
+        levels
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -94,7 +140,14 @@ pub struct Catalog {
     /// Unix seconds the cache was written. Used to enforce TTL.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fetched_at: Option<u64>,
+    /// Which fields the cache was written with. A cache from before a field
+    /// was read lacks it, so it counts as stale and is fetched again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<u32>,
 }
+
+/// Bumped whenever `CatalogModel` reads a new field from models.dev.
+pub const CATALOG_SCHEMA: u32 = 2;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CatalogProvider {
@@ -147,6 +200,9 @@ impl Catalog {
     }
 
     fn is_stale(&self) -> bool {
+        if self.schema != Some(CATALOG_SCHEMA) {
+            return true;
+        }
         let Some(ts) = self.fetched_at else {
             return true;
         };
@@ -165,6 +221,7 @@ impl Catalog {
             .build()?;
         let text = client.get(CATALOG_URL).send().await?.text().await?;
         let mut cat: Catalog = serde_json::from_str(&text)?;
+        cat.schema = Some(CATALOG_SCHEMA);
         cat.fetched_at = Some(
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -287,6 +344,25 @@ pub fn official(provider: &str, model_id: &str) -> Option<CatalogModel> {
             input: input_modes,
             output: vec!["text".to_owned()],
         },
+        // As models.dev lists DeepSeek's own V4 models.
+        reasoning_options: vec![
+            ReasoningOption {
+                kind: "toggle".to_owned(),
+                ..ReasoningOption::default()
+            },
+            ReasoningOption {
+                kind: "effort".to_owned(),
+                values: if vision {
+                    &["low", "high", "max"][..]
+                } else {
+                    &["high", "max"][..]
+                }
+                .iter()
+                .map(|v| (*v).to_owned())
+                .collect(),
+                ..ReasoningOption::default()
+            },
+        ],
     })
 }
 
@@ -349,6 +425,47 @@ mod tests {
     fn fuzzy_matches_close_variants() {
         assert!(fuzzy_score("claude-sonnet-4.5", "claude-sonnet-4-5") >= 70);
         assert!(fuzzy_score("gpt-4o-2024-11", "gpt-4o") >= 70);
+    }
+
+    fn thinking(options: serde_json::Value) -> CatalogModel {
+        CatalogModel {
+            reasoning: true,
+            reasoning_options: serde_json::from_value(options).unwrap(),
+            ..CatalogModel::default()
+        }
+    }
+
+    #[test]
+    fn efforts_follow_what_models_dev_lists() {
+        let effort =
+            thinking(serde_json::json!([{ "type": "effort", "values": ["low", "high", "max"] }]));
+        assert_eq!(effort.efforts(), ["low", "high", "max"]);
+        let budget = thinking(serde_json::json!([{ "type": "budget_tokens", "min": 1024 }]));
+        assert_eq!(budget.efforts(), ["low", "medium", "high"]);
+        let both = thinking(
+            serde_json::json!([{ "type": "toggle" }, { "type": "effort", "values": ["low", "high"] }]),
+        );
+        assert_eq!(both.efforts(), ["none", "low", "high"]);
+        let toggle = thinking(serde_json::json!([{ "type": "toggle" }]));
+        assert_eq!(toggle.efforts(), ["none"]);
+        let silent = CatalogModel {
+            reasoning: false,
+            ..effort.clone()
+        };
+        assert!(silent.efforts().is_empty(), "a model that does not think");
+        assert_eq!(
+            official("deepseek", "deepseek-v4-pro").unwrap().efforts(),
+            ["none", "high", "max"]
+        );
+    }
+
+    #[test]
+    fn an_old_cache_without_the_new_fields_is_stale() {
+        let old = Catalog {
+            fetched_at: Some(u64::MAX / 2),
+            ..Catalog::default()
+        };
+        assert!(old.is_stale());
     }
 
     fn priced(input: f64) -> CatalogModel {

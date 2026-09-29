@@ -27,7 +27,12 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
     );
     let per_row = if matches!(
         app.modal,
-        Modal::Agents | Modal::Message | Modal::TypeSafe | Modal::Providers | Modal::Themes
+        Modal::Agents
+            | Modal::Message
+            | Modal::TypeSafe
+            | Modal::Providers
+            | Modal::Themes
+            | Modal::Effort
     ) {
         2
     } else {

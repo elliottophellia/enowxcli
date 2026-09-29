@@ -137,6 +137,11 @@ pub struct Provider {
     api_key: String,
     model: String,
     temperature: Option<f32>,
+    /// The thinking effort to ask for; None leaves the provider's default.
+    effort: Option<String>,
+    /// OpenRouter takes the effort as `reasoning.effort`, not
+    /// `reasoning_effort`.
+    nested_effort: bool,
     active: bool,
     /// Send earlier turns' reasoning back as `reasoning_content`; see
     /// `Message::to_wire_with`.
@@ -153,6 +158,7 @@ impl Provider {
         let mut provider = Self::for_connection(&connection.unwrap_or_default())?;
         provider.model = model.map(|model| model.model).unwrap_or_default();
         provider.temperature = config.model.temperature;
+        provider.effort = (!config.model.effort.is_empty()).then(|| config.model.effort.clone());
         Ok(provider)
     }
 
@@ -168,6 +174,8 @@ impl Provider {
             api_key: connection.key.clone().unwrap_or_default(),
             model: String::new(),
             temperature: None,
+            effort: None,
+            nested_effort: connection.base_url.contains("openrouter.ai"),
             active: !connection.base_url.trim().is_empty(),
             pass_back_reasoning: connection.is_deepseek(),
         })
@@ -336,6 +344,13 @@ impl Provider {
         });
         if let Some(temperature) = self.temperature {
             payload["temperature"] = json!(temperature);
+        }
+        if let Some(effort) = &self.effort {
+            if self.nested_effort {
+                payload["reasoning"] = json!({ "effort": effort });
+            } else {
+                payload["reasoning_effort"] = json!(effort);
+            }
         }
         if !tools.is_empty() {
             payload["tools"] = json!(tools);

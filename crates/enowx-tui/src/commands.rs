@@ -1,9 +1,10 @@
-pub(crate) const COMMANDS: [(&str, &str); 19] = [
+pub(crate) const COMMANDS: [(&str, &str); 20] = [
     ("help", "Show every command"),
     ("new", "Start a fresh session"),
     ("resume", "Reopen a saved session in this workspace"),
     ("agent", "Show the roster or switch agent"),
     ("model", "Discover or enter a model"),
+    ("effort", "Choose how hard the model thinks"),
     ("provider", "Edit provider settings"),
     ("attach", "Attach an image from the workspace"),
     ("theme", "Switch UI theme"),
@@ -51,6 +52,7 @@ const PALETTE: [(&str, &[(&str, &str)]); 5] = [
         &[
             ("agent", "Agents"),
             ("model", "Model"),
+            ("effort", "Thinking effort"),
             ("provider", "Provider"),
             ("typesafe", "TypeSafe"),
         ],

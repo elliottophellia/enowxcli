@@ -237,7 +237,74 @@ impl Config {
         let facts = self.facts(&model);
         self.model.active = model.to_string();
         self.model.set_facts(facts);
+        self.model.efforts = self.efforts(&model);
+        let chosen = crate::model_state::ModelState::load()
+            .effort
+            .get(&self.model.active)
+            .cloned()
+            .unwrap_or_default();
+        self.model.effort = if self.model.efforts.contains(&chosen) {
+            chosen
+        } else {
+            String::new()
+        };
         true
+    }
+
+    /// Choose the thinking effort for the model in use, and keep it for the
+    /// next time that model is picked. An empty `effort` goes back to the
+    /// provider's default. Fails for a level the model does not offer.
+    pub fn set_effort(&mut self, effort: &str) -> anyhow::Result<()> {
+        let effort = effort.trim().to_ascii_lowercase();
+        let effort = if effort == "default" {
+            String::new()
+        } else {
+            effort
+        };
+        anyhow::ensure!(
+            effort.is_empty() || self.model.efforts.contains(&effort),
+            "{} offers {}",
+            if self.model.active.is_empty() {
+                "this model"
+            } else {
+                &self.model.active
+            },
+            if self.model.efforts.is_empty() {
+                "no effort levels".to_owned()
+            } else {
+                self.model.efforts.join(", ")
+            }
+        );
+        let mut state = crate::model_state::ModelState::load();
+        if effort.is_empty() {
+            state.effort.remove(&self.model.active);
+        } else {
+            state
+                .effort
+                .insert(self.model.active.clone(), effort.clone());
+        }
+        state.save()?;
+        self.model.effort = effort;
+        Ok(())
+    }
+
+    /// The thinking efforts `model` offers, from the catalogue listing of
+    /// the provider that serves it, or DeepSeek's own figures.
+    pub fn efforts(&self, model: &ModelRef) -> Vec<String> {
+        let catalog_id = self
+            .connection(&model.provider)
+            .map(|connection| connection.catalog_id())
+            .unwrap_or("");
+        if let Some(own) = official(catalog_id, &model.model) {
+            return own.efforts();
+        }
+        let catalog = Catalog::shared();
+        let listed = if catalog_id.is_empty() {
+            catalog.lookup(&model.model)
+        } else {
+            catalog.lookup_for(catalog_id, &model.model)
+        };
+        listed.map(CatalogModel::efforts).unwrap_or_default()
     }
 
     /// Call `model` at `base_url` with `api_key`, for this process only:

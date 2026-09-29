@@ -31,6 +31,8 @@ pub enum Modal {
     /// A model entered by hand, for a provider whose list lacks it.
     ModelManual,
     Themes,
+    /// The thinking efforts the model in use offers.
+    Effort,
     Attach,
     /// Floating list of every command, searchable. Distinct from the
     /// inline list that appears above the composer when the input starts
@@ -57,6 +59,7 @@ impl Modal {
             Modal::Providers => " PROVIDERS ",
             Modal::Models => " MODELS ",
             Modal::Themes => " THEME ",
+            Modal::Effort => " THINKING EFFORT ",
             Modal::Attach => " ATTACH IMAGE ",
             Modal::Skills => " SKILLS ",
             Modal::Mcp => " MCP SERVERS ",

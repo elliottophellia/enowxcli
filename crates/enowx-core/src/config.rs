@@ -163,6 +163,14 @@ pub struct ModelConfig {
     /// True when the model produces a reasoning trace.
     #[serde(skip)]
     pub reasoning: bool,
+    /// The thinking efforts this model offers, weakest first, from its
+    /// models.dev entry. Empty when it offers no choice.
+    #[serde(skip)]
+    pub efforts: Vec<String>,
+    /// The effort chosen for it, one of `efforts`; empty uses the
+    /// provider's default. Kept per model in `model.json`.
+    #[serde(skip)]
+    pub effort: String,
 }
 
 impl Default for ModelConfig {
@@ -179,6 +187,8 @@ impl Default for ModelConfig {
             vision: false,
             tool_call: true,
             reasoning: false,
+            efforts: Vec::new(),
+            effort: String::new(),
         };
         model.set_facts(facts);
         model
@@ -466,6 +476,8 @@ impl Config {
         }
         self.model.active.clear();
         self.model.set_facts(ModelFacts::default());
+        self.model.efforts.clear();
+        self.model.effort.clear();
     }
 
     fn validate(&self) -> Result<()> {

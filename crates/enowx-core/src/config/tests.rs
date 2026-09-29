@@ -413,3 +413,49 @@ fn an_endpoint_from_the_environment_is_never_written() {
     assert!(!written.contains("sk-env"), "{written}");
     assert!(home.read("auth.json").is_empty());
 }
+
+/// A model's thinking efforts come from its models.dev entry, and the one
+/// chosen is kept for that model in `model.json`.
+#[test]
+fn thinking_efforts_come_from_the_catalogue_and_the_choice_is_kept() {
+    let home = Home::new("effort");
+    let fetched = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    home.write(
+        "models.json",
+        &serde_json::json!({
+            "schema": crate::catalog::CATALOG_SCHEMA,
+            "fetched_at": fetched,
+            "openai": { "id": "openai", "models": {
+                "gpt-5": { "id": "gpt-5", "reasoning": true, "reasoning_options": [
+                    { "type": "effort", "values": ["minimal", "low", "medium", "high"] }
+                ]},
+                "gpt-4o": { "id": "gpt-4o", "reasoning": false }
+            }}
+        })
+        .to_string(),
+    );
+    let mut config = Config::default();
+    assert!(config.use_model("openai/gpt-5"));
+    assert_eq!(config.model.efforts, ["minimal", "low", "medium", "high"]);
+    assert_eq!(config.model.effort, "");
+    config.set_effort("high").unwrap();
+    assert!(home
+        .read("model.json")
+        .contains("\"openai/gpt-5\": \"high\""));
+    assert!(
+        config.set_effort("xhigh").is_err(),
+        "not a level gpt-5 offers"
+    );
+
+    let mut again = Config::default();
+    assert!(again.use_model("openai/gpt-5"));
+    assert_eq!(again.model.effort, "high", "kept for the model");
+    assert!(again.use_model("openai/gpt-4o"));
+    assert!(again.model.efforts.is_empty() && again.model.effort.is_empty());
+    again.use_model("openai/gpt-5");
+    again.set_effort("default").unwrap();
+    assert!(!home.read("model.json").contains("openai/gpt-5\": "));
+}

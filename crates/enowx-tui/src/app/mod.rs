@@ -557,8 +557,11 @@ impl App {
         let m = self.config.model.active.trim();
         if m.is_empty() {
             "no model".to_string()
-        } else {
+        } else if self.config.model.effort.is_empty() {
             m.to_string()
+        } else {
+            // The effort beside the model it applies to.
+            format!("{m} · {}", self.config.model.effort)
         }
     }
 }

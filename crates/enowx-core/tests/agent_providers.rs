@@ -189,3 +189,35 @@ async fn an_agent_on_a_provider_without_a_key_stays_on_the_model_in_use() {
         "the user is told why: {events:?}"
     );
 }
+
+#[tokio::test]
+async fn the_chosen_thinking_effort_goes_with_each_call() {
+    let dir = Dir::new("effort");
+    let (url, seen) = provider("OK").await;
+    let mut config = base_config(&dir);
+    config.use_endpoint("main", &url, "main-key", "main-model");
+    config.model.efforts = vec!["low".into(), "high".into()];
+    config.model.effort = "high".into();
+
+    ask(config, &dir, "general").await;
+
+    let calls = seen.lock().unwrap().clone();
+    let body: serde_json::Value = serde_json::from_str(&calls[0].0).unwrap();
+    assert_eq!(body["reasoning_effort"], "high");
+}
+
+#[tokio::test]
+async fn no_effort_is_sent_when_none_was_chosen() {
+    let dir = Dir::new("no-effort");
+    let (url, seen) = provider("OK").await;
+    let mut config = base_config(&dir);
+    config.use_endpoint("main", &url, "main-key", "main-model");
+    config.model.effort.clear();
+
+    ask(config, &dir, "general").await;
+
+    let calls = seen.lock().unwrap().clone();
+    let body: serde_json::Value = serde_json::from_str(&calls[0].0).unwrap();
+    assert!(body.get("reasoning_effort").is_none(), "{body}");
+    assert!(body.get("reasoning").is_none(), "{body}");
+}

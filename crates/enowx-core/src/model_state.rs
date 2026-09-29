@@ -27,6 +27,10 @@ pub struct ModelState {
     pub recent: Vec<String>,
     /// `provider/model` refs, in the order they were marked.
     pub favorite: Vec<String>,
+    /// The thinking effort chosen for a model, by `provider/model` ref.
+    /// A model with none uses its provider's default.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub effort: std::collections::BTreeMap<String, String>,
 }
 
 impl ModelState {

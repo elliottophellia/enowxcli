@@ -551,6 +551,7 @@ impl Agent {
              - Paths are relative to the workspace root. Reads and writes outside it are refused.\n\
              - Prefer one precise tool call over several speculative ones. Stop calling tools once you can answer.\n\
              - When a tool fails, read the error and change approach instead of repeating the same call.\n\
+             - Verify with the project's own commands (its build, typecheck, tests, linter) and your tools. Do not write probe scripts, isolated builds or experiments to investigate the toolchain; when something fails outside your files or your task, report it and stop.\n\
              - Answer in the user's language. Be concrete: exact paths, symbols, and commands.\n\
              \n\
              {EFFORT_RULES}\n\

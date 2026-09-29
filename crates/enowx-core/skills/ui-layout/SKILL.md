@@ -72,6 +72,63 @@ In order, before the first line of markup:
 - **Heights**: controls 36 to 40px on desktop, 44px touch targets on phones;
   top bar 56 to 64px; table rows 40 to 48px.
 
+### The measures as code, before any section
+
+A page built by several hands, or section by section, drifts: one section
+centred at 600px, the next at 1100px, a third offset 30px, gaps of 17px here
+and 96px there, eleven font sizes. The measures above are written once, as
+tokens and two or three classes every section uses, and nothing sets its own:
+
+```css
+:root {
+  --container: 72rem;            /* the one content width */
+  --gutter: clamp(16px, 4vw, 32px);
+  --section: clamp(48px, 8vw, 96px);   /* space between sections */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px;
+  --text-sm: 0.875rem; --text-base: 1rem; --text-lg: 1.25rem;
+  --text-xl: 1.563rem; --text-2xl: 1.953rem; --text-3xl: clamp(2.441rem, 5vw, 3.815rem);
+}
+.container { max-width: var(--container); margin-inline: auto; padding-inline: var(--gutter); }
+.section { padding-block: var(--section); }
+.section + .section { border-top: 1px solid var(--line); } /* when sections need a divider */
+```
+
+- Every section's content sits in `.container`: one left edge, one width.
+  A narrower text column is a `max-width` in `ch` *inside* the container,
+  aligned to its left edge, never a second centred box.
+- Font sizes come from the `--text-*` steps; spacing from `--space-*`. A
+  value outside the scale needs a reason in `DESIGN.md`.
+- Items side by side in a row share one height: the grid or flex row
+  stretches them (`align-items: stretch`), and a card's own content fills it
+  (`display: flex; flex-direction: column`, the action pushed down with
+  `margin-top: auto`).
+- The page's first content has room above it: the header's own height, or
+  `--section` at the top of the first section.
+
+### Reading `preview`'s layout lines
+
+`preview` measures the layout at rest (after scrolling the page through and
+letting animations finish) and lists what is off, one line each. A model that
+cannot see the screenshot works from these lines; every one is a fix:
+
+| Line | Fix |
+|---|---|
+| sections start at N left edges | Put every section's content in the shared `.container`; remove per-section `max-width`, `margin-left` and centring |
+| blocks a few pixels off the edge | An indent, a border or padding moved one block: align it to the edge the others share |
+| content widths differ | One container width; set a narrower measure inside it, aligned left |
+| the first content sits 0px from the top | Top padding on the page or the first section |
+| sections run into each other / spacing varies | `padding-block: var(--section)` on every section, one value |
+| elements overlap | A fixed size or negative margin collides at this width: let the element take its space, stack them at this width |
+| still invisible after scrolling / empty page below | A reveal never ran: content must be visible without the animation (`motion-reveal`) |
+| N font sizes / the h1 is only 1.2× the body | Map every size to the scale; the page title at least twice the body |
+| body text is 13px | 16px on a page (15px at least on a phone) |
+| paragraph lines run to 110 characters | `max-width: 65ch` on running text |
+| boxes side by side with different heights | Stretch the row and let each box fill it |
+| N different text colours | Only the colour tokens |
+
+Look again after fixing; a layout line gone is the check.
+
 ## 4. Where each thing goes
 
 - **Title and actions**: the page title (`h1`) at the top left; the one
@@ -212,8 +269,8 @@ closing call to action, a single statement), never paragraphs or lists.
 ## 10. Check it
 
 Look with the `preview` tool at 360, 768 and 1440px, on every screen you
-built, including the ones behind a sign-in (give `preview` its `login`), and
-fix what you see:
+built, including the ones behind a sign-in (give `preview` its `login`).
+Fix every line under `layout` first (section 3), then what you see:
 
 - Content that floats: an empty band between the sidebar and the content on
   a wide screen.

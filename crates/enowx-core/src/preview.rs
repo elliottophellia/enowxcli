@@ -109,6 +109,11 @@ pub struct WidthReport {
     /// `aside takes 224 of 360px`.
     pub open_sidebar: Option<String>,
     pub console_errors: Vec<String>,
+    /// What the layout measurements found, one line each, with the fix:
+    /// sections on different left edges, near-miss alignment, differing
+    /// widths, spacing, overlaps, hidden content, the type scale, line
+    /// length, uneven rows and text colours.
+    pub layout: Vec<String>,
     pub screenshot: Option<PathBuf>,
 }
 
@@ -134,6 +139,7 @@ impl WidthReport {
             + usize::from(self.floating_content.is_some())
             + self.low_contrast_graphics.len()
             + usize::from(self.open_sidebar.is_some())
+            + self.layout.len()
     }
 
     /// Keep only what a theme changes: colour and contrast. The layout was
@@ -1017,8 +1023,22 @@ impl Cdp {
             low_contrast_graphics: strings("low_contrast_graphics"),
             theme: None,
             console_errors: self.console_errors(session),
+            layout: Vec::new(),
             screenshot: None,
         };
+        // After the checks, which scrolled the page through: the layout at
+        // rest, and the screenshot of the same moment.
+        if let Ok(found) = self
+            .call(
+                "Runtime.evaluate",
+                json!({"expression": LAYOUT_SCRIPT.replace("__WIDTH__", &width.to_string()),
+                       "returnByValue": true, "awaitPromise": true}),
+                Some(session),
+            )
+            .await
+        {
+            report.layout = strings_of(&found["result"]["value"]);
+        }
         let height = (report.page_height as u32).clamp(1, MAX_SHOT_HEIGHT);
         let capture = self
             .call(
@@ -1269,6 +1289,7 @@ pub fn report(target: &str, reports: &[WidthReport]) -> String {
             );
             list(&wider, &r.overflowing);
         }
+        list("layout", &r.layout);
         list("text below AA contrast", &r.low_contrast);
         list(
             "drawings and icons below 3:1 (draw them with currentColor and a colour token per \
@@ -2466,3 +2487,245 @@ const MOTION_REPORT: &str = r##"(async () => {
   out.moving = [...new Set(M.started.filter(moves).map(s => s.el + ', ' + what(s) + ' for ' + seconds(s.duration)))].slice(0, 8);
   return out;
 })()"##;
+
+/// The layout, measured once the page has been scrolled through and its
+/// animations have finished, since a text-only model cannot look at the
+/// screenshot: where blocks start and how wide they are, the spacing
+/// between them, what overlaps, what is still hidden, the type scale, line
+/// length, cards in a row of different heights and the text colours in use.
+/// Each finding is one line saying what to fix.
+const LAYOUT_SCRIPT: &str = r#"(async () => {
+  // At rest: reveals triggered by the scroll-through have played, count-ups
+  // have reached their figures. Loops are left running; three seconds at most.
+  const until = Date.now() + 3000;
+  while (Date.now() < until) {
+    const running = document.getAnimations().filter(a => {
+      if (a.playState !== 'running') return false;
+      const t = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : null;
+      return t && isFinite(t.endTime);
+    });
+    if (!running.length) break;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  await new Promise(r => setTimeout(r, 250));
+  const W = __WIDTH__;
+  const out = [];
+  const px = n => Math.round(n) + 'px';
+  const describe = el => {
+    let s = el.tagName.toLowerCase();
+    if (el.id) return s + '#' + el.id;
+    if (el.classList && el.classList.length) s += '.' + [...el.classList].slice(0, 2).join('.');
+    return s;
+  };
+  const opacity = el => {
+    let o = 1;
+    for (let a = el; a && a.nodeType === 1; a = a.parentElement) o *= parseFloat(getComputedStyle(a).opacity || '1');
+    return o;
+  };
+  const box = el => {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, right: r.right, top: r.top + scrollY, bottom: r.bottom + scrollY, width: r.width, height: r.height };
+  };
+  const drawn = el => {
+    const r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return false;
+    const cs = getComputedStyle(el);
+    return cs.visibility !== 'hidden' && cs.display !== 'none';
+  };
+  // Hidden for screen readers only (`.sr-only`, a skip link): not on screen.
+  const srOnly = el => {
+    const r = el.getBoundingClientRect();
+    if (r.width <= 2 || r.height <= 2) return true;
+    for (let a = el; a && a.nodeType === 1; a = a.parentElement) {
+      const cs = getComputedStyle(a);
+      if (cs.clip && cs.clip !== 'auto' && /rect\(0/.test(cs.clip)) return true;
+      if (cs.clipPath && /inset\(50%/.test(cs.clipPath)) return true;
+    }
+    return false;
+  };
+  const seen = el => drawn(el) && opacity(el) > 0.05 && !srOnly(el);
+  const ownText = el => [...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim().length > 1);
+  // Where the words are, not the padded box around them.
+  const textBox = el => {
+    const range = document.createRange();
+    const rects = [];
+    for (const n of el.childNodes) {
+      if (n.nodeType !== 3 || !n.textContent.trim()) continue;
+      range.selectNodeContents(n);
+      for (const r of range.getClientRects()) if (r.width > 0 && r.height > 0) rects.push(r);
+    }
+    if (!rects.length) return box(el);
+    return {
+      left: Math.min(...rects.map(r => r.left)), right: Math.max(...rects.map(r => r.right)),
+      top: Math.min(...rects.map(r => r.top)) + scrollY, bottom: Math.max(...rects.map(r => r.bottom)) + scrollY,
+    };
+  };
+  // A control or a filled box is where its edge is; running text is where
+  // its words are.
+  const filled = el => {
+    const cs = getComputedStyle(el);
+    return parseFloat(cs.borderLeftWidth) > 0 || !/rgba\(0, 0, 0, 0\)|transparent/.test(cs.backgroundColor);
+  };
+  const place = el => (!ownText(el) || /^(BUTTON|INPUT|SELECT|TEXTAREA)$/.test(el.tagName) || filled(el)) ? box(el) : textBox(el);
+  const all = [...document.querySelectorAll('body *')].filter(el => !['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE'].includes(el.tagName));
+  const texts = all.filter(el => ownText(el) && seen(el));
+  const media = all.filter(el => ['IMG', 'SVG', 'VIDEO', 'CANVAS', 'PICTURE'].includes(el.tagName) && seen(el)
+    && el.getBoundingClientRect().width >= 16);
+
+  // Regions: the page's top-level blocks (header, sections, footer).
+  const main = document.querySelector('main');
+  // Header, nav and footer are composed differently and left out.
+  let regions = [...document.querySelectorAll('section, article, [role=region], main > div')]
+    .filter(el => !el.closest('header, footer, nav'))
+    .filter(el => seen(el) && !el.parentElement.closest('section, [role=region]') && el.getBoundingClientRect().height > 40);
+  regions = regions.filter((el, i) => !regions.some((other, j) => j !== i && other !== el && other.contains(el)));
+  regions.sort((a, b) => box(a).top - box(b).top);
+  const contentOf = el => {
+    const inside = texts.concat(media).filter(t => el.contains(t));
+    if (!inside.length) return null;
+    const boxes = inside.map(place);
+    return {
+      left: Math.min(...boxes.map(b => b.left)), right: Math.max(...boxes.map(b => b.right)),
+      top: Math.min(...boxes.map(b => b.top)), bottom: Math.max(...boxes.map(b => b.bottom)),
+    };
+  };
+  const content = regions.map(el => ({ el, c: contentOf(el) })).filter(r => r.c);
+
+  // 1. Where each region's content starts.
+  if (content.length >= 2) {
+    const groups = [];
+    for (const r of content) {
+      const g = groups.find(g => Math.abs(g.edge - r.c.left) <= 6);
+      if (g) g.items.push(describe(r.el)); else groups.push({ edge: r.c.left, items: [describe(r.el)] });
+    }
+    if (groups.length > 1) {
+      out.push('sections start at ' + groups.length + ' different left edges: ' + groups
+        .map(g => px(g.edge) + ' (' + g.items.slice(0, 3).join(', ') + ')').join(', ')
+        + ': sections in one column share one container and start on one edge (ui-layout)');
+    }
+    // 2. How wide each region's content is.
+    const widths = content.map(r => ({ w: r.c.right - r.c.left, el: r.el }));
+    const wide = Math.max(...widths.map(w => w.w));
+    const narrow = widths.filter(w => w.w < wide * 0.7 && w.w > 200);
+    if (narrow.length && wide > W * 0.5) {
+      out.push('content widths differ: ' + widths.map(w => describe(w.el) + ' ' + px(w.w)).slice(0, 5).join(', ')
+        + ': give the sections one content width (a container with one max-width), and set narrower text as a measure inside it');
+    }
+  }
+  // 3. Blocks that start a few pixels off each other: never on purpose.
+  const blocks = all.filter(el => seen(el) && el.getBoundingClientRect().width > 120
+    && (/^H[1-6]$|^P$|^UL$|^OL$|^TABLE$|^DL$|^FORM$/.test(el.tagName) || ownText(el) && getComputedStyle(el).display === 'block'));
+  const edges = [];
+  for (const el of blocks) {
+    const l = el.getBoundingClientRect().left;
+    const e = edges.find(e => Math.abs(e.edge - l) <= 2);
+    if (e) { e.n++; e.els.push(el); } else edges.push({ edge: l, n: 1, els: [el] });
+  }
+  const main_edges = edges.filter(e => e.n >= 2).sort((a, b) => b.n - a.n);
+  const misses = [];
+  for (const e of edges) {
+    const near = main_edges.find(m => m !== e && m.n > e.n && Math.abs(m.edge - e.edge) > 2 && Math.abs(m.edge - e.edge) <= 48);
+    if (near) misses.push(e.els.slice(0, 2).map(describe).join(', ') + ' at ' + px(e.edge) + ' beside ' + near.n + ' blocks at ' + px(near.edge));
+  }
+  if (misses.length) out.push('blocks a few pixels off the edge the others share: ' + misses.slice(0, 4).join('; ') + ': align them to one edge');
+  // 4. The top edge and the space between sections.
+  const first = texts.map(place).sort((a, b) => a.top - b.top)[0];
+  if (first && first.top < 4) out.push('the first content sits ' + px(first.top) + ' from the top of the page: give the page and its header room above');
+  if (content.length >= 2) {
+    const gaps = [];
+    for (let i = 1; i < content.length; i++) {
+      gaps.push({ gap: content[i].c.top - content[i - 1].c.bottom, between: describe(content[i - 1].el) + ' → ' + describe(content[i].el) });
+    }
+    const tight = gaps.filter(g => g.gap < (W < 600 ? 24 : 40));
+    if (tight.length) out.push('sections run into each other: ' + tight.slice(0, 3).map(g => g.between + ' ' + px(g.gap)).join(', ')
+      + ': separate sections with the spacing scale\'s section step (ui-layout)');
+  }
+  // 5. What overlaps.
+  const overlaps = [];
+  const things = texts.concat(media).slice(0, 700);
+  for (let i = 0; i < things.length && overlaps.length < 4; i++) {
+    const a = things[i], ra = a.getBoundingClientRect();
+    if (getComputedStyle(a).position === 'fixed') continue;
+    for (let j = i + 1; j < things.length && overlaps.length < 4; j++) {
+      const b = things[j];
+      if (a.contains(b) || b.contains(a)) continue;
+      const pa = place(a), pb = place(b);
+      const w = Math.min(pa.right, pb.right) - Math.max(pa.left, pb.left);
+      const h = Math.min(pa.bottom, pb.bottom) - Math.max(pa.top, pb.top);
+      const area = p => (p.right - p.left) * (p.bottom - p.top);
+      if (w > 4 && h > 4 && w * h > 0.15 * Math.min(area(pa), area(pb))) {
+        overlaps.push(describe(a) + ' and ' + describe(b) + ' overlap by ' + Math.round(w) + 'x' + Math.round(h) + 'px');
+      }
+    }
+  }
+  if (overlaps.length) out.push('elements overlap: ' + overlaps.join('; '));
+  // 6. What is still hidden after scrolling through, and empty page below.
+  const hidden = all.filter(el => drawn(el) && opacity(el) <= 0.05 && el.getBoundingClientRect().height > 40
+    && (el.textContent || '').trim().length > 20 && !(el.parentElement && opacity(el.parentElement) <= 0.05 && drawn(el.parentElement)));
+  if (hidden.length) out.push('still invisible after scrolling the page through: ' + hidden.slice(0, 4).map(el => describe(el) + ' ' + px(el.getBoundingClientRect().height) + ' tall').join(', ')
+    + ': a reveal that never ran leaves content hidden; show it without the animation when the observer does not fire');
+  // 7. The type scale and the hierarchy.
+  const sizes = new Map();
+  for (const el of texts) {
+    const s = Math.round(parseFloat(getComputedStyle(el).fontSize) * 2) / 2;
+    sizes.set(s, (sizes.get(s) || 0) + 1);
+  }
+  const scale = [...sizes.entries()].sort((a, b) => a[0] - b[0]);
+  if (scale.length > 7) out.push(scale.length + ' font sizes in use (' + scale.map(([s, n]) => s + 'px×' + n).join(', ') + '): keep to a type scale of five or six steps');
+  const bodyEls = texts.filter(el => el.tagName === 'P' || el.tagName === 'LI');
+  const body = bodyEls.length ? bodyEls.map(el => parseFloat(getComputedStyle(el).fontSize)).sort((a, b) => a - b)[Math.floor(bodyEls.length / 2)] : null;
+  const h1 = document.querySelector('h1');
+  if (body && h1 && seen(h1)) {
+    const ratio = parseFloat(getComputedStyle(h1).fontSize) / body;
+    if (ratio < 1.8) out.push('the h1 is only ' + ratio.toFixed(1) + '× the body text (' + px(parseFloat(getComputedStyle(h1).fontSize)) + ' over ' + px(body) + '): a page title stands at least twice the body size');
+  }
+  const h2s = [...document.querySelectorAll('h2')].filter(seen);
+  if (body && h2s.length) {
+    const r2 = parseFloat(getComputedStyle(h2s[0]).fontSize) / body;
+    if (r2 < 1.3) out.push('section headings (h2) are only ' + r2.toFixed(1) + '× the body text: headings step up clearly (about 1.5× or more)');
+  }
+  if (body && body < (W >= 768 ? 15 : 14)) out.push('body text is ' + px(body) + ': ' + (W >= 768 ? '16px' : '15px') + ' or more reads comfortably');
+  // 8. Line length of running text.
+  const lengths = texts.filter(el => el.tagName === 'P' && el.textContent.trim().length > 80).map(el => {
+    const cs = getComputedStyle(el);
+    const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5;
+    const lines = Math.max(1, Math.round(el.getBoundingClientRect().height / lh));
+    return el.textContent.trim().length / lines;
+  }).sort((a, b) => a - b);
+  if (lengths.length) {
+    const median = lengths[Math.floor(lengths.length / 2)];
+    if (median > 90) out.push('paragraph lines run to about ' + Math.round(median) + ' characters: cap the measure near 65ch');
+    if (median < 28) out.push('paragraph lines hold about ' + Math.round(median) + ' characters: the column is too narrow to read at this width');
+  }
+  // 9. Cards in one row of different heights.
+  const boxed = el => {
+    const cs = getComputedStyle(el);
+    return parseFloat(cs.borderTopWidth) > 0 || (cs.backgroundColor !== 'rgba(0, 0, 0, 0)' && cs.backgroundColor !== 'transparent');
+  };
+  const uneven = [];
+  for (const parent of new Set(all.map(el => el.parentElement).filter(Boolean))) {
+    const kids = [...parent.children].filter(k => seen(k) && boxed(k) && k.getBoundingClientRect().width > 60);
+    if (kids.length < 2) continue;
+    const rows = new Map();
+    for (const k of kids) {
+      const t = Math.round(k.getBoundingClientRect().top);
+      const row = [...rows.keys()].find(r => Math.abs(r - t) <= 3);
+      rows.set(row ?? t, [...(rows.get(row ?? t) || []), k]);
+    }
+    for (const row of rows.values()) {
+      if (row.length < 2) continue;
+      const hs = row.map(k => Math.round(k.getBoundingClientRect().height));
+      if (Math.max(...hs) - Math.min(...hs) > 8) uneven.push(row.length + ' ' + describe(row[0]) + ' in a row at ' + hs.join('/') + 'px');
+    }
+    if (uneven.length >= 3) break;
+  }
+  if (uneven.length) out.push('boxes side by side with different heights: ' + uneven.join('; ') + ': stretch them to the row (align-items: stretch, height: 100%)');
+  // 10. Text colours.
+  const colours = new Map();
+  for (const el of texts) {
+    const c = getComputedStyle(el).color;
+    colours.set(c, (colours.get(c) || 0) + 1);
+  }
+  if (colours.size > 6) out.push(colours.size + ' different text colours: keep to the tokens (text, muted, accent, and state colours)');
+  return out;
+})()"#;

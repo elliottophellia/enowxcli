@@ -63,7 +63,12 @@ at the same time; it waits only for the wave before it.
 
 1. **Foundation**, only when the other parts stand on it: a new project's
    scaffold, shared types, the API's routes and shapes, the layout every
-   page sits in, the tokens and `DESIGN.md`. One part, no bigger than
+   page sits in, the tokens and `DESIGN.md`. For an interface built in
+   several parts, the foundation writes the layout system they share
+   (`ui-layout`, "The measures as code"): the container and its width, the
+   section spacing, the spacing and type scales as tokens, the section
+   heading pattern. Parts built side by side without it each invent their
+   own width and spacing, and the page comes out misaligned. One part, no bigger than
    that, by the specialist of the main framework (`fe` for a Next.js app,
    `be` for an API service). Skipped when the project exists.
 2. **Build**, as wide as the work allows: every independent part in one
@@ -129,9 +134,12 @@ Decided: <every decision the user made: audience, scope, concept, theme,
 Your part: <scope>, in <the files or folders you own>
 Beside you: <the other parts running now, and what they own>
 Contract: <routes, shapes, shared types, names: the same text in each brief>
-Constraints: <what the user stated: libraries to use or avoid, what must not break>
+Constraints: <what the user stated: libraries to use or avoid, what must not break;
+  for a section of a page: "use the foundation's .container, --section and --text-*;
+  set no content width, outer margin or font size of your own">
 Out of scope: <what the user deferred; files that are not yours>
-Done when: <it builds, its tests pass, preview is clean at 360, 768 and 1440px>
+Done when: <it builds, its tests pass, preview is clean at 360, 768 and 1440px,
+  its layout lines included>
 ```
 
 - The user's decisions travel whole, in their own words where they gave

@@ -843,7 +843,13 @@ application by its dev server's `url` with `start`, the command that runs it \
 `login` and a test account from the seed: without it you see only the sign-in \
 form. It renders the page at 360, 768 and \
 1440px and measures overflow, contrast, dead links, unnamed controls and small \
-touch targets: fix what it finds and look again. When there is no browser, say \
+touch targets, and, under `layout`, what a person sees at a glance: sections on \
+different left edges, blocks a few pixels off, widths that differ, spacing, \
+overlaps, content still hidden, the type scale and body size, line length, boxes \
+in a row of different heights. When you cannot see the screenshot those lines \
+are your eyes: fix every one (`ui-layout` says how) and look again until they \
+are gone. A section you build uses the page's container, spacing and type \
+tokens; it never sets its own content width, outer margins or font sizes. When there is no browser, say \
 so, and check the widths by reading the CSS instead. Run `ui_check` on what you \
 changed: the harness runs it too before you finish, and sends you back to what \
 it finds. End with a short report, at most six bullets of one line each: what \

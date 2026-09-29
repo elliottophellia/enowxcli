@@ -230,7 +230,9 @@ html { scroll-padding-top: 76px; }
 body { margin: 0; font: 16px/1.5 system-ui; color: #1a1a1a; background: #fff; }
 header { position: sticky; top: 0; z-index: 10; background: #fff; border-bottom: 1px solid #ccc; padding: 0 16px; }
 header a { display: inline-block; padding: 12px; min-height: 44px; min-width: 44px; color: #1a1a1a; }
-section { min-height: 1000px; padding: 16px; }
+main { padding: 0 16px; }
+section { min-height: 1000px; padding: 16px 0; }
+blockquote { margin: 0; }
 .to-top { position: fixed; right: 16px; bottom: 16px; z-index: 20; display: grid; place-items: center;
   width: 48px; height: 48px; color: #1a1a1a; background: #fff; border: 1px solid #ccc; border-radius: 6px; text-decoration: none; }
 .to-top[hidden] { display: none; }
@@ -873,4 +875,49 @@ async fn calm_motion_reports_nothing_wrong() {
         text.contains("with reduced motion: nothing moves"),
         "{text}"
     );
+}
+
+/// Built section by section with no shared container: two sections on
+/// different edges and widths, glued together, a label over the text, body
+/// text too small, and a section a reveal never showed.
+const DRIFTING: &str = r##"<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drifting</title>
+<style>
+body { margin: 0; font: 13px/1.5 system-ui; color: #1a1a1a; background: #fff; }
+.one { max-width: 520px; margin: 0 auto; padding: 0 16px; }
+.two { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
+.badge { display: block; margin-bottom: -34px; font-size: 12px; }
+p { margin: 0; }
+.later { opacity: 0; }
+section { padding: 4px 0; }
+</style></head>
+<body>
+<main>
+<section class="one"><h1>Drifting page</h1><span class="badge">Label on top</span>
+<p>A paragraph that the label above runs into, with enough words to be a real paragraph of text.</p></section>
+<section class="two"><h2>Work</h2><p>Another paragraph with enough words in it to count as running text on the page, long enough to fill its wide column from one edge to the other. Another paragraph with enough words in it to count as running text on the page, long enough to fill its wide column from one edge to the other. Another paragraph with enough words in it to count as running text on the page, long enough to fill its wide column from one edge to the other. </p></section>
+<section class="two later"><h2>Contact</h2><p>Hidden until a reveal that never runs, with enough words to measure.</p></section>
+</main>
+</body></html>"##;
+
+#[tokio::test]
+async fn a_page_built_without_a_shared_layout_is_reported() {
+    if no_chrome() {
+        return;
+    }
+    let dir = folder(DRIFTING);
+    let reports = preview::preview(&dir, Target::File(dir.clone()), None, &dir.join("shots"))
+        .await
+        .unwrap();
+    let text = preview::report("index.html", &reports);
+    let wide = &reports[2];
+    let has = |needle: &str| wide.layout.iter().any(|line| line.contains(needle));
+    assert!(has("different left edges"), "{text}");
+    assert!(has("content widths differ"), "{text}");
+    assert!(has("run into each other"), "{text}");
+    assert!(has("overlap"), "{text}");
+    assert!(has("still invisible after scrolling"), "{text}");
+    assert!(has("body text is 13px"), "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
 }

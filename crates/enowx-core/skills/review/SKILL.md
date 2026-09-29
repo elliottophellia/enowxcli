@@ -223,7 +223,11 @@ Not covered: the end-to-end suite (needs the database).
   figures, dead controls, default gradients, identical card grids,
   buzzword copy, layouts that break on a phone (`ui-audit`). Every state
   (empty, loading, error), keyboard and screen reader, both themes when
-  there are two.
+  there are two. Run `preview` on every screen: each line under
+  `layout` is a finding (sections on different left edges, overlaps,
+  content still hidden and an empty page below are major; spacing, type
+  scale, line length and uneven rows are minor unless they are
+  everywhere). Visual consistency is reviewed as seriously as code.
 - Server: for each endpoint, validated input, an ownership check, one
   error format with nothing internal leaked, transactions and race-free
   writes, paginated lists, no query in a loop, no secret in code or logs

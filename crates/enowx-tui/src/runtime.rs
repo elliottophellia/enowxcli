@@ -76,6 +76,7 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
     while !app.should_quit {
         app.drain_events();
         app.drain_background();
+        app.catch_up_with_catalog();
         app.drain_picker_events();
         app.drain_typesafe_check();
         app.refresh_viewed_delegation();

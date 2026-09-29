@@ -61,12 +61,27 @@ pub struct CatalogModel {
 pub struct ReasoningOption {
     #[serde(rename = "type", default)]
     pub kind: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    /// Effort levels. Entries that are not text (models.dev lists a `null`
+    /// for "off" on some) are left out.
+    #[serde(
+        default,
+        deserialize_with = "text_only",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub values: Vec<String>,
+    /// Budget bounds; any number, since some entries say -1 for "none".
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub min: Option<u64>,
+    pub min: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max: Option<u64>,
+    pub max: Option<i64>,
+}
+
+fn text_only<'de, D: serde::Deserializer<'de>>(de: D) -> Result<Vec<String>, D::Error> {
+    let values: Vec<serde_json::Value> = Deserialize::deserialize(de).unwrap_or_default();
+    Ok(values
+        .into_iter()
+        .filter_map(|v| v.as_str().map(str::to_owned))
+        .collect())
 }
 
 impl CatalogModel {
@@ -149,6 +164,10 @@ pub struct Catalog {
 /// Bumped whenever `CatalogModel` reads a new field from models.dev.
 pub const CATALOG_SCHEMA: u32 = 2;
 
+/// How many times this process has fetched the catalogue, so a host can
+/// look its model's facts up again once a fresh one is in.
+pub static REFRESHED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CatalogProvider {
     #[serde(default)]
@@ -160,18 +179,66 @@ pub struct CatalogProvider {
 }
 
 impl Catalog {
-    /// Load the cached catalog if present and still fresh. Missing/expired
-    /// returns an empty catalog so callers can proceed without special-casing.
+    /// Read a catalogue, keeping every model that parses: one entry in a shape
+    /// enx does not expect (models.dev adds and changes fields) leaves that
+    /// model out rather than the whole catalogue, which would put every model
+    /// on the default window.
+    pub fn parse(text: &str) -> Self {
+        let Ok(serde_json::Value::Object(root)) = serde_json::from_str::<serde_json::Value>(text)
+        else {
+            return Catalog::default();
+        };
+        let mut catalog = Catalog::default();
+        for (key, value) in root {
+            match key.as_str() {
+                "fetched_at" => catalog.fetched_at = value.as_u64(),
+                "schema" => catalog.schema = value.as_u64().map(|v| v as u32),
+                _ => {
+                    let Some(object) = value.as_object() else {
+                        continue;
+                    };
+                    let text_of = |k: &str| {
+                        object
+                            .get(k)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_owned()
+                    };
+                    let mut provider = CatalogProvider {
+                        id: text_of("id"),
+                        name: text_of("name"),
+                        models: BTreeMap::new(),
+                    };
+                    if let Some(models) = object.get("models").and_then(|m| m.as_object()) {
+                        for (id, model) in models {
+                            if let Ok(model) = serde_json::from_value::<CatalogModel>(model.clone())
+                            {
+                                provider.models.insert(id.clone(), model);
+                            }
+                        }
+                    }
+                    catalog.providers.insert(key, provider);
+                }
+            }
+        }
+        catalog
+    }
+
+    /// The cached catalogue. One past its time, or written by an older enx,
+    /// is still used until a fresh one arrives: old limits and prices are
+    /// far closer than none, which would put every model on the default
+    /// window.
     pub fn load_cached() -> Self {
         let path = cache_path();
         let Ok(text) = fs::read_to_string(&path) else {
             return Catalog::default();
         };
-        let cat: Catalog = serde_json::from_str(&text).unwrap_or_default();
-        if cat.is_stale() {
-            return Catalog::default();
-        }
-        cat
+        Self::parse(&text)
+    }
+
+    /// Whether the cached catalogue should be fetched again.
+    pub fn needs_refresh(&self) -> bool {
+        self.is_stale()
     }
 
     /// The cached catalogue, parsed once per process and again only when
@@ -220,7 +287,11 @@ impl Catalog {
             .timeout(std::time::Duration::from_secs(10))
             .build()?;
         let text = client.get(CATALOG_URL).send().await?.text().await?;
-        let mut cat: Catalog = serde_json::from_str(&text)?;
+        let mut cat = Catalog::parse(&text);
+        anyhow::ensure!(
+            !cat.providers.is_empty(),
+            "models.dev sent nothing enx could read"
+        );
         cat.schema = Some(CATALOG_SCHEMA);
         cat.fetched_at = Some(
             SystemTime::now()
@@ -234,6 +305,7 @@ impl Catalog {
         }
         let json = serde_json::to_string(&cat)?;
         let _ = fs::write(&path, json);
+        REFRESHED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(cat)
     }
 
@@ -457,6 +529,27 @@ mod tests {
             official("deepseek", "deepseek-v4-pro").unwrap().efforts(),
             ["none", "high", "max"]
         );
+    }
+
+    /// A model in a shape enx does not expect is left out, not the whole
+    /// catalogue: that once put every model on the default window.
+    #[test]
+    fn one_odd_entry_does_not_empty_the_catalogue() {
+        let text = serde_json::json!({
+            "deepseek": { "id": "deepseek", "models": {
+                "deepseek-v4.1-flash": { "id": "deepseek-v4.1-flash", "reasoning": true,
+                    "limit": { "context": 1000000, "output": 384000 },
+                    "reasoning_options": [{ "type": "effort", "values": [null, "low", "high"] },
+                                          { "type": "budget_tokens", "min": -1, "max": 32768 }] },
+                "broken": { "id": "broken", "limit": { "context": "a lot" } }
+            }}
+        })
+        .to_string();
+        let catalog = Catalog::parse(&text);
+        let model = catalog.lookup("cbc/deepseek-v4.1-flash").unwrap();
+        assert_eq!(model.limit.context, 1_000_000);
+        assert_eq!(model.efforts(), ["low", "high"]);
+        assert!(!catalog.providers["deepseek"].models.contains_key("broken"));
     }
 
     #[test]

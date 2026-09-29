@@ -362,32 +362,50 @@ const IDLE: Duration = Duration::from_secs(90);
 static BROWSER: tokio::sync::Mutex<Option<Browser>> = tokio::sync::Mutex::const_new(None);
 static LOOKS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(LOOKS_AT_ONCE);
 
+/// Where this process records the browser it started: one file per enx
+/// process, so two enx at once never take each other's browser for a
+/// leftover.
 fn pid_file() -> PathBuf {
-    crate::config::home_dir().join("chrome.pid")
+    crate::config::home_dir().join(format!("chrome-{}.pid", std::process::id()))
 }
 
-/// A browser left running by an enx that exited without closing it: stop it
-/// when its command line says it is ours.
+/// Browsers left by an enx that is gone: stop the ones whose owner no longer
+/// runs. Chrome's watchdog stops them within seconds anyway; this is for a
+/// machine that slept through it.
 async fn stop_leftover() {
-    let Ok(text) = std::fs::read_to_string(pid_file()) else {
+    let Ok(entries) = std::fs::read_dir(crate::config::home_dir()) else {
         return;
     };
-    let Ok(pid) = text.trim().parse::<u32>() else {
-        return;
-    };
-    let command = tokio::process::Command::new("ps")
-        .args(["-o", "command=", "-p", &pid.to_string()])
-        .output()
-        .await;
-    if let Ok(out) = command {
-        if String::from_utf8_lossy(&out.stdout).contains("enx-chrome-") {
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(owner) = name
+            .strip_prefix("chrome-")
+            .and_then(|rest| rest.strip_suffix(".pid"))
+            .and_then(|pid| pid.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        let alive = tokio::process::Command::new("kill")
+            .args(["-0", &owner.to_string()])
+            .stderr(std::process::Stdio::null())
+            .status()
+            .await
+            .is_ok_and(|status| status.success());
+        if alive {
+            continue;
+        }
+        if let Some(group) = std::fs::read_to_string(entry.path())
+            .ok()
+            .and_then(|text| text.trim().parse::<u32>().ok())
+        {
             let _ = tokio::process::Command::new("kill")
-                .args(["-TERM", &format!("-{pid}")])
+                .args(["-TERM", &format!("-{group}")])
+                .stderr(std::process::Stdio::null())
                 .status()
                 .await;
         }
+        let _ = std::fs::remove_file(entry.path());
     }
-    let _ = std::fs::remove_file(pid_file());
 }
 
 async fn launch(chrome: &Path) -> Result<Browser> {

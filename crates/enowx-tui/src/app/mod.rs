@@ -98,6 +98,8 @@ pub(crate) struct App {
     /// Reports of background delegations waiting to wake the orchestrator,
     /// by the session that delegated.
     pub(crate) reports: Vec<(String, Vec<enowx_core::event::DelegationReport>)>,
+    /// The catalogue fetch this app last looked its model up in.
+    pub(crate) catalog_seen: u64,
     pub(crate) config: Config,
     pub(crate) store: SessionStore,
     pub(crate) blocks: Vec<TranscriptBlock>,
@@ -323,6 +325,7 @@ impl App {
             agent,
             background,
             reports: Vec::new(),
+            catalog_seen: 0,
             settings: SettingsDraft::default(),
             config,
             store: SessionStore::default(),
@@ -594,6 +597,34 @@ impl App {
     pub(crate) fn refresh_discovery(&mut self) {
         self.discovery = self.agent.discovery();
     }
+    /// Once a fresh models.dev catalogue is in, look the model in use up
+    /// again: at start it was looked up in the cached one, which may have been
+    /// old or empty, and a window of 128k shown for a model of 1M.
+    pub(crate) fn catch_up_with_catalog(&mut self) {
+        let fetched = enowx_core::catalog::REFRESHED.load(std::sync::atomic::Ordering::SeqCst);
+        if fetched == self.catalog_seen || self.busy {
+            return;
+        }
+        self.catalog_seen = fetched;
+        let active = self.config.model.active.clone();
+        if active.is_empty() {
+            return;
+        }
+        let mut next = self.config.clone();
+        if !next.use_model(&active) {
+            return;
+        }
+        let (was, now) = (&self.config.model, &next.model);
+        if was.context_window != now.context_window
+            || was.efforts != now.efforts
+            || was.price_input != now.price_input
+            || was.price_output != now.price_output
+            || was.vision != now.vision
+        {
+            self.adopt(next);
+        }
+    }
+
     pub(crate) fn adopt(&mut self, config: Config) {
         self.theme = Theme::find(&config.ui.theme);
         self.show_sidebar = config.ui.show_sidebar;

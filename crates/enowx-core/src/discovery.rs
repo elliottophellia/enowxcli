@@ -333,7 +333,9 @@ impl Discovery {
             out.push_str(
                 "Read a skill with the `skill_read` tool only when the task needs the instructions \
                  it holds: the one your instructions name for the work, or the one that \
-                 applies. Most tasks need none, and none needs every one.\n",
+                 applies. Most tasks need none, and none needs every one: read a few, then \
+                 work, and read another only when you reach something they do not cover. A \
+                 skill read once stays above in the conversation; do not read it again.\n",
             );
             // A built-in part (`ui-part-hero` under `ui`) is named under its
             // root when the root is listed too: the root says which part

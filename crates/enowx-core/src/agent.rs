@@ -1298,6 +1298,7 @@ impl Agent {
         // Interface files this turn wrote or edited, and whether the check
         // the harness runs on them before the agent finishes has run.
         let mut touched: Vec<String> = Vec::new();
+        let mut skill_reads = SkillReads::from(&session);
         let mut checked_ui = false;
         while limit == 0 || step < limit {
             if cancel.is_cancelled() {
@@ -1568,6 +1569,15 @@ impl Agent {
                                 }
                                 _ => Ok(()),
                             };
+                            // Reading instead of working: the same skill
+                            // again, or skill after skill with no change.
+                            let claimed = claimed.and_then(|()| {
+                                if call.name == "skill_read" {
+                                    skill_reads.check(args["name"].as_str().unwrap_or(""))
+                                } else {
+                                    Ok(())
+                                }
+                            });
                             match claimed {
                                 Err(refusal) => ToolOutput::error(refusal),
                                 Ok(()) => {
@@ -1599,6 +1609,14 @@ impl Agent {
                 // results are 93% of a session's context, and the three tools
                 // that dominate — bash, read, skill_read — cannot be judged
                 // from their names.
+                if !output.is_error
+                    && matches!(
+                        call.name.as_str(),
+                        "write" | "edit" | "multi_edit" | "edit_lines" | "plan_write"
+                    )
+                {
+                    skill_reads.changed();
+                }
                 if !output.is_error
                     && matches!(
                         call.name.as_str(),
@@ -2189,5 +2207,128 @@ impl crate::syntax::Repair for ModelRepair {
         .ok()?;
         let text = answer.text.trim_matches('\n').to_owned();
         (!text.trim().is_empty()).then_some(text)
+    }
+}
+
+/// How many skills an agent may read, one after another, before it has to
+/// change something.
+const SKILLS_BEFORE_WORK: usize = 6;
+
+/// Keeps an agent from reading skills instead of working. A weaker model
+/// told to read "the skills that govern this page" read ninety of them,
+/// several five times, and wrote nothing. Here a skill it already has in
+/// view is not sent again, and after `SKILLS_BEFORE_WORK` reads with no file
+/// changed, it is told to build with what it read.
+struct SkillReads {
+    /// Skills whose whole text is still in the conversation.
+    seen: std::collections::HashSet<String>,
+    /// Skills read since the last change.
+    since_change: usize,
+}
+
+impl SkillReads {
+    fn from(session: &Session) -> Self {
+        let mut seen = std::collections::HashSet::new();
+        let mut since_change = 0;
+        let mut names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        for turn in &session.turns {
+            let message = &turn.message;
+            for call in &message.tool_calls {
+                match call.name.as_str() {
+                    "skill_read" => {
+                        if let Some(name) =
+                            serde_json::from_str::<serde_json::Value>(&call.arguments)
+                                .ok()
+                                .and_then(|a| a["name"].as_str().map(str::to_owned))
+                        {
+                            names.insert(call.id.clone(), name);
+                        }
+                    }
+                    "write" | "edit" | "multi_edit" | "edit_lines" | "plan_write" => {
+                        since_change = 0
+                    }
+                    _ => {}
+                }
+            }
+            // A result kept whole: the skill is in view. One trimmed or
+            // failed is not, and may be read again.
+            if let Some(name) = message.tool_call_id.as_ref().and_then(|id| names.get(id)) {
+                if message.error.is_none()
+                    && !message
+                        .content
+                        .contains("characters dropped from the middle")
+                {
+                    seen.insert(name.clone());
+                    since_change += 1;
+                }
+            }
+        }
+        Self { seen, since_change }
+    }
+
+    fn check(&mut self, name: &str) -> Result<(), String> {
+        let name = name.trim().to_ascii_lowercase();
+        if self.seen.contains(&name) {
+            return Err(format!(
+                "You read `{name}` earlier in this task and its text is above: work from it instead \
+                 of reading it again."
+            ));
+        }
+        if self.since_change >= SKILLS_BEFORE_WORK {
+            return Err(format!(
+                "You have read {} skills without changing a file. Build now with what they say. \
+                 Read another skill only when you reach work none of them covers, and never the \
+                 whole family: the root and the parts you are about to build are enough.",
+                self.since_change
+            ));
+        }
+        self.seen.insert(name);
+        self.since_change += 1;
+        Ok(())
+    }
+
+    fn changed(&mut self) {
+        self.since_change = 0;
+    }
+}
+
+#[cfg(test)]
+mod skill_read_tests {
+    use super::*;
+
+    fn read(session: &mut Session, id: &str, name: &str, result: &str) {
+        let mut call = Message::assistant("");
+        call.tool_calls.push(crate::message::ToolCall {
+            id: id.into(),
+            name: "skill_read".into(),
+            arguments: serde_json::json!({ "name": name }).to_string(),
+        });
+        session.push(call);
+        session.push(Message::tool_result(id, result));
+    }
+
+    #[test]
+    fn a_skill_in_view_is_not_sent_again_and_reading_stops_before_work() {
+        let mut session = Session::new(Role::Orchestrator);
+        read(&mut session, "c1", "ui", "# ui\nthe whole text");
+        read(
+            &mut session,
+            "c2",
+            "ui-layout",
+            "x … [900 characters dropped from the middle] … y",
+        );
+        let mut reads = SkillReads::from(&session);
+        assert!(reads.check("ui").is_err(), "already in view");
+        assert!(
+            reads.check("ui-layout").is_ok(),
+            "trimmed, so it may be read again"
+        );
+        for name in ["a", "b", "c", "d"] {
+            assert!(reads.check(name).is_ok(), "{name}");
+        }
+        let stop = reads.check("e").unwrap_err();
+        assert!(stop.contains("without changing a file"), "{stop}");
+        reads.changed();
+        assert!(reads.check("e").is_ok(), "a change opens reading again");
     }
 }

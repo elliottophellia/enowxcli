@@ -3,6 +3,8 @@
 //! editing is refused to the others until it finishes. The model is a
 //! stand-in that answers by what each request is.
 
+mod common;
+
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -130,6 +132,9 @@ async fn provider() -> (String, Arc<Mutex<Vec<String>>>) {
             let Ok((mut socket, _)) = listener.accept().await else {
                 return;
             };
+            if !common::is_model_call(&socket).await {
+                continue;
+            }
             let seen = seen.clone();
             tokio::spawn(async move {
                 let body = request_body(&mut socket).await;

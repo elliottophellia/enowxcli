@@ -58,7 +58,10 @@ impl App {
         if self.viewing.is_some() {
             self.leave_delegation();
         }
-        self.push(TranscriptKind::Notice, "Trying again from where it stopped.");
+        self.push(
+            TranscriptKind::Notice,
+            "Trying again from where it stopped.",
+        );
         self.run_request(RunRequest {
             session_id: Some(session_id),
             prompt: String::new(),

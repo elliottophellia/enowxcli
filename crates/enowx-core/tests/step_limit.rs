@@ -1,6 +1,8 @@
 //! A turn runs until the work is done: no cap on model calls by default.
 //! What stops a runaway turn is the same calls three steps in a row.
 
+mod common;
+
 use std::sync::{Arc, Mutex};
 
 use enowx_core::{builtin_agents, config::Config, Agent, Discovery, Event, Role, SessionStore};
@@ -19,6 +21,9 @@ async fn provider(replies: Vec<String>) -> (String, Arc<Mutex<Vec<String>>>) {
             let Ok((mut socket, _)) = listener.accept().await else {
                 return;
             };
+            if !common::is_model_call(&socket).await {
+                continue;
+            }
             let reply = replies
                 .get(index)
                 .cloned()

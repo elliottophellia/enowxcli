@@ -5,6 +5,8 @@
 //! `dokploy` whose backend was gone) made every first message wait 33
 //! seconds, against a provider answering in half a second.
 
+mod common;
+
 use std::time::{Duration, Instant};
 
 use enowx_core::{
@@ -24,6 +26,9 @@ async fn answering_provider() -> String {
             let Ok((mut socket, _)) = listener.accept().await else {
                 return;
             };
+            if !common::is_model_call(&socket).await {
+                continue;
+            }
             tokio::spawn(async move {
                 let mut buf = [0u8; 65536];
                 let _ = socket.read(&mut buf).await;

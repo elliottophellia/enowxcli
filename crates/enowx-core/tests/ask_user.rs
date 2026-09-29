@@ -4,6 +4,8 @@
 //! Driven through a fake provider that keeps each request, so a test can see
 //! what the model was offered and what it was told the user answered.
 
+mod common;
+
 use std::sync::{Arc, Mutex};
 
 use enowx_core::{
@@ -27,6 +29,9 @@ async fn provider(replies: Vec<String>) -> (String, Arc<Mutex<Vec<String>>>) {
             let Ok((mut socket, _)) = listener.accept().await else {
                 return;
             };
+            if !common::is_model_call(&socket).await {
+                continue;
+            }
             let reply = replies
                 .get(index)
                 .cloned()

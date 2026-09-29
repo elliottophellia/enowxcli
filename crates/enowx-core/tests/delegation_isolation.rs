@@ -5,6 +5,8 @@
 //! doing that left it dead mid-task while the caller was handed a `NO REPORT`
 //! indistinguishable from a sub-agent that had simply given up.
 
+mod common;
+
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -26,6 +28,9 @@ async fn fake_provider(replies: Vec<String>) -> (String, Arc<AtomicUsize>) {
             let Ok((mut socket, _)) = listener.accept().await else {
                 return;
             };
+            if !common::is_model_call(&socket).await {
+                continue;
+            }
             let index = seen.fetch_add(1, Ordering::SeqCst);
             let body = replies
                 .get(index)

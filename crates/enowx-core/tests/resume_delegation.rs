@@ -1,6 +1,8 @@
 //! A delegation that stopped short is continued in its own session, with
 //! everything it already did, instead of being started over.
 
+mod common;
+
 use enowx_core::{builtin_agents, config::Config, Agent, Discovery, Role, SessionStore};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -138,6 +140,9 @@ async fn provider() -> String {
             let Ok((mut socket, _)) = listener.accept().await else {
                 return;
             };
+            if !common::is_model_call(&socket).await {
+                continue;
+            }
             tokio::spawn(async move {
                 let body = request_body(&mut socket).await;
                 let reply = answer(&body).await;

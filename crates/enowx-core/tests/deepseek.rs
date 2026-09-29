@@ -5,6 +5,8 @@
 //! answers 400 otherwise. The agent always sends tools, so the second step of
 //! every turn depends on it.
 
+mod common;
+
 use std::sync::{Arc, Mutex};
 
 use enowx_core::{builtin_agents, config::Config, Agent, Discovery, Role, SessionStore};
@@ -23,6 +25,9 @@ async fn scripted_provider(replies: Vec<String>) -> (String, Arc<Mutex<Vec<Strin
             let Ok((mut socket, _)) = listener.accept().await else {
                 return;
             };
+            if !common::is_model_call(&socket).await {
+                continue;
+            }
             let reply = replies
                 .get(index)
                 .or(replies.last())

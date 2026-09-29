@@ -2586,8 +2586,15 @@ mod parallel_run_tests {
     #[test]
     fn looking_calls_and_one_bash_run_together() {
         let step = |names: &[&str]| names.iter().map(|n| call(n)).collect::<Vec<_>>();
-        assert_eq!(parallel_run(&step(&["read", "grep", "bash", "glob", "write"])), 4);
-        assert_eq!(parallel_run(&step(&["bash", "read", "bash"])), 2, "one bash per run");
+        assert_eq!(
+            parallel_run(&step(&["read", "grep", "bash", "glob", "write"])),
+            4
+        );
+        assert_eq!(
+            parallel_run(&step(&["bash", "read", "bash"])),
+            2,
+            "one bash per run"
+        );
         assert_eq!(parallel_run(&step(&["write", "read"])), 0);
         let mut broken = call("read");
         broken.arguments = "{\"path\":".into();

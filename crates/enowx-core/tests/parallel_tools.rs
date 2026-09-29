@@ -1,6 +1,8 @@
 //! Calls in one step that only look run at the same time, and a picture
 //! already in view is not sent to the model again.
 
+mod common;
+
 use enowx_core::{builtin_agents, config::Config, Agent, Discovery, Event, Role, SessionStore};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -69,6 +71,9 @@ async fn provider(replies: Vec<String>) -> (String, Arc<Mutex<Vec<String>>>) {
             let Ok((mut socket, _)) = listener.accept().await else {
                 return;
             };
+            if !common::is_model_call(&socket).await {
+                continue;
+            }
             let body = request_body(&mut socket).await;
             let reply = {
                 let mut seen = seen.lock().unwrap();
@@ -159,18 +164,36 @@ async fn looking_calls_run_together_and_a_picture_is_sent_once() {
     // All three started before any finished, and the results kept their order.
     assert_eq!(
         &order[..6],
-        ["call read", "call bash", "call read", "result read", "result bash", "result read"],
+        [
+            "call read",
+            "call bash",
+            "call read",
+            "result read",
+            "result bash",
+            "result read"
+        ],
         "{order:?}"
     );
-    assert!(results[1].contains("BASH-RAN") && results[2].contains("NOTE-TEXT"), "{results:?}");
+    assert!(
+        results[1].contains("BASH-RAN") && results[2].contains("NOTE-TEXT"),
+        "{results:?}"
+    );
 
     let bodies = bodies.lock().unwrap().clone();
     assert!(bodies.len() >= 3, "{}", bodies.len());
-    assert_eq!(bodies[1].matches("data:image/png").count(), 1, "the picture, once");
+    assert_eq!(
+        bodies[1].matches("data:image/png").count(),
+        1,
+        "the picture, once"
+    );
     assert!(
         bodies[2].contains("already in the conversation above"),
         "a second read is told to look back"
     );
-    assert_eq!(bodies[2].matches("data:image/png").count(), 1, "and not sent again");
+    assert_eq!(
+        bodies[2].matches("data:image/png").count(),
+        1,
+        "and not sent again"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

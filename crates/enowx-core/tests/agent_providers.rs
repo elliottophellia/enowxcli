@@ -3,6 +3,8 @@
 //! key. An agent whose model is on a provider with no key runs on the model
 //! in use, and says so.
 
+mod common;
+
 use std::sync::{Arc, Mutex};
 
 use enowx_core::{builtin_agents, config::Config, Agent, Discovery, Event, Role, SessionStore};
@@ -21,6 +23,9 @@ async fn provider(text: &'static str) -> (String, Arc<Mutex<Vec<(String, String)
             let Ok((mut socket, _)) = listener.accept().await else {
                 return;
             };
+            if !common::is_model_call(&socket).await {
+                continue;
+            }
             let log = log.clone();
             tokio::spawn(async move {
                 let (head, body) = read_request(&mut socket).await;

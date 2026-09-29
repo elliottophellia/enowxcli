@@ -4,7 +4,8 @@
 use crossterm::event::KeyCode;
 use enowx_tui::testing::TestApp;
 
-const OUTAGE: &str = "every model tier failed for agent `orchestrator`; tried: enowx/cbc/deepseek-v4.1-flash. \
+const OUTAGE: &str =
+    "every model tier failed for agent `orchestrator`; tried: enowx/cbc/deepseek-v4.1-flash. \
                       Last error: provider returned 502 Bad Gateway: error code: 502";
 
 #[test]
@@ -41,5 +42,7 @@ fn only_a_few_times_in_a_row_and_never_for_a_permanent_error() {
 
 #[test]
 fn retry_is_a_command() {
-    assert!(TestApp::command_names().iter().any(|(name, _)| *name == "retry"));
+    assert!(TestApp::command_names()
+        .iter()
+        .any(|(name, _)| *name == "retry"));
 }

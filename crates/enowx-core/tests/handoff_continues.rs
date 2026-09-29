@@ -9,6 +9,8 @@
 //! Driven through a fake OpenAI-compatible endpoint, because the behaviour
 //! under test is what the agent loop does between two model calls.
 
+mod common;
+
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -36,6 +38,9 @@ async fn fake_provider(replies: Vec<String>) -> (String, Arc<AtomicUsize>) {
             let Ok((mut socket, _)) = listener.accept().await else {
                 return;
             };
+            if !common::is_model_call(&socket).await {
+                continue;
+            }
             let index = seen.fetch_add(1, Ordering::SeqCst);
             let body = replies
                 .get(index)
@@ -499,6 +504,9 @@ async fn recording_provider(replies: Vec<String>) -> (String, Arc<std::sync::Mut
             let Ok((mut socket, _)) = listener.accept().await else {
                 return;
             };
+            if !common::is_model_call(&socket).await {
+                continue;
+            }
             let reply = replies
                 .get(index)
                 .cloned()

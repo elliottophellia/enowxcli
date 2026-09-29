@@ -4,6 +4,8 @@
 //! on every call: `agent_prompt` appended them and the turn loop appended them
 //! again. Captured here from the request the provider actually receives.
 
+mod common;
+
 use std::sync::{Arc, Mutex};
 
 use enowx_core::{
@@ -26,6 +28,9 @@ async fn recording_provider() -> (String, Arc<Mutex<Vec<String>>>) {
             let Ok((mut socket, _)) = listener.accept().await else {
                 return;
             };
+            if !common::is_model_call(&socket).await {
+                continue;
+            }
             let seen = seen.clone();
             tokio::spawn(async move {
                 let request = read_request(&mut socket).await;

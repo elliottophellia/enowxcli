@@ -374,7 +374,7 @@ fn a_disconnected_pick_is_passed_over() {
     drop(home);
 }
 
-/// A pinned `model.default` beats the recent list, as opencode's `model`.
+/// A pinned `model.default` beats the recent list.
 #[test]
 fn a_pinned_model_beats_the_recent_one() {
     let home = Home::new("pinned");

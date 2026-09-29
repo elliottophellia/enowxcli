@@ -1,5 +1,4 @@
-//! `enx auth`: provider keys in `~/.enx/auth.json`, the way `opencode auth`
-//! manages them. A key is typed at a prompt that does not echo it, or piped
+//! `enx auth`: provider keys in `~/.enx/auth.json`. A key is typed at a prompt that does not echo it, or piped
 //! in, so it never lands in shell history.
 
 use std::io::{BufRead as _, IsTerminal as _, Write as _};

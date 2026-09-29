@@ -561,6 +561,16 @@ impl Agent {
         if agent.delegation != crate::agent_def::Delegation::None {
             prompt.push_str(&self.roster_block(agent));
         }
+        if agent.tools.iter().any(|t| t == "edit_lines") {
+            prompt.push_str(
+                "\nEditing code: `read` shows each line as `12#a3f:text`. To change lines of a file \
+                 you have read, use `edit_lines` with those anchors: no old text to repeat, and a \
+                 stale anchor is caught. Use `edit` for a short replacement of unique text, and \
+                 `write` for a new file. For a symbol, ask `lsp` (definition, references, hover, \
+                 rename) before searching text. Every change is checked against the project's \
+                 rules and its syntax: a refused change says why; fix it and send it again.\n",
+            );
+        }
         if !self.config.agent.preview && agent.tools.iter().any(|t| t == "preview") {
             prompt.push_str(
                 "\nThe user turned `preview` off: do not look at pages in a browser. Check \
@@ -1263,6 +1273,9 @@ impl Agent {
         let tool_ctx = ToolCtx {
             skills: self.discovery.carried_by(&active),
             lsp: self.config.agent.lsp.then(|| self.lsp.clone()),
+            repair: Some(Arc::new(ModelRepair {
+                config: self.config.clone(),
+            })),
             workspace,
             shell_timeout: Duration::from_secs(self.config.agent.shell_timeout_secs),
             cancel: cancel.clone(),
@@ -1540,7 +1553,7 @@ impl Agent {
                                 Some(path)
                                     if matches!(
                                         call.name.as_str(),
-                                        "write" | "edit" | "multi_edit"
+                                        "write" | "edit" | "multi_edit" | "edit_lines"
                                     ) =>
                                 {
                                     self.board
@@ -1586,7 +1599,11 @@ impl Agent {
                 // results are 93% of a session's context, and the three tools
                 // that dominate — bash, read, skill_read — cannot be judged
                 // from their names.
-                if !output.is_error && matches!(call.name.as_str(), "write" | "edit" | "multi_edit")
+                if !output.is_error
+                    && matches!(
+                        call.name.as_str(),
+                        "write" | "edit" | "multi_edit" | "edit_lines"
+                    )
                 {
                     if let Some(path) = serde_json::from_str::<serde_json::Value>(&call.arguments)
                         .ok()
@@ -2120,5 +2137,57 @@ mod overview_tests {
         let overview = workspace_overview(&dir);
         let _ = std::fs::remove_dir_all(&dir);
         assert!(overview.ends_with("and 5 more"), "{overview}");
+    }
+}
+
+/// Mends an edit that broke a file's syntax with a quick model call: the
+/// cheap tier's model when one is set, else the model in use.
+struct ModelRepair {
+    config: Config,
+}
+
+const REPAIR_PROMPT: &str = "You mend code an automated edit broke. You are shown a region of a \
+file as it was (it parsed) and as the edit left it (it does not parse). Answer with the region as \
+it should be: the edit's intended change kept, the syntax made whole (brackets balanced, \
+statements complete, duplicated or cut lines fixed). Change nothing else. Keep every line of \
+context the region starts and ends with exactly as it is, indentation included. Answer with the \
+code alone: no explanation, no code fence.";
+
+#[async_trait::async_trait]
+impl crate::syntax::Repair for ModelRepair {
+    async fn repair(
+        &self,
+        language: &str,
+        before: &str,
+        after: &str,
+        previous: Option<&str>,
+    ) -> Option<String> {
+        let mut config = self.config.clone();
+        let cheap = config.agent.tiers.cheap.trim().to_owned();
+        if !cheap.is_empty() {
+            config.use_model(&cheap);
+        }
+        config.model.effort.clear();
+        let provider = Provider::from_config(&config).ok()?;
+        let mut ask = format!(
+            "Language: {language}\n\nBEFORE (parsed):\n{before}\n\nAFTER (does not parse):\n{after}\n"
+        );
+        if let Some(previous) = previous {
+            ask.push_str(&format!(
+                "\nAn earlier answer still did not parse; do better:\n{previous}\n"
+            ));
+        }
+        let messages = vec![Message::system(REPAIR_PROMPT), Message::user(ask)];
+        let (tx, mut rx) = mpsc::channel(64);
+        tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        let answer = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            provider.complete(&messages, &[], &tx),
+        )
+        .await
+        .ok()?
+        .ok()?;
+        let text = answer.text.trim_matches('\n').to_owned();
+        (!text.trim().is_empty()).then_some(text)
     }
 }

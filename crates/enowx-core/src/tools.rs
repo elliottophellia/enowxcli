@@ -46,6 +46,9 @@ pub struct ToolCtx {
     pub skills: Vec<String>,
     /// The agent's language servers; None when checking is off.
     pub lsp: Option<std::sync::Arc<crate::lsp::Lsp>>,
+    /// What mends an edit that broke a file's syntax; None refuses such
+    /// edits instead.
+    pub repair: Option<std::sync::Arc<dyn crate::syntax::Repair>>,
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +112,8 @@ impl Default for ToolRegistry {
         registry.register(EditTool);
         registry.register(MultiEditTool);
         registry.register(files::DiagnosticsTool);
+        registry.register(files::LspTool);
+        registry.register(files::EditLinesTool);
         registry.register(files::PlanWriteTool);
         registry.register(ui::UiCheckTool);
         registry.register(icon::IconTool::default());
@@ -216,9 +221,12 @@ impl ToolRegistry {
         }
         // An agent with no tool that edits (the orchestrator, `review`) has
         // `bash` to look and check, not to change files another way.
-        let edits = allowed_tools
-            .iter()
-            .any(|tool| matches!(tool.as_str(), "write" | "edit" | "multi_edit"));
+        let edits = allowed_tools.iter().any(|tool| {
+            matches!(
+                tool.as_str(),
+                "write" | "edit" | "multi_edit" | "edit_lines"
+            )
+        });
         if name == "bash" && !edits {
             if let Some(reason) = args["command"]
                 .as_str()
@@ -462,6 +470,127 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    /// Lines named by their anchors are replaced, inserted and deleted
+    /// without repeating the old text, against the file as it was read.
+    #[tokio::test]
+    async fn edit_lines_changes_lines_by_their_anchors() {
+        let (ctx, root) = temp_ctx();
+        std::fs::write(root.join("a.txt"), "one\ntwo\nthree\nfour\n").unwrap();
+        let registry = ToolRegistry::default();
+        let read = registry
+            .dispatch(&ctx, "read", serde_json::json!({"path": "a.txt"}))
+            .await;
+        let anchor = |n: usize| -> String {
+            let line = read.content.lines().nth(n - 1).unwrap();
+            line.trim_start().split(':').next().unwrap().to_owned()
+        };
+        assert_eq!(anchor(2), format!("2#{}", files::anchor("two")));
+        let out = registry
+            .dispatch(
+                &ctx,
+                "edit_lines",
+                serde_json::json!({"path": "a.txt", "edits": [
+                    {"op": "replace", "from": anchor(2), "text": "TWO\nTWO AND A HALF"},
+                    {"op": "delete", "from": anchor(4)},
+                    {"op": "insert_before", "from": anchor(1), "text": "zero"}
+                ]}),
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert_eq!(
+            std::fs::read_to_string(root.join("a.txt")).unwrap(),
+            "zero\none\nTWO\nTWO AND A HALF\nthree\n"
+        );
+        assert!(out.content.contains(&format!(
+            "#{}:TWO AND A HALF",
+            files::anchor("TWO AND A HALF")
+        )));
+        // An anchor from before the change no longer matches that line.
+        let stale = registry
+            .dispatch(
+                &ctx,
+                "edit_lines",
+                serde_json::json!({"path": "a.txt", "edits": [
+                    {"op": "delete", "from": format!("5#{}", files::anchor("four"))}
+                ]}),
+            )
+            .await;
+        assert!(
+            stale.is_error && stale.content.contains("no longer matches"),
+            "{}",
+            stale.content
+        );
+        // A line that moved is still found near where it was.
+        let moved = registry
+            .dispatch(
+                &ctx,
+                "edit_lines",
+                serde_json::json!({"path": "a.txt", "edits": [
+                    {"op": "replace", "from": format!("4#{}", files::anchor("three")), "text": "3"}
+                ]}),
+            )
+            .await;
+        assert!(!moved.is_error, "{}", moved.content);
+        assert!(std::fs::read_to_string(root.join("a.txt"))
+            .unwrap()
+            .ends_with("3\n"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// Code that breaks a rule is refused before the file changes, and an
+    /// edit that breaks the syntax is refused with where it broke.
+    #[tokio::test]
+    async fn rules_and_syntax_guard_every_edit() {
+        let (ctx, root) = temp_ctx();
+        std::fs::write(root.join("pay.ts"), "export const a = 1;\n").unwrap();
+        let registry = ToolRegistry::default();
+        let secret = registry
+            .dispatch(
+                &ctx,
+                "edit",
+                serde_json::json!({"path": "pay.ts", "old_text": "export const a = 1;",
+                    "new_text": "export const key = \"sk-live-abcdefghijklmnopqrstuvwxyz123456\";"}),
+            )
+            .await;
+        assert!(
+            secret.is_error && secret.content.contains("hardcoded-secret"),
+            "{}",
+            secret.content
+        );
+        let any = registry
+            .dispatch(
+                &ctx,
+                "edit",
+                serde_json::json!({"path": "pay.ts", "old_text": "export const a = 1;",
+                    "new_text": "export const a: any = 1;"}),
+            )
+            .await;
+        assert!(
+            !any.is_error && any.content.contains("ts-no-any"),
+            "{}",
+            any.content
+        );
+        let broken = registry
+            .dispatch(
+                &ctx,
+                "edit",
+                serde_json::json!({"path": "pay.ts", "old_text": "export const a: any = 1;",
+                    "new_text": "export function f( {"}),
+            )
+            .await;
+        assert!(
+            broken.is_error && broken.content.contains("no longer parses"),
+            "{}",
+            broken.content
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("pay.ts")).unwrap(),
+            "export const a: any = 1;\n",
+            "nothing was written"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     /// One edit that does not apply leaves the file as it was.
     #[tokio::test]
     async fn multi_edit_is_all_or_nothing() {
@@ -498,6 +627,7 @@ mod tests {
                 call_id: String::new(),
                 skills: Vec::new(),
                 lsp: None,
+                repair: None,
             },
             root,
         )
@@ -533,7 +663,14 @@ mod tests {
                 json!({"path":"src/a.txt"}),
             )
             .await;
-        assert_eq!(read.content, "1:one\n2:second");
+        assert_eq!(
+            read.content,
+            format!(
+                "1#{}:one\n2#{}:second",
+                files::anchor("one"),
+                files::anchor("second")
+            )
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 

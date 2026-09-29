@@ -1,8 +1,7 @@
 //! Which providers exist, which of them are connected, and what a
 //! `provider/model` ref points at.
 //!
-//! The same arrangement as opencode: several providers can be connected at
-//! once, each with its own key (`crate::auth`), and a model is always named
+//! Several providers can be connected at once, each with its own key (`crate::auth`), and a model is always named
 //! with its provider, `deepseek/deepseek-flash`, so one list holds the
 //! models of all of them and each agent can run on any of them.
 

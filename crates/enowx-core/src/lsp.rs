@@ -275,7 +275,12 @@ impl Client {
                     "capabilities": {
                         "textDocument": {
                             "synchronization": { "didSave": true, "dynamicRegistration": false },
-                            "publishDiagnostics": { "relatedInformation": false, "versionSupport": true }
+                            "publishDiagnostics": { "relatedInformation": false, "versionSupport": true },
+                            "definition": { "linkSupport": false },
+                            "references": {},
+                            "hover": { "contentFormat": ["markdown", "plaintext"] },
+                            "documentSymbol": { "hierarchicalDocumentSymbolSupport": true },
+                            "rename": { "prepareSupport": false }
                         },
                         "workspace": { "configuration": true, "workspaceFolders": true },
                         "window": { "workDoneProgress": true }
@@ -318,6 +323,35 @@ impl Client {
             &json!({ "jsonrpc": "2.0", "method": method, "params": params }),
         )
         .await
+    }
+
+    /// Make the server's copy of a document match `text`.
+    async fn sync(&self, path: &Path, text: &str) -> Result<()> {
+        let uri = file_uri(path);
+        let mut open = self.open.lock().await;
+        match open.get_mut(&uri) {
+            Some(version) => {
+                *version += 1;
+                self.notify(
+                    "textDocument/didChange",
+                    json!({
+                        "textDocument": { "uri": uri, "version": *version },
+                        "contentChanges": [{ "text": text }]
+                    }),
+                )
+                .await
+            }
+            None => {
+                open.insert(uri.clone(), 1);
+                self.notify(
+                    "textDocument/didOpen",
+                    json!({ "textDocument": {
+                        "uri": uri, "languageId": language_id(path), "version": 1, "text": text
+                    }}),
+                )
+                .await
+            }
+        }
     }
 
     /// Send the file's current text and wait for what the server says about
@@ -811,5 +845,324 @@ mod tests {
         );
         assert_eq!(counts(2, 1), "2 errors, 1 warning");
         assert_eq!(counts(0, 3), "3 warnings");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Asking the server about code: where a symbol is defined, where it is used,
+// what it is, what a file declares, and renaming it everywhere.
+
+/// What the `lsp` tool can ask.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Ask {
+    Definition,
+    References,
+    Hover,
+    Symbols,
+    Rename,
+}
+
+impl Ask {
+    pub fn parse(op: &str) -> Option<Self> {
+        Some(match op {
+            "definition" => Ask::Definition,
+            "references" => Ask::References,
+            "hover" => Ask::Hover,
+            "symbols" => Ask::Symbols,
+            "rename" => Ask::Rename,
+            _ => return None,
+        })
+    }
+}
+
+/// A 0-based position in a file, from a 1-based line and either a column or
+/// the symbol's name on that line.
+pub fn position(
+    text: &str,
+    line: usize,
+    column: Option<usize>,
+    symbol: Option<&str>,
+) -> Option<(u32, u32)> {
+    let row = line.checked_sub(1)?;
+    let source = text.lines().nth(row)?;
+    let byte = match (symbol, column) {
+        (Some(name), _) if !name.is_empty() => source.find(name)?,
+        (_, Some(column)) => source
+            .char_indices()
+            .nth(column.saturating_sub(1))
+            .map_or(source.len(), |(i, _)| i),
+        _ => source.len() - source.trim_start().len(),
+    };
+    // LSP counts UTF-16 units.
+    let character = source[..byte].encode_utf16().count();
+    Some((row as u32, character as u32))
+}
+
+impl Lsp {
+    /// Ask the language server for `path` a question at a place in it.
+    pub async fn ask(
+        &self,
+        path: &Path,
+        ask: Ask,
+        at: Option<(u32, u32)>,
+        new_name: Option<&str>,
+    ) -> Result<String> {
+        let server = servers_for(path)
+            .into_iter()
+            .find(|s| s.name != "ruff")
+            .ok_or_else(|| anyhow!("no language server covers {}", path.display()))?;
+        if !self.is_usable(server).await {
+            anyhow::bail!(
+                "{} is not installed (install: {})",
+                server.name,
+                server.install
+            );
+        }
+        let root = root_for(server, &self.workspace, path);
+        let (client, fresh) = self.client(server, root).await?;
+        let text = std::fs::read_to_string(path)?;
+        client.sync(path, &text).await?;
+        if fresh {
+            // A server that just started indexes before it can answer about
+            // other files; give it its first pass.
+            let _ = client.check(path, &text, Duration::from_secs(20)).await;
+        }
+        let uri = file_uri(path);
+        let doc = json!({ "uri": uri });
+        let pos = |at: Option<(u32, u32)>| -> Result<Value> {
+            let (line, character) =
+                at.ok_or_else(|| anyhow!("give `line` and `symbol` (or `column`)"))?;
+            Ok(json!({ "line": line, "character": character }))
+        };
+        let wait = Duration::from_secs(30);
+        let shown = |p: &Path| {
+            p.strip_prefix(&self.workspace)
+                .unwrap_or(p)
+                .display()
+                .to_string()
+        };
+        match ask {
+            Ask::Definition | Ask::References => {
+                let method = if ask == Ask::Definition {
+                    "textDocument/definition"
+                } else {
+                    "textDocument/references"
+                };
+                let mut params = json!({ "textDocument": doc, "position": pos(at)? });
+                if ask == Ask::References {
+                    params["context"] = json!({ "includeDeclaration": true });
+                }
+                let found = client.request(method, params, wait).await?;
+                let list: Vec<Value> = match found {
+                    Value::Array(items) => items,
+                    Value::Null => Vec::new(),
+                    one => vec![one],
+                };
+                if list.is_empty() {
+                    return Ok("Nothing found.".to_owned());
+                }
+                let mut out = Vec::new();
+                for item in list.iter().take(60) {
+                    let (target, range) = match (item.get("targetUri"), item.get("uri")) {
+                        (Some(uri), _) => (uri, &item["targetSelectionRange"]),
+                        (None, Some(uri)) => (uri, &item["range"]),
+                        _ => continue,
+                    };
+                    let file = uri_path(target.as_str().unwrap_or(""));
+                    let line = range["start"]["line"].as_u64().unwrap_or(0) as usize;
+                    let source = std::fs::read_to_string(&file)
+                        .ok()
+                        .and_then(|t| t.lines().nth(line).map(|l| l.trim().to_owned()))
+                        .unwrap_or_default();
+                    out.push(format!(
+                        "{}:{}:{}  {}",
+                        shown(&file),
+                        line + 1,
+                        range["start"]["character"].as_u64().unwrap_or(0) + 1,
+                        source.chars().take(160).collect::<String>()
+                    ));
+                }
+                if list.len() > 60 {
+                    out.push(format!("… and {} more", list.len() - 60));
+                }
+                Ok(out.join("\n"))
+            }
+            Ask::Hover => {
+                let found = client
+                    .request(
+                        "textDocument/hover",
+                        json!({ "textDocument": doc, "position": pos(at)? }),
+                        wait,
+                    )
+                    .await?;
+                let contents = &found["contents"];
+                let text = match contents {
+                    Value::String(s) => s.clone(),
+                    Value::Array(parts) => parts
+                        .iter()
+                        .map(|p| p["value"].as_str().or(p.as_str()).unwrap_or("").to_owned())
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                    other => other["value"].as_str().unwrap_or("").to_owned(),
+                };
+                Ok(if text.trim().is_empty() {
+                    "Nothing to say about that place.".to_owned()
+                } else {
+                    text.chars().take(4000).collect()
+                })
+            }
+            Ask::Symbols => {
+                let found = client
+                    .request(
+                        "textDocument/documentSymbol",
+                        json!({ "textDocument": doc }),
+                        wait,
+                    )
+                    .await?;
+                let mut out = Vec::new();
+                fn walk(items: &[Value], depth: usize, out: &mut Vec<String>) {
+                    for item in items {
+                        let range = if item.get("selectionRange").is_some() {
+                            &item["selectionRange"]
+                        } else {
+                            &item["location"]["range"]
+                        };
+                        out.push(format!(
+                            "{}{} {} (line {})",
+                            "  ".repeat(depth),
+                            symbol_kind(item["kind"].as_u64().unwrap_or(0)),
+                            item["name"].as_str().unwrap_or("?"),
+                            range["start"]["line"].as_u64().unwrap_or(0) + 1
+                        ));
+                        if let Some(children) = item["children"].as_array() {
+                            walk(children, depth + 1, out);
+                        }
+                    }
+                }
+                walk(
+                    found.as_array().map(Vec::as_slice).unwrap_or(&[]),
+                    0,
+                    &mut out,
+                );
+                Ok(if out.is_empty() {
+                    "No symbols.".to_owned()
+                } else {
+                    out.join("\n")
+                })
+            }
+            Ask::Rename => {
+                let new_name = new_name
+                    .filter(|n| !n.trim().is_empty())
+                    .ok_or_else(|| anyhow!("rename needs `new_name`"))?;
+                let edit = client
+                    .request(
+                        "textDocument/rename",
+                        json!({ "textDocument": doc, "position": pos(at)?, "newName": new_name }),
+                        Duration::from_secs(60),
+                    )
+                    .await?;
+                let changed = self.apply(&client, &edit)?;
+                for (file, text) in &changed {
+                    let _ = client.sync(file, text).await;
+                }
+                if changed.is_empty() {
+                    return Ok(
+                        "The server made no changes: is the position on a symbol?".to_owned()
+                    );
+                }
+                let files: Vec<String> = changed.iter().map(|(f, _)| shown(f)).collect();
+                Ok(format!(
+                    "Renamed to `{new_name}` in {} files:\n{}",
+                    files.len(),
+                    files.join("\n")
+                ))
+            }
+        }
+    }
+
+    /// Apply a workspace edit to files inside the workspace. Returns each
+    /// changed file with its new text.
+    fn apply(&self, _client: &Client, edit: &Value) -> Result<Vec<(PathBuf, String)>> {
+        let mut by_file: Vec<(String, Vec<Value>)> = Vec::new();
+        if let Some(changes) = edit["changes"].as_object() {
+            for (uri, edits) in changes {
+                by_file.push((uri.clone(), edits.as_array().cloned().unwrap_or_default()));
+            }
+        }
+        if let Some(docs) = edit["documentChanges"].as_array() {
+            for doc in docs {
+                if let (Some(uri), Some(edits)) =
+                    (doc["textDocument"]["uri"].as_str(), doc["edits"].as_array())
+                {
+                    by_file.push((uri.to_owned(), edits.clone()));
+                }
+            }
+        }
+        let mut changed = Vec::new();
+        for (uri, mut edits) in by_file {
+            let file = uri_path(&uri);
+            if !file.starts_with(&self.workspace) {
+                anyhow::bail!(
+                    "the rename reaches outside the workspace: {}",
+                    file.display()
+                );
+            }
+            let mut text = std::fs::read_to_string(&file)?;
+            // Last first, so earlier offsets stay right.
+            edits.sort_by_key(|e| {
+                std::cmp::Reverse((
+                    e["range"]["start"]["line"].as_u64().unwrap_or(0),
+                    e["range"]["start"]["character"].as_u64().unwrap_or(0),
+                ))
+            });
+            for e in &edits {
+                let start = offset(&text, &e["range"]["start"]);
+                let end = offset(&text, &e["range"]["end"]);
+                if let (Some(start), Some(end)) = (start, end) {
+                    text.replace_range(start..end, e["newText"].as_str().unwrap_or(""));
+                }
+            }
+            crate::config::atomic_write(&file, text.as_bytes())?;
+            changed.push((file, text));
+        }
+        Ok(changed)
+    }
+}
+
+/// The byte offset of an LSP position (line, UTF-16 character).
+fn offset(text: &str, position: &Value) -> Option<usize> {
+    let line = position["line"].as_u64()? as usize;
+    let character = position["character"].as_u64()? as usize;
+    let mut start = 0;
+    for _ in 0..line {
+        start += text[start..].find('\n')? + 1;
+    }
+    let row = text[start..].split('\n').next().unwrap_or("");
+    let mut units = 0;
+    for (i, c) in row.char_indices() {
+        if units >= character {
+            return Some(start + i);
+        }
+        units += c.len_utf16();
+    }
+    Some(start + row.len())
+}
+
+fn symbol_kind(kind: u64) -> &'static str {
+    match kind {
+        2 => "module",
+        5 => "class",
+        6 => "method",
+        8 => "field",
+        9 => "constructor",
+        10 => "enum",
+        11 => "interface",
+        12 => "function",
+        13 => "variable",
+        14 => "constant",
+        22 => "enum member",
+        23 => "struct",
+        26 => "type parameter",
+        _ => "symbol",
     }
 }

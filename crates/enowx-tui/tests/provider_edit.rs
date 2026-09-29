@@ -1,5 +1,4 @@
-//! Providers are kept side by side, each with its own key, the way opencode
-//! keeps them: connecting, editing or disconnecting one never costs the
+//! Providers are kept side by side, each with its own key: connecting, editing or disconnecting one never costs the
 //! others, or the model in use.
 
 use enowx_tui::testing::TestApp;

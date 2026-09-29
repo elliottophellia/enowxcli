@@ -1,6 +1,5 @@
 //! The models the user has picked: the most recent first, and the ones they
-//! marked as favourites. Kept in `~/.enx/model.json`, the way opencode keeps
-//! its `model.json`, so choosing a model in `/model` never rewrites
+//! marked as favourites. Kept in `~/.enx/model.json`, so choosing a model in `/model` never rewrites
 //! `config.toml`.
 //!
 //! At start the first recent model whose provider is still connected is the

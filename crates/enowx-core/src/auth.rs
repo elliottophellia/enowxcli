@@ -1,7 +1,6 @@
 //! API keys, one per provider, kept apart from the configuration.
 //!
-//! The same arrangement as opencode's `auth.json`: a file of credentials
-//! keyed by provider id, readable only by the user, so `config.toml` holds
+//! `auth.json` is a file of credentials keyed by provider id, readable only by the user, so `config.toml` holds
 //! no secrets and can be read, shared or committed. Connecting a second
 //! provider adds an entry; it never replaces the first.
 //!
@@ -65,7 +64,7 @@ impl Auth {
 
     /// The key for `provider` and where it came from. A key set for this
     /// session wins, then the one stored in `auth.json` (typed on purpose,
-    /// as opencode lets it win), then the environment.
+    /// so it wins), then the environment.
     pub fn key(&self, provider: &str, env: &[&str]) -> Option<(String, KeySource)> {
         if let Some((key, source)) = self.session.get(provider) {
             return Some((key.clone(), source.clone()));

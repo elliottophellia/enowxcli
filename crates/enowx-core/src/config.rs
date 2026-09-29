@@ -3,7 +3,7 @@
 //!
 //! Provider keys are not kept here but in `~/.enx/auth.json`
 //! (`crate::auth`), and the model picked in `/model` in `~/.enx/model.json`
-//! (`crate::model_state`), the way opencode splits them. This file holds the
+//! (`crate::model_state`). This file holds the
 //! custom providers, a pinned starting model when the user wants one, and
 //! everything else.
 
@@ -343,7 +343,7 @@ pub const DEFAULT_CONTEXT_WINDOW: u32 = 128_000;
 pub const ENV_PROVIDER: &str = "env";
 
 /// Whether `id` can name a provider: lowercase letters, digits, `-` and
-/// `_`, starting with a letter or digit, as opencode requires. `env` is
+/// `_`, starting with a letter or digit. `env` is
 /// taken by the endpoint from `ENX_BASE_URL`.
 pub fn valid_provider_id(id: &str) -> bool {
     let mut chars = id.chars();

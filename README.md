@@ -16,8 +16,7 @@ it. Until a provider and a model are set, the line under the composer says
 which one is missing. Open `/provider`, choose a provider, then enter only its
 API key. Built-in providers: **enxapi**, OpenAI, OpenRouter, Groq, and DeepSeek;
 "Add a custom provider" takes any OpenAI-compatible endpoint. Any number of
-providers stay connected side by side, each with its own key, the way opencode
-keeps them.
+providers stay connected side by side, each with its own key.
 
 ## What is inside
 
@@ -79,7 +78,7 @@ from the composer.
 
 ## Configuration
 
-Three files under `~/.enx` (or `ENX_HOME`), split the way opencode splits them:
+Three files under `~/.enx` (or `ENX_HOME`), each with one job:
 
 | File | Holds |
 |---|---|
@@ -154,6 +153,28 @@ fixes a type error before it builds anything on top of it. An edit waits only
 for the server's first answer; the `diagnostics` tool waits for the full
 check. A server that is not installed is named once, with its install
 command. `agent.lsp = false` turns this off.
+
+Every change an agent makes goes through three checks before it lands:
+
+- **Rules.** Markdown rules (a pattern, the files it applies to, and what to
+  do instead) are checked on the code the change adds. `block` refuses the
+  change and returns the rule; `remind` lets it through with the rule
+  attached. enx ships rules for secrets in code, `any`, empty catches, index
+  keys, `Box::leak`, deprecated Go and Python APIs, `transition: all` and
+  removed focus outlines; add or override them in `~/.enx/rules/` or the
+  project's `.enx/rules/` (`severity: off` turns one off). A line with
+  `enx-allow: <rule>` passes a blocking rule.
+- **Syntax.** Rust, TypeScript, TSX, JavaScript, Python, Go, JSON and CSS
+  files are parsed before and after the change. When a change breaks a file
+  that parsed, a quick model call mends the changed region; when that fails,
+  an edit is refused with the error's line.
+- **Language server**, as above.
+
+`read` shows each line with an anchor (`12#a3f:text`), and `edit_lines`
+changes whole lines by those anchors, so an agent never has to repeat the
+old text exactly, and an edit against a stale read is caught. `lsp` asks
+the language server for a definition, references, a symbol's type, a file's
+symbols, or a rename across every file.
 
 The orchestrator does not wait on its specialists: a wave it delegates runs
 in the background, its turn ends, and the status bar says how many agents

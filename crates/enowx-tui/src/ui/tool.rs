@@ -250,9 +250,12 @@ fn diagnostic_counts(diagnostics: &str) -> (usize, usize) {
 
 pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRender<'a> {
     let (result, diagnostics) = match name {
-        "write" | "edit" | "multi_edit" => split_diagnostics(result),
+        "write" | "edit" | "multi_edit" | "edit_lines" => split_diagnostics(result),
         _ => (result, None),
     };
+    // A rule the change tripped is said on its row.
+    let ruled = matches!(name, "write" | "edit" | "multi_edit" | "edit_lines")
+        && result.contains("\n\nRules\n");
     let mut render = classify_result(name, args, result);
     // A file tool's row says when the language server found problems, and
     // opening it shows them above the change.
@@ -275,6 +278,9 @@ pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRe
             header.metric = format!("{} · {}", header.metric, found.join(", "));
         }
         *subtitle = Some(diagnostics.trim_end().to_owned());
+    }
+    if let (true, ToolRender::Detail { header, .. }) = (ruled, &mut render) {
+        header.metric = format!("{} · rule", header.metric);
     }
     render
 }
@@ -409,7 +415,7 @@ fn classify_result<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRender
             let new = str_arg(&parsed, "new_text").unwrap_or("").to_string();
             // The `edit` tool ends its output with `at line N`; use that so
             // the diff gutter shows real file line numbers instead of `1..`.
-            let start_line = parse_start_line(result).unwrap_or(1);
+            let start_line = parse_start_line(result.lines().next().unwrap_or("")).unwrap_or(1);
             // The size of the change is the edit's metric, in the right-hand
             // column where every other tool puts its count. It used to be on
             // a row of its own under the header, beside the path the header
@@ -425,6 +431,18 @@ fn classify_result<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRender
                 },
             }
         }
+        "edit_lines" => {
+            let path = str_arg(&parsed, "path").unwrap_or("").to_string();
+            let count = parsed
+                .get("edits")
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            ToolRender::Detail {
+                header: RowParts::new("edit", path, counted(count, "edit", "edits")),
+                subtitle: None,
+                body: ToolBody::Plain(result),
+            }
+        }
         "multi_edit" => {
             let path = str_arg(&parsed, "path").unwrap_or("").to_string();
             let edits = parsed
@@ -434,6 +452,9 @@ fn classify_result<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRender
                 .unwrap_or_default();
             // The tool's result names the line each edit landed on.
             let lines: Vec<usize> = result
+                .lines()
+                .next()
+                .unwrap_or("")
                 .split("at lines ")
                 .nth(1)
                 .map(|list| {
@@ -474,6 +495,9 @@ fn classify_result<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRender
             let metric = if result.starts_with("Created ") {
                 format!("new · {}", counted(n, "line", "lines"))
             } else if let Some((_, change)) = result
+                .lines()
+                .next()
+                .unwrap_or("")
                 .strip_prefix("Replaced ")
                 .and_then(|rest| rest.rsplit_once("; "))
             {

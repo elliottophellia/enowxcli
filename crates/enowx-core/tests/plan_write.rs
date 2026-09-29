@@ -26,6 +26,7 @@ async fn it_writes_a_plan_document_and_refuses_anything_else() {
         call_id: String::new(),
         skills: Vec::new(),
         lsp: None,
+        repair: None,
     };
     let registry = ToolRegistry::default();
     let allowed = vec!["plan_write".to_owned()];

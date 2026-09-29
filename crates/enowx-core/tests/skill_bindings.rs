@@ -15,6 +15,7 @@ fn ctx(skills: Vec<String>) -> ToolCtx {
         call_id: String::new(),
         skills,
         lsp: None,
+        repair: None,
     }
 }
 

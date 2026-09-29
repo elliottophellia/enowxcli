@@ -50,3 +50,44 @@ async fn a_missing_server_is_named_once_with_its_install_command() {
     assert!(!second.contains("pyright is not installed"), "{second}");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[tokio::test]
+async fn gopls_finds_a_definition_and_renames_everywhere() {
+    if which::which("gopls").is_err() || which::which("go").is_err() {
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("enx-lsp-ask-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("go.mod"), "module demo\n\ngo 1.22\n").unwrap();
+    std::fs::write(
+        root.join("lib.go"),
+        "package main\n\nfunc total(a, b int) int {\n\treturn a + b\n}\n",
+    )
+    .unwrap();
+    let main = root.join("main.go");
+    std::fs::write(
+        &main,
+        "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(total(1, 2))\n}\n",
+    )
+    .unwrap();
+    let lsp = Lsp::new(root.clone());
+    let text = std::fs::read_to_string(&main).unwrap();
+    let at = enowx_core::lsp::position(&text, 6, None, Some("total"));
+    let found = lsp
+        .ask(&main, enowx_core::lsp::Ask::Definition, at, None)
+        .await
+        .unwrap();
+    assert!(found.starts_with("lib.go:3:"), "{found}");
+    let renamed = lsp
+        .ask(&main, enowx_core::lsp::Ask::Rename, at, Some("sum"))
+        .await
+        .unwrap();
+    assert!(renamed.contains("2 files"), "{renamed}");
+    assert!(std::fs::read_to_string(root.join("lib.go"))
+        .unwrap()
+        .contains("func sum("));
+    assert!(std::fs::read_to_string(&main)
+        .unwrap()
+        .contains("fmt.Println(sum(1, 2))"));
+    let _ = std::fs::remove_dir_all(&root);
+}

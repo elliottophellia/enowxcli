@@ -91,6 +91,13 @@ pub fn strip_written(tool: &str, args: &mut serde_json::Value) {
                 }
             }
         }
+        "edit_lines" => {
+            if let Some(edits) = args["edits"].as_array_mut() {
+                for edit in edits {
+                    fix(&mut edit["text"]);
+                }
+            }
+        }
         _ => {}
     }
 }

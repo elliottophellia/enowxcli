@@ -15,7 +15,8 @@ impl Tool for ReadTool {
         "read"
     }
     fn description(&self) -> &str {
-        "Read a UTF-8 file with numbered lines. Use offset and limit for large files."
+        "Read a UTF-8 file. Each line comes as `12#a3f:text`: its number and an anchor that \
+         `edit_lines` uses to name it. Use offset and limit for large files."
     }
     fn parameters(&self) -> Value {
         json!({"type":"object","properties":{
@@ -52,8 +53,9 @@ impl Tool for ReadTool {
         let mut out = String::new();
         for (index, line) in lines[start..end].iter().enumerate() {
             out.push_str(&format!(
-                "{:>width$}:{}\n",
+                "{:>width$}#{}:{}\n",
                 start + index + 1,
+                anchor(line),
                 line,
                 width = width
             ));
@@ -92,6 +94,10 @@ impl Tool for WriteTool {
         let path = resolve_for_write(&ctx.workspace, raw)?;
         // Kept so the result can say what changed, and the interface show it.
         let before = std::fs::read_to_string(&path).ok();
+        let reminders = match rules_on(ctx, &path, before.as_deref().unwrap_or(""), content) {
+            Ok(reminders) => reminders,
+            Err(refusal) => return Ok(refusal),
+        };
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -114,6 +120,12 @@ impl Tool for WriteTool {
                 }
             }
         }
+        let (content, mended) =
+            match syntax_on(ctx, &path, before.as_deref(), content.to_owned(), true).await {
+                Ok(checked) => checked,
+                Err(refusal) => return Ok(refusal),
+            };
+        let content = content.as_str();
         crate::config::atomic_write(&path, content.as_bytes())?;
         // Format the freshly written file when the language has a known
         // formatter. If the binary is absent, report it so the UI can offer
@@ -154,6 +166,8 @@ impl Tool for WriteTool {
         };
         // A file too large to diff on screen is not worth carrying there.
         output.before = before.filter(|old| old.len() <= 512 * 1024);
+        output.content.push_str(&reminders);
+        output.content.push_str(&mended);
         Ok(with_diagnostics(ctx, &path, output).await)
     }
 }
@@ -243,10 +257,19 @@ impl Tool for MultiEditTool {
             lines.push(text[..at].bytes().filter(|b| *b == b'\n').count() + 1);
             text = text.replacen(old, new, 1);
         }
+        let original = std::fs::read_to_string(&path)?;
+        let reminders = match rules_on(ctx, &path, &original, &text) {
+            Ok(reminders) => reminders,
+            Err(refusal) => return Ok(refusal),
+        };
+        let (text, mended) = match syntax_on(ctx, &path, Some(&original), text, false).await {
+            Ok(checked) => checked,
+            Err(refusal) => return Ok(refusal),
+        };
         crate::config::atomic_write(&path, text.as_bytes())?;
         let at: Vec<String> = lines.iter().map(ToString::to_string).collect();
         let output = ToolOutput::ok(format!(
-            "Updated {raw}: {} edits, at lines {}",
+            "Updated {raw}: {} edits, at lines {}{reminders}{mended}",
             lines.len(),
             at.join(", ")
         ));
@@ -289,8 +312,19 @@ impl Tool for EditTool {
         // real file line numbers in the diff view instead of `1..`.
         let start_byte = source.find(old).unwrap_or(0);
         let start_line = source[..start_byte].bytes().filter(|b| *b == b'\n').count() + 1;
-        crate::config::atomic_write(&path, source.replacen(old, new, 1).as_bytes())?;
-        let output = ToolOutput::ok(format!("Updated {raw} at line {start_line}"));
+        let updated = source.replacen(old, new, 1);
+        let reminders = match rules_on(ctx, &path, &source, &updated) {
+            Ok(reminders) => reminders,
+            Err(refusal) => return Ok(refusal),
+        };
+        let (updated, mended) = match syntax_on(ctx, &path, Some(&source), updated, false).await {
+            Ok(checked) => checked,
+            Err(refusal) => return Ok(refusal),
+        };
+        crate::config::atomic_write(&path, updated.as_bytes())?;
+        let output = ToolOutput::ok(format!(
+            "Updated {raw} at line {start_line}{reminders}{mended}"
+        ));
         Ok(with_diagnostics(ctx, &path, output).await)
     }
 }
@@ -441,5 +475,298 @@ impl Tool for PlanWriteTool {
         });
         output.before = before;
         Ok(output)
+    }
+}
+
+/// The rules on the text a call adds to `path`: `Err` with the refusal when
+/// one blocks it, else the reminders to add to the result (empty when none).
+fn rules_on(ctx: &ToolCtx, path: &Path, old: &str, new: &str) -> Result<String, ToolOutput> {
+    let rules = crate::rules::load(&ctx.workspace);
+    let relative = path.strip_prefix(&ctx.workspace).unwrap_or(path);
+    let verdict = crate::rules::check(&rules, relative, &crate::rules::added_lines(old, new));
+    if !verdict.blocked.is_empty() {
+        return Err(ToolOutput::error(crate::rules::refusal(&verdict.blocked)));
+    }
+    Ok(if verdict.reminders.is_empty() {
+        String::new()
+    } else {
+        crate::rules::reminder(&verdict.reminders)
+    })
+}
+
+/// Where a changed file's syntax stands: `Err` with the refusal when an edit
+/// broke it beyond mending, else the text to write and a note when it was
+/// mended. `whole` is a write of the whole file: written even when broken,
+/// with the error said, since refusing would make the model send it all again.
+async fn syntax_on(
+    ctx: &ToolCtx,
+    path: &Path,
+    old: Option<&str>,
+    new: String,
+    whole: bool,
+) -> Result<(String, String), ToolOutput> {
+    let shown = display_path(&ctx.workspace, path);
+    match crate::syntax::guard(path, old, &new, ctx.repair.as_deref()).await {
+        crate::syntax::Outcome::Fine => Ok((new, String::new())),
+        crate::syntax::Outcome::Repaired { text, region, at } => Ok((
+            text,
+            format!(
+                "\n\nThe change left {shown} unparsable, so its region was mended from line {at}; \
+                 the file now holds:\n{region}\nRead it before editing that region again."
+            ),
+        )),
+        crate::syntax::Outcome::Broken(broken) if whole => Ok((
+            new,
+            format!(
+                "\n\nSyntax: {shown} does not parse ({} at line {}, column {}). Fix it next.",
+                broken.what, broken.line, broken.column
+            ),
+        )),
+        crate::syntax::Outcome::Broken(broken) => Err(ToolOutput::error(crate::syntax::refusal(
+            &shown, &new, &broken,
+        ))),
+    }
+}
+
+/// What the language server knows about code: where a symbol is defined,
+/// every place it is used, its type and docs, what a file declares, and a
+/// rename that updates every reference.
+pub(super) struct LspTool;
+
+#[async_trait]
+impl Tool for LspTool {
+    fn name(&self) -> &str {
+        "lsp"
+    }
+    fn description(&self) -> &str {
+        "Ask the project's language server about code instead of searching text. `definition` \
+         (where a symbol is defined), `references` (every use), `hover` (its type and docs), \
+         `symbols` (what a file declares, with lines), `rename` (renames it in every file, with \
+         `new_name`). Name the place by `path`, `line` (1-based) and `symbol` (the name on that \
+         line) or `column`. Rust, TypeScript and JavaScript, Python and Go."
+    }
+    fn parameters(&self) -> Value {
+        json!({"type":"object","properties":{
+            "op":{"type":"string","enum":["definition","references","hover","symbols","rename"]},
+            "path":{"type":"string"},
+            "line":{"type":"integer","minimum":1},
+            "symbol":{"type":"string","description":"The symbol's name as written on that line"},
+            "column":{"type":"integer","minimum":1},
+            "new_name":{"type":"string","description":"For rename"}
+        },"required":["op","path"],"additionalProperties":false})
+    }
+    async fn execute(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput> {
+        let Some(ask) = crate::lsp::Ask::parse(string_arg(&args, "op")?) else {
+            return Ok(ToolOutput::error(
+                "op is one of definition, references, hover, symbols, rename",
+            ));
+        };
+        let raw = string_arg(&args, "path")?;
+        let path = resolve_existing(&ctx.workspace, raw)?;
+        let Some(lsp) = &ctx.lsp else {
+            return Ok(ToolOutput::error(
+                "language servers are off (agent.lsp = false in the config)",
+            ));
+        };
+        let text = std::fs::read_to_string(&path)?;
+        let at = args["line"].as_u64().and_then(|line| {
+            crate::lsp::position(
+                &text,
+                line as usize,
+                args["column"].as_u64().map(|c| c as usize),
+                args["symbol"].as_str(),
+            )
+        });
+        if ask != crate::lsp::Ask::Symbols && at.is_none() {
+            return Ok(ToolOutput::error(
+                "give `line` and the `symbol` on it (or `column`); the symbol must be written on that line",
+            ));
+        }
+        let answer = tokio::select! {
+            answer = lsp.ask(&path, ask, at, args["new_name"].as_str()) => answer,
+            _ = ctx.cancel.cancelled() => return Ok(ToolOutput::error("cancelled")),
+        };
+        Ok(match answer {
+            Ok(text) => ToolOutput::ok(text),
+            Err(error) => ToolOutput::error(format!("{error:#}")),
+        })
+    }
+}
+
+/// A line's anchor: three hex digits of a hash of its text (trailing spaces
+/// ignored). With the line number it names a line in `edit_lines`, and it
+/// tells a stale edit (the file changed since it was read) from a good one.
+pub fn anchor(line: &str) -> String {
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in line.trim_end().bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    format!("{:03x}", hash & 0xfff)
+}
+
+/// Find the line an anchor `N#abc` names in `lines` (0-based). A line that
+/// moved since the file was read is found near where it was, when its text
+/// is there once.
+fn locate(lines: &[&str], raw: &str) -> Result<usize, String> {
+    let (number, tag) = raw
+        .trim()
+        .split_once('#')
+        .ok_or_else(|| format!("`{raw}` is not an anchor: write it as `12#a3f`, from `read`"))?;
+    let number: usize = number
+        .trim()
+        .parse()
+        .map_err(|_| format!("`{raw}` has no line number"))?;
+    let tag = tag.trim().trim_end_matches(':').to_ascii_lowercase();
+    if number >= 1 && number <= lines.len() && anchor(lines[number - 1]) == tag {
+        return Ok(number - 1);
+    }
+    let near: Vec<usize> = (number.saturating_sub(40)..(number + 40).min(lines.len() + 1))
+        .filter(|n| *n >= 1 && anchor(lines[n - 1]) == tag)
+        .map(|n| n - 1)
+        .collect();
+    if near.len() == 1 {
+        return Ok(near[0]);
+    }
+    let now = lines
+        .get(number.wrapping_sub(1))
+        .map(|l| {
+            format!(
+                "line {number} is now `{}` ({number}#{})",
+                l.trim(),
+                anchor(l)
+            )
+        })
+        .unwrap_or_else(|| format!("the file has {} lines", lines.len()));
+    Err(format!(
+        "`{raw}` no longer matches: {now}. Read the lines again and use their anchors."
+    ))
+}
+
+/// Edits by line anchor: replace, insert or delete whole lines without
+/// repeating the old text.
+pub(super) struct EditLinesTool;
+
+#[async_trait]
+impl Tool for EditLinesTool {
+    fn name(&self) -> &str {
+        "edit_lines"
+    }
+    fn description(&self) -> &str {
+        "Change whole lines of a file you have read, naming them by the anchors `read` shows \
+         (`12#a3f`): no need to repeat the old text. Each edit: `op` replace (lines `from` to \
+         `to`, inclusive; `to` omitted is one line), insert_after, insert_before or delete, and \
+         `text` for the new lines (no anchors in it). All anchors refer to the file as read; \
+         edits may not overlap. The result shows the changed lines with their new anchors."
+    }
+    fn parameters(&self) -> Value {
+        json!({"type":"object","properties":{
+            "path":{"type":"string"},
+            "edits":{"type":"array","minItems":1,"items":{"type":"object","properties":{
+                "op":{"type":"string","enum":["replace","insert_after","insert_before","delete"]},
+                "from":{"type":"string","description":"Anchor of the first line, as `12#a3f`"},
+                "to":{"type":"string","description":"Anchor of the last line, for replace and delete"},
+                "text":{"type":"string","description":"The new lines, for replace and inserts"}
+            },"required":["op","from"]}}
+        },"required":["path","edits"],"additionalProperties":false})
+    }
+    async fn execute(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput> {
+        let raw = string_arg(&args, "path")?;
+        let path = resolve_existing(&ctx.workspace, raw)?;
+        let source = std::fs::read_to_string(&path)?;
+        let lines: Vec<&str> = source.lines().collect();
+        let edits = args["edits"].as_array().cloned().unwrap_or_default();
+        if edits.is_empty() {
+            return Ok(ToolOutput::error("edits must be a non-empty list"));
+        }
+        // Each edit as the half-open range of old lines it replaces and the
+        // lines that take their place.
+        let mut plans: Vec<(usize, usize, Vec<String>)> = Vec::new();
+        for (index, edit) in edits.iter().enumerate() {
+            let n = index + 1;
+            let op = edit["op"].as_str().unwrap_or("replace");
+            let from = match locate(&lines, edit["from"].as_str().unwrap_or("")) {
+                Ok(line) => line,
+                Err(error) => return Ok(ToolOutput::error(format!("edit {n}: {error}"))),
+            };
+            let to = match edit["to"].as_str() {
+                Some(raw) if !raw.trim().is_empty() => match locate(&lines, raw) {
+                    Ok(line) => line,
+                    Err(error) => return Ok(ToolOutput::error(format!("edit {n}: {error}"))),
+                },
+                _ => from,
+            };
+            if to < from {
+                return Ok(ToolOutput::error(format!(
+                    "edit {n}: `to` comes before `from`"
+                )));
+            }
+            let text: Vec<String> = edit["text"]
+                .as_str()
+                .unwrap_or("")
+                .lines()
+                .map(str::to_owned)
+                .collect();
+            let plan = match op {
+                "replace" => (from, to + 1, text),
+                "delete" => (from, to + 1, Vec::new()),
+                "insert_after" => (from + 1, from + 1, text),
+                "insert_before" => (from, from, text),
+                other => return Ok(ToolOutput::error(format!("edit {n}: unknown op `{other}`"))),
+            };
+            plans.push(plan);
+        }
+        plans.sort_by_key(|p| (p.0, p.1));
+        for pair in plans.windows(2) {
+            if pair[1].0 < pair[0].1 {
+                return Ok(ToolOutput::error(
+                    "two edits touch the same lines: merge them into one",
+                ));
+            }
+        }
+        let mut result: Vec<String> = lines.iter().map(|l| (*l).to_owned()).collect();
+        for (start, end, text) in plans.iter().rev() {
+            result.splice(*start..*end, text.iter().cloned());
+        }
+        let mut updated = result.join("\n");
+        if source.ends_with('\n') || source.is_empty() {
+            updated.push('\n');
+        }
+        let reminders = match rules_on(ctx, &path, &source, &updated) {
+            Ok(reminders) => reminders,
+            Err(refusal) => return Ok(refusal),
+        };
+        let (updated, mended) = match syntax_on(ctx, &path, Some(&source), updated, false).await {
+            Ok(checked) => checked,
+            Err(refusal) => return Ok(refusal),
+        };
+        crate::config::atomic_write(&path, updated.as_bytes())?;
+        // Where the changed lines ended up, with their new anchors, so the
+        // next edit needs no new read. Spans were applied last first; shift
+        // each by what the edits above it added or removed.
+        let new_lines: Vec<&str> = updated.lines().collect();
+        let mut shown = String::new();
+        let mut delta: isize = 0;
+        let mut ordered: Vec<(usize, usize, usize)> = plans
+            .iter()
+            .map(|(start, end, text)| (*start, end - start, text.len()))
+            .collect();
+        ordered.sort();
+        for (start, removed, added) in ordered {
+            let at = (start as isize + delta).max(0) as usize;
+            let from = at.saturating_sub(1);
+            let to = (at + added + 1).min(new_lines.len());
+            for (i, line) in new_lines.iter().enumerate().take(to).skip(from) {
+                shown.push_str(&format!("{:>4}#{}:{}\n", i + 1, anchor(line), line));
+            }
+            shown.push_str("  …\n");
+            delta += added as isize - removed as isize;
+        }
+        let output = ToolOutput::ok(format!(
+            "Updated {raw}: {} edits\n{}{reminders}{mended}",
+            plans.len(),
+            shown.trim_end()
+        ));
+        Ok(with_diagnostics(ctx, &path, output).await)
     }
 }

@@ -216,6 +216,7 @@ mod tests {
             call_id: String::new(),
             skills: Vec::new(),
             lsp: None,
+            repair: None,
         }
     }
 

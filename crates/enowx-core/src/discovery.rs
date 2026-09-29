@@ -255,9 +255,32 @@ impl Discovery {
                  it holds: the one your instructions name for the work, or the one that \
                  applies. Most tasks need none, and none needs every one.\n",
             );
+            // A built-in part (`ui-part-hero` under `ui`) is named under its
+            // root when the root is listed too: the root says which part
+            // holds what, and a family of forty parts stays a few lines
+            // instead of forty descriptions on every call.
+            let listed: std::collections::HashSet<&str> =
+                active_skills.iter().map(|s| s.name.as_str()).collect();
+            let mut parts: std::collections::HashMap<&str, Vec<&str>> =
+                std::collections::HashMap::new();
+            let mut roots: Vec<&SkillEntry> = Vec::new();
             for skill in &active_skills {
+                let parent = (skill.scope == SkillScope::Builtin)
+                    .then(|| skills::builtin_parent(&skill.name))
+                    .flatten()
+                    .filter(|parent| listed.contains(parent));
+                match parent {
+                    Some(parent) => parts.entry(parent).or_default().push(&skill.name),
+                    None => roots.push(skill),
+                }
+            }
+            for skill in roots {
                 let one_liner = skill.description.split('\n').next().unwrap_or("");
                 out.push_str(&format!("- `{}` — {}\n", skill.name, one_liner));
+                if let Some(names) = parts.get(skill.name.as_str()) {
+                    let names: Vec<String> = names.iter().map(|n| format!("`{n}`")).collect();
+                    out.push_str(&format!("  its parts: {}\n", names.join(", ")));
+                }
             }
         }
         Some(out)

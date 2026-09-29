@@ -125,10 +125,15 @@ Skills, MCP servers, and per-project agent instructions are discovered from
 `ui-layout`, `ui-audit`, one `ui-page-*` per kind of page and one `ui-part-*`
 per part), for server work (`backend`, one `backend-*` per part such as the
 API, auth, data, jobs and tests, and one `backend-stack-*` per stack: Next.js,
-Node, Python, Go, Rust, Laravel), for motion (`motion`, and `motion-*` for
-timing, scroll reveals, interface states, animated drawings, demos, cost,
-comfort, auditing and each stack, used by the `motion` agent), `code`,
-`writing`, `i18n` and `brainstorming`, each carried by the agents
+Node, Python, Go, Rust, Laravel, Java, .NET, Rails, plus caching, real-time,
+files, search and GraphQL), for motion (`motion*`), the engineering behind an
+interface (`frontend*`: state, data, forms, accessibility, performance,
+testing, SEO, security, errors), databases (`database*`), infrastructure
+(`devops*`), mobile apps (`mobile*`), low-level work (`systems*`), tests
+(`testing*`), documentation (`docs*`), security audits (`security*`),
+performance (`performance*`), reviewing (`review*`), research (`research*`),
+gathering (`librarian`) and running large tasks (`orchestration`), plus
+`code`, `writing`, `i18n` and `brainstorming`, each carried by the agents
 whose work needs it and read only when the work does. A project or user skill of the same
 name replaces one. `/skills` and `/mcp` open popups to toggle or add entries;
 `/compact` folds older turns into a summary; auto-compact fires when the

@@ -274,12 +274,11 @@ async fn built_in_skills_reach_only_the_agents_that_carry_them() {
     );
     assert!(tools.iter().any(|t| t == "skill_read"), "{tools:?}");
 
-    // `research` carries nothing, so it has nothing to read.
-    let (_, tools) = sent_to("research", "research-skills").await;
-    assert!(
-        !tools.iter().any(|t| t == "skill_read"),
-        "nothing to read, so no tool to read it: {tools:?}"
-    );
+    // `research` carries its own method and nothing of the interface.
+    let (research, tools) = sent_to("research", "research-skills").await;
+    assert!(lists(&research, "research"), "{research}");
+    assert!(!lists(&research, "ui"), "{research}");
+    assert!(tools.iter().any(|t| t == "skill_read"), "{tools:?}");
 }
 
 /// The orchestrator brainstorms only when the shape of the work is open,

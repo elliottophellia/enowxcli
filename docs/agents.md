@@ -112,9 +112,9 @@ can actually answer from a request.
 | `research` | Answers questions: maps the ground and reports findings with conclusions. |
 | `review` | Reads diffs and code, reports defects, never edits |
 | `test` | Writes and fixes tests, reproduces reported failures |
-| `docs` | READMEs, changelogs, API docs, comments |
-| `security` | Auth, secrets, injection, dependency risk |
-| `perf` | Profiling, hot paths, benchmarks |
+| `docs` | READMEs, guides, changelogs, API docs, architecture notes, comments |
+| `security` | Auth, secrets, injection, dependency risk, infrastructure and privacy audits |
+| `perf` | Profiling, hot paths, benchmarks, load tests |
 | `general` | Fallback for anything outside the above |
 
 Plus one that is never routed to: `compactor`, invoked by the loop rather than
@@ -144,7 +144,19 @@ and three built-in skills are there to stop that (2026-09-28).
 | `ui-audit` | Finding the marks of generated work in an existing interface: what to search the code for, how to judge and rank each finding, the report, then the fix |
 | `ui-page-*` | One per kind of page (landing, local business, portfolio, docs, dashboard, list and detail, settings, form, sign-in): the skeleton to start from |
 | `ui-stack-*` | One per stack (plain HTML and CSS, Tailwind, React, Next, shadcn/ui, Vue, Svelte): its idioms, the generated version of it, and how to look at the result |
-| `ui-part-*` | One per part (header, which sticks by default, navigation, back to top, sidebar, page header, footer, hero, sections, cards, social proof, pricing, FAQ, CTA, buttons, links, forms, choices, tables, lists, dialogs, drawers, menus, tooltips, notifications, badges, loading, tabs, breadcrumbs, pagination, search, images, avatars, charts): what it is for, how to build it, the generated version to avoid |
+| `ui-part-*` | One per part (header, which sticks by default, navigation, back to top, sidebar, page header, footer, hero, sections, cards, social proof, pricing, FAQ, CTA, buttons, links, forms, choices, tables, lists, dialogs, drawers, menus, tooltips, notifications, badges, loading, tabs, breadcrumbs, pagination, search, images, avatars, charts, empty states, steps, dates, uploads, command palette, chat, media): what it is for, how to build it, the generated version to avoid |
+| `motion*` | Motion: what moves and why, timing, scroll reveals, interface states, animated drawings, demos, cost, comfort, the audit, each stack |
+| `frontend*` | The engineering behind an interface: architecture, state, data, forms, accessibility, performance, testing, SEO, security, errors |
+| `backend*` | A server: the API, errors, auth, data, jobs, integrations, security, running it, tests, caching, real-time, files, search, GraphQL, and one per stack (Next.js, Node, Python, Go, Rust, Laravel, Java, .NET, Rails) |
+| `database*` | Schemas, migrations, queries, indexes, transactions, Postgres, MySQL, SQLite, MongoDB, operations |
+| `devops*` | CI, containers, deploys, platforms, Kubernetes, infrastructure as code, observability, security, networking |
+| `mobile*` | Platform UX, React Native, Flutter, iOS, Android, offline data and sync, releases, performance, testing |
+| `systems*` | Rust, C and C++, concurrency, memory, FFI, binary formats, the operating system |
+| `testing*` | Unit, integration and end-to-end tests, reproducing bugs, flaky tests, test data, tests in CI |
+| `docs*` | READMEs, guides, API references, changelogs, comments and commit messages, architecture notes, docs sites |
+| `security*` | The audit method, web weaknesses, auth, secrets, the supply chain, infrastructure, cryptography, privacy |
+| `performance*` | The method, profiling, servers, memory, benchmarks, load tests |
+| `review*`, `research*`, `librarian`, `orchestration` | How to review a change and the checklists by kind; how to answer with evidence, read a codebase, search the web and choose a library; how to gather excerpts; how to run a large task across specialists |
 | `code` | Reading the codebase first, structure, names, types, errors, dependencies, frontend specifics, comments, hygiene |
 | `writing` | Specific over generic, words to drop, sentences, interface copy, errors and empty states, docs, voice |
 | `brainstorming` | When to agree a design with the user before building (a new project, feature or page, a redesign) and when not to; how: look first, ask everything open in one `ask` session (always the theme, for a new interface), offer approaches, confirm, hand the agreed design over |
@@ -157,21 +169,35 @@ own `ui`.
 A built-in skill goes only to the agents that carry it (`AgentDef::skills`):
 it is listed in their prompt and nowhere else, and `skill_read` refuses it to
 any other agent that names it anyway. `skill_read` is offered only to an agent
-with a skill to read.
+with a skill to read. In the prompt a family is listed by its root, with its
+description, and its parts are named on one line under it (`its parts:
+ui-layout, ui-part-hero, ...`): the root says which part holds what, and the
+reviewer's two hundred skills stay a few thousand characters.
 
 | Agent | Carries |
 |---|---|
-| `fe`, `review` | every `ui*` and `motion*` skill, `code`, `writing` |
-| `mobile` | every `ui*` and `motion*` skill, `code` |
+| `fe` | every `ui*`, `motion*` and `frontend*` skill, `code`, `writing`, `i18n` |
 | `motion` | every `motion*` skill, `ui`, `ui-themes`, every `ui-stack-*`, `code` |
-| `general` | `code`, `writing` |
-| `docs` | `writing` |
-| `be`, `db`, `devops`, `systems`, `test`, `perf` | `code` |
-| `orchestrator` | `brainstorming` |
-| `librarian`, `research`, `security` | none |
+| `mobile` | every `mobile*`, `ui*` and `motion*` skill, `code`, `i18n` |
+| `be` | every `backend*` and `database*` skill, `code`, `i18n` |
+| `db` | every `database*` skill, `code` |
+| `devops` | every `devops*` skill, `code` |
+| `systems` | every `systems*` skill, `performance-profiling`, `performance-benchmarks`, `performance-memory`, `code` |
+| `test` | every `testing*` skill, `backend-testing`, `frontend-testing`, `mobile-testing`, `code` |
+| `docs` | every `docs*` skill, `writing` |
+| `security` | every `security*` skill, `backend-security`, `backend-auth`, `frontend-security`, `devops-security` |
+| `perf` | every `performance*` skill, `frontend-performance`, `database-queries`, `database-indexes`, `backend-caching`, `systems-memory`, `code` |
+| `review` | every `review*` skill and every family above |
+| `research` | every `research*` skill |
+| `librarian` | `librarian` |
+| `general` | `code`, `writing`, `i18n`, and the root skill of each family |
+| `orchestrator` | `brainstorming`, `orchestration` |
+| `compactor` | none |
 
-The orchestrator carries `brainstorming` only; the read-only gatherers and
-the auditor have nothing to shape, so they carry none. Skills found on disk (the project's and the
+Every specialist carries the family for its work, a root skill (the
+principles, the defaults and which part skill holds what) and its parts, and
+its prompt names which to read for which job. The reviewer carries them all,
+since it judges every kind of change. Skills found on disk (the project's and the
 user's) are still offered to every agent: nothing says which agent they are
 for. An agent file names the built-ins it carries with `skills: ui, code`;
 without the field it carries none. `/skills` shows who carries each built-in.

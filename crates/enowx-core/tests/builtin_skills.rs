@@ -239,7 +239,18 @@ fn each_agent_carries_the_skills_for_its_work() {
     }
     assert!(carried("mobile").iter().any(|s| s == "ui-part-sidebar"));
     assert!(!carried("mobile").iter().any(|s| s == "writing"));
-    assert_eq!(carried("docs"), ["writing"]);
+    for skill in [
+        "docs",
+        "docs-readme",
+        "docs-api",
+        "docs-changelog",
+        "writing",
+    ] {
+        assert!(
+            carried("docs").iter().any(|s| s == skill),
+            "docs lacks {skill}"
+        );
+    }
     // Whoever writes text a user reads carries i18n.
     for name in ["fe", "mobile", "review", "general", "be"] {
         assert!(carried(name).iter().any(|s| s == "i18n"), "{name}");
@@ -291,12 +302,76 @@ fn each_agent_carries_the_skills_for_its_work() {
         .iter()
         .any(|s| s.starts_with("ui-part-") || s.starts_with("ui-page-")));
     assert!(!carried("motion").iter().any(|s| s == "writing"));
-    for name in ["db", "devops", "systems", "test", "perf"] {
-        assert_eq!(carried(name), ["code"], "{name}");
+    // Each specialist carries its own family, its root skill first among
+    // them, and `code` when it writes code.
+    let family_of = |root: &str| -> Vec<String> {
+        enowx_core::discovery::skills::builtin_names()
+            .filter(|name| *name == root || name.starts_with(&format!("{root}-")))
+            .map(str::to_owned)
+            .collect()
+    };
+    for (agent, root, code) in [
+        ("fe", "frontend", true),
+        ("be", "database", true),
+        ("db", "database", true),
+        ("devops", "devops", true),
+        ("mobile", "mobile", true),
+        ("systems", "systems", true),
+        ("test", "testing", true),
+        ("docs", "docs", false),
+        ("security", "security", false),
+        ("perf", "performance", true),
+        ("review", "review", true),
+        ("research", "research", false),
+    ] {
+        let members = family_of(root);
+        assert!(members.len() >= 2, "the `{root}` family ships: {members:?}");
+        for skill in &members {
+            assert!(carried(agent).contains(skill), "{agent} lacks {skill}");
+        }
+        assert_eq!(
+            carried(agent).iter().any(|s| s == "code"),
+            code,
+            "{agent} and `code`"
+        );
     }
-    assert_eq!(carried("orchestrator"), ["brainstorming"]);
-    for name in ["librarian", "research", "security", "compactor"] {
-        assert!(carried(name).is_empty(), "{name} carries none");
+    // The reviewer judges every kind of work.
+    for root in [
+        "ui",
+        "motion",
+        "frontend",
+        "backend",
+        "database",
+        "devops",
+        "mobile",
+        "systems",
+        "testing",
+        "docs",
+        "security",
+        "performance",
+    ] {
+        for skill in family_of(root) {
+            assert!(carried("review").contains(&skill), "review lacks {skill}");
+        }
+    }
+    // The rest carry only what their work needs.
+    assert!(!carried("db")
+        .iter()
+        .any(|s| s.starts_with("ui") || s.starts_with("backend")));
+    assert!(!carried("devops").iter().any(|s| s.starts_with("ui")));
+    assert!(carried("security").iter().any(|s| s == "backend-security"));
+    assert!(carried("perf").iter().any(|s| s == "frontend-performance"));
+    assert!(carried("test").iter().any(|s| s == "backend-testing"));
+    assert_eq!(carried("orchestrator"), ["brainstorming", "orchestration"]);
+    assert_eq!(carried("librarian"), ["librarian"]);
+    assert!(carried("compactor").is_empty(), "compactor carries none");
+    for root in [
+        "frontend", "backend", "database", "devops", "testing", "security",
+    ] {
+        assert!(
+            carried("general").iter().any(|s| s == root),
+            "general lacks {root}"
+        );
     }
 }
 
@@ -541,4 +616,33 @@ fn a_part_is_turned_off_with_its_parent() {
         .system_prompt_for(&["ui".to_owned()], Some(&fe.skills))
         .unwrap_or_default();
     assert!(!prompt.contains("`ui-part-hero`"), "{prompt}");
+}
+
+/// A family is listed by its root with its parts named on one line: a
+/// hundred descriptions on every call would crowd out the task, and the root
+/// says which part holds what.
+#[test]
+fn a_family_is_listed_by_its_root() {
+    let _home = HOME.lock().unwrap_or_else(|e| e.into_inner());
+    let scratch = Scratch::new("family");
+    let discovery = scratch.discover();
+    let fe = enowx_core::builtin_agents()
+        .into_iter()
+        .find(|agent| agent.name == "fe")
+        .expect("fe ships");
+    let text = discovery
+        .system_prompt_for(&[], Some(&fe.skills))
+        .expect("a skill list");
+    for root in ["`ui`", "`frontend`", "`motion`", "`code`"] {
+        assert!(
+            text.contains(&format!("- {root} ")),
+            "{root} is described:\n{text}"
+        );
+    }
+    assert!(text.contains("  its parts: "), "{text}");
+    assert!(text.contains("`ui-part-hero`"), "a part is named:\n{text}");
+    assert!(
+        !text.contains("- `ui-part-hero` "),
+        "a part is not described on its own line:\n{text}"
+    );
 }

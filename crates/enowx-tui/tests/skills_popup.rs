@@ -12,7 +12,10 @@ fn a_builtin_skill_says_which_agents_carry_it() {
         .iter()
         .find(|row| row.contains(" ui ") && row.contains("built-in"))
         .unwrap_or_else(|| panic!("the ui row: {rows:#?}"));
-    assert!(ui.contains("built-in for fe, mobile, motion, review"), "{ui}");
+    assert!(
+        ui.contains("built-in for fe, general, mobile, motion, review"),
+        "{ui}"
+    );
     let writing = rows
         .iter()
         .find(|row| row.contains(" writing ") && row.contains("built-in"))

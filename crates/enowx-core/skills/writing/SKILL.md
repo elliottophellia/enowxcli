@@ -1,6 +1,6 @@
 ---
 name: writing
-description: "Writing words people read: interface copy, errors and empty states, READMEs, docs, changelogs, commit messages. Read before writing a page's copy or a document."
+description: "Writing words people read: the specific thing instead of claims, words to drop, sentences, interface copy (buttons, labels, errors, empty states, confirmations), page copy, notifications and emails, alt text and link text, numbers and dates, words that translate well, documentation and voice. Read before writing a page's copy, an interface's text or a document."
 ---
 
 # Writing a person would sign
@@ -70,6 +70,61 @@ sentence tells the reader something.
   audience keeps in English (API key, token, webhook, email): the `i18n`
   skill says what to translate and what to leave.
 
+## 4a. Page copy
+
+- A page reads in layers: the headline says the one thing, the line under it
+  backs it with a detail, each section heading says its point (not
+  "Features"), and the body gives the evidence. Someone who reads only the
+  headings still gets the argument.
+- Lead with the reader's problem or outcome, then how the product gets
+  there. One idea per section; paragraphs of two to four sentences; lists
+  when items are parallel.
+- Numbers, names and examples from the real product. Where they are
+  missing, a visible placeholder, never a plausible invention.
+- The call to action repeats the page's one action in the same words each
+  time.
+
+## 4b. Notifications and email
+
+- A subject line or title that says what happened ("Invoice INV-104 was
+  paid"), not "Update from Acme".
+- The first sentence carries the news; the action is one button that names
+  it; the reason the person received the message and how to change that
+  are at the end.
+- Transactional messages stay transactional: no marketing inside a password
+  reset.
+- Push notifications are short, specific and rare; never "We miss you".
+
+## 4c. Alt text, link text and labels for assistive technology
+
+- Alt text says what the image shows that matters here, in a sentence
+  ("Chart: sign-ups doubled after the March launch"), not "image of". A
+  decorative image gets `alt=""`.
+- Link text makes sense alone: "Read the pricing details", not "click here"
+  or a bare URL; icon buttons have a name that says the action ("Close
+  dialog").
+
+## 4d. Numbers, dates and small things
+
+- Numerals for numbers ("3 files"), the reader's locale formats for dates,
+  times, currency and thousands (through `Intl`, not hand-written), units
+  always, and ranges written "5 to 10" in prose.
+- Time relative when recent ("2 hours ago"), absolute when it matters
+  ("Due 12 March, 17:00").
+- Sentence case, no full stop on headings, buttons or single-line labels; a
+  full stop on sentences in help text and errors.
+- Plural forms handled by the i18n library, never "1 file(s)".
+
+## 4e. Words that translate
+
+- Whole sentences as single strings, never glued from pieces ("You have" +
+  count + "items"): word order differs between languages.
+- No idioms, puns or cultural references in interface text; they do not
+  survive translation.
+- Room for text to grow by 30 to 40% in other languages; no text baked into
+  images.
+- One term per concept, kept in a glossary when the product has one.
+
 ## 5. Documentation
 
 - Answer the reader's first question first: what this is and how to run it,
@@ -90,7 +145,18 @@ sentence tells the reader something.
 - No hype, no false modesty, no apologising for the product, and an
   exclamation mark only for a genuine moment.
 
+## 6a. Inclusive and plain
+
+- Plain language a reader in a hurry understands: common words, the
+  reader's terms, jargon only where the audience uses it, acronyms spelled
+  out once.
+- People first, no assumptions about gender (they, you), ability, age or
+  culture; examples with a range of names.
+- No blame in errors ("That code has expired", not "You entered a wrong
+  code").
+
 ## 7. Before you call it done
 
 Read it aloud. Delete every sentence that would fit another product, every
-word that adds nothing, and every claim you cannot back.
+word that adds nothing, and every claim you cannot back. Check every button,
+error and empty state says what happens or what to do.

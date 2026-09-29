@@ -232,10 +232,15 @@ page in charcoal grey (`#1e1e1e`, `#27272a`), a light page in dull grey
 ## 7. Components
 
 - Each part of a page (header, navigation, sidebar, hero, sections, footer,
-  buttons, forms, tables, dialogs, menus, notifications) has its own entry,
+  buttons, forms, tables, dialogs, menus, notifications, empty states,
+  steps, dates, uploads, a command palette, chat, media) has its own entry,
   with what to build and what to avoid, in its own `ui-part-*` skill
   (`ui-part-header`, `ui-part-hero`, `ui-part-tables`...), and each kind of
-  page its skeleton in a `ui-page-*` skill. Read only the ones you build.
+  page its skeleton in a `ui-page-*` skill (landing, dashboard, list and
+  detail, shop, blog, onboarding, error pages...). Read only the ones you
+  build.
+- How it behaves is the `frontend-*` family's (state, data, forms,
+  accessibility, performance, errors), how it moves the `motion` family's.
 - Reuse first: search the project for the component (Button, Input, Dialog,
   Card, Tabs) and use or extend it.
 - **Prefer a component library to hand-built parts.** A hand-rolled table,
@@ -316,8 +321,11 @@ page in charcoal grey (`#1e1e1e`, `#27272a`), a light page in dull grey
   replacement.
 - Colour is never the only signal: status colours come with text or an icon.
 - Respect `prefers-reduced-motion`. Motion has a purpose (feedback,
-  orientation, continuity), lasts 150 to 300ms, and nothing loops forever
-  without one.
+  orientation, continuity), lasts 150 to 300ms for interface states, and
+  nothing loops forever without one (`motion` for entrances, reveals and
+  anything more).
+- The patterns for each widget, focus management and testing with a screen
+  reader are in `frontend-accessibility`.
 - Images have alt text that says what they show, or `alt=""` when they are
   decoration.
 

@@ -1,6 +1,6 @@
 ---
 name: i18n
-description: "Putting every piece of user-facing text through internationalisation, and translating it well: what to translate, what to leave as the audience says it (API key, token, email), keys, plurals, dates and numbers. Read before writing or changing any text a user sees, in any language."
+description: "Putting every piece of user-facing text through internationalisation, and translating it well: what to translate, what to leave as the audience says it (API key, token, email), keys, plurals, dates, numbers and money, choosing and switching the locale, right-to-left layouts, fonts, sorting, emails in the reader's language, and checking with pseudo-localisation. Read before writing or changing any text a user sees, in any language."
 ---
 
 # Internationalisation and translation
@@ -83,6 +83,44 @@ When unsure whether a term is kept, look at how the leading products in
 that language for the same audience say it, and follow the majority. Keep a
 short glossary at the top of the locale folder (or in `DESIGN.md`) with the
 decisions, so every screen says it the same way.
+
+## 3a. Beyond the strings
+
+- Choosing the locale: the user's saved choice first, then the URL (a
+  `/id/` prefix or a subdomain for public pages, which search engines can
+  index with `hreflang`, `frontend-seo`), then `Accept-Language`, then the
+  default. A language switcher names each language in itself ("Bahasa
+  Indonesia", "English"), never with flags.
+- Right-to-left languages (Arabic, Hebrew, Persian): `dir="rtl"` on the
+  root, CSS logical properties (`margin-inline-start`, `padding-inline`,
+  `inset-inline-end`, `text-align: start`) instead of left and right,
+  mirrored directional icons (arrows, chevrons) but not logos, media
+  controls or charts.
+- Fonts that cover the scripts in use (Latin extended, Cyrillic, CJK,
+  Arabic, Devanagari), with fallbacks, and line heights that fit them.
+- Sorting and searching with `Intl.Collator` (accents and case per locale);
+  lists of names never sorted by code points.
+- Money: the currency is data, not the locale; format it with the locale,
+  convert it only with real rates.
+- Names, addresses and phone numbers vary by country: one free-text name
+  field unless the form truly needs parts, the address form by country, phone
+  numbers with international parsing.
+- Server-side text in the recipient's language: emails, notifications, PDFs
+  and error messages shown to users use the user's stored locale, not the
+  server's.
+
+## 3b. The workflow
+
+- New keys land in the default locale with the change; missing translations
+  fall back to it visibly in development (a marker) and silently in
+  production.
+- Pseudo-localisation in development (accented, 40% longer strings) shows
+  text left outside the catalogue and layouts that break when text grows.
+- Translation files live in the repository or a translation service
+  (Crowdin, Lokalise, Tolgee, Weblate) synced by CI; the glossary goes with
+  them.
+- Machine translation only as a draft, reviewed by someone who speaks the
+  language and knows the product's terms.
 
 ## 4. Before you call it done
 

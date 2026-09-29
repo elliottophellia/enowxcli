@@ -1,6 +1,6 @@
 ---
 name: code
-description: "Writing or changing code so it reads like the codebase and like an engineer wrote it: structure, names, reuse, types, errors, dependencies, comments. Read before a new module or component, or a change of more than a few lines."
+description: "Writing or changing code so it reads like the codebase and like an engineer wrote it: reading first, structure and file length, names, module boundaries, types, errors, async and concurrency, configuration and logging, dependencies, data at scale, frontend habits, comments, language defaults and hygiene. Read before a new module or component, or a change of more than a few lines."
 ---
 
 # Code that belongs to its codebase
@@ -20,6 +20,20 @@ runs. This is how to write code the next engineer can own.
 - Stay on the project's stack and versions. Do not bring in a second way of
   doing what the codebase already does one way: a second HTTP client, state
   library, styling method or date library.
+
+## 1a. Changing code that exists
+
+- The smallest diff that does the job. A fix is a fix: no renames, reformatting
+  or refactors riding along; propose those separately.
+- Keep behaviour you were not asked to change, including its edge cases and
+  error messages other code or users may rely on. Find the callers before
+  changing a signature, and update every one.
+- Refactor in steps that each keep the build and the tests green: first
+  make the change easy, then make the easy change.
+- Risky changes behind a flag or a new code path, the old one kept until the
+  new one is proven.
+- When the code around the change is wrong in a way the task does not
+  cover, leave it and say so in the report.
 
 ## 2. Structure
 
@@ -78,6 +92,16 @@ runs. This is how to write code the next engineer can own.
   (`invoice-table.ts`), `snake_case` in Rust and Python, one component per
   file, named as the thing it exports.
 
+## 3a. Module boundaries
+
+- Each module has a small public surface: export what callers need, keep
+  the rest private. A caller never reaches into another module's internals.
+- Dependencies point one way (interface to logic to data), with no cycles.
+- A contract other code relies on (a function signature, an API shape, an
+  event, a config key) changes compatibly: add, deprecate, then remove.
+- Pass what a function needs as parameters; no hidden reads of globals,
+  singletons or the environment deep inside logic.
+
 ## 4. Types and data
 
 - Type the boundaries: props, API responses, function parameters. In
@@ -96,6 +120,29 @@ runs. This is how to write code the next engineer can own.
   `catch`, no `catch` that logs and carries on as if nothing happened.
 - Messages say what failed and why, with the value that caused it, and never
   a secret.
+
+## 5a. Async and concurrency
+
+- Every promise, future or task is awaited, returned or deliberately
+  detached with its errors handled; no floating promises (the linter rule
+  `no-floating-promises` catches them).
+- Independent work runs together (`Promise.all`, task groups), dependent
+  work in order; never an accidental waterfall.
+- Every call across a network has a timeout, and long work can be
+  cancelled (AbortController, context, cancellation tokens).
+- Shared mutable state is guarded or avoided; two requests changing the same
+  record are settled by the database, not by hoping they do not overlap.
+- No blocking calls on an event loop or an async runtime.
+
+## 5b. Configuration and logging
+
+- Configuration from the environment, read once at start, validated, with
+  the application refusing to start when something required is missing. No
+  secret in code, the repository, or a log; `.env.example` lists names.
+- Logs are structured (key and value), at a level that matches (error for
+  what someone must fix, warn for what degraded, info for what happened,
+  debug off in production), with a request or job id, and never personal
+  data or secrets.
 
 ## 6. Dependencies
 
@@ -135,6 +182,20 @@ runs. This is how to write code the next engineer can own.
 - Static pages: semantic HTML first, CSS second, JavaScript only for
   behaviour, and the page still reads without it.
 
+## 7a. Language defaults
+
+- TypeScript: `strict` on, no `any`, `unknown` at trust boundaries with a
+  parser (zod), `satisfies` for typed literals, no non-null `!` without a
+  reason; ESLint with the type-aware rules the project has.
+- Python: type hints on public functions, ruff for lint and format, pydantic
+  or dataclasses for structured data, context managers for resources.
+- Go: errors wrapped with context (`fmt.Errorf("...: %w", err)`), `context`
+  as the first parameter, `go vet` and the project's linters, small
+  interfaces defined where they are used.
+- Rust: `Result` with typed errors, no `unwrap` outside tests and proven
+  invariants, clippy clean, borrowing over cloning.
+- Other languages: the formatter and linter the project already runs.
+
 ## 8. Comments
 
 - Comment why, not what: the constraint, the business rule, the edge case,
@@ -158,8 +219,18 @@ runs. This is how to write code the next engineer can own.
 - Tests follow the project's framework and style, and test behaviour through
   the public surface.
 
+## 9a. Version control
+
+- One logical change per commit, with a message that says what and why
+  (`docs-comments` has the format); commit only when the task asks.
+- Never commit generated secrets, local config, build output or editor
+  files; check `git status` before committing.
+- No force pushes, history rewrites or branch deletions unless the task
+  says so.
+
 ## 10. Before you call it done
 
 - It builds, the linter is clean for what you touched, and the tests pass.
 - Read your diff as a reviewer would: every line needed, well named, nothing
   left over.
+- Say what you verified and how, and what you could not run.

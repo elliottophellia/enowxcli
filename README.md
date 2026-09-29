@@ -43,7 +43,12 @@ and a call that arrives anyway is refused before dispatch.
 
 `/help` `/new` `/sessions` `/resume <id>` `/role` `/model` `/provider`
 `/reasoning` `/tools` `/theme` `/sidebar` `/tab 1..5` `/clear` `/stop`
-`/status` `/skills` `/mcp` `/compact` `/quit`
+`/retry` `/status` `/skills` `/mcp` `/compact` `/quit`
+
+When the provider is down (502, 503, 429, a dropped connection), each call is
+retried for about three and a half minutes. A turn that still fails continues
+from where it stopped by itself, up to three times a minute apart; `/retry`
+continues at once and `Esc` cancels the wait.
 
 Keys: `Enter` sends, `Ctrl+Enter` inserts a newline, `/` opens the palette,
 `Ctrl+R` toggles reasoning, `Ctrl+O` toggles tool output, `PgUp`/`PgDn` scroll

@@ -34,6 +34,62 @@ impl App {
         }
         self.push(TranscriptKind::User, display);
         let clean_prompt = crate::attachments::strip_chips(&prompt);
+        self.run_request(RunRequest {
+            session_id: self.session_id.clone(),
+            prompt: clean_prompt,
+            role: self.role,
+            attachments,
+            agent: self.agent_for_new_session(),
+        });
+    }
+
+    /// Continue the session from where its last turn stopped, with no new
+    /// message: what `/retry` and the automatic retry after an outage do.
+    pub(crate) fn continue_turn(&mut self) {
+        self.auto_retry = None;
+        if self.busy {
+            self.status = "Still working; Ctrl+C interrupts".into();
+            return;
+        }
+        let Some(session_id) = self.session_id.clone() else {
+            self.status = "nothing to retry".into();
+            return;
+        };
+        if self.viewing.is_some() {
+            self.leave_delegation();
+        }
+        self.push(TranscriptKind::Notice, "Trying again from where it stopped.");
+        self.run_request(RunRequest {
+            session_id: Some(session_id),
+            prompt: String::new(),
+            role: self.role,
+            attachments: Vec::new(),
+            agent: None,
+        });
+    }
+
+    /// Continue by itself once the wait after an outage is over.
+    pub(crate) fn tick_auto_retry(&mut self) {
+        let Some(at) = self.auto_retry else {
+            return;
+        };
+        if self.busy || self.question.is_some() {
+            return;
+        }
+        let now = Instant::now();
+        if now >= at {
+            self.continue_turn();
+        } else {
+            self.status = format!(
+                "provider down · continuing in {}s (Esc cancels, /retry now)",
+                (at - now).as_secs() + 1
+            );
+        }
+    }
+
+    fn run_request(&mut self, request: RunRequest) {
+        // A message the user sends replaces a retry that was waiting.
+        self.auto_retry = None;
         self.auto_scroll = true;
         self.busy = true;
         self.turn_started = Instant::now();
@@ -50,13 +106,6 @@ impl App {
         self.cancel = Some(cancel.clone());
         self.events = Some(rx);
         let agent = self.agent.clone();
-        let request = RunRequest {
-            session_id: self.session_id.clone(),
-            prompt: clean_prompt,
-            role: self.role,
-            attachments,
-            agent: self.agent_for_new_session(),
-        };
         self.task = Some(tokio::spawn(async move {
             // Report the failure rather than dropping it. Without this the
             // channel simply closes, and the only thing the user is told is
@@ -435,12 +484,19 @@ impl App {
             Event::Error { message } => {
                 self.logs
                     .push(crate::logs::LogKind::Problem, message.clone());
+                let outage = matches!(
+                    enowx_core::classify(&anyhow::anyhow!(message.clone())),
+                    enowx_core::FailureKind::Capacity | enowx_core::FailureKind::Transport
+                );
                 self.push(TranscriptKind::Error, message);
                 self.question = None;
                 self.busy = false;
                 self.cancel = None;
                 self.set_activity(Activity::Idle);
                 self.status = "failed".into();
+                if outage && self.session_id.is_some() {
+                    self.after_outage();
+                }
             }
             // Only ever on the background channel, where `drain_background`
             // takes it before it would reach here.
@@ -462,6 +518,7 @@ impl App {
                 self.question = None;
                 self.busy = false;
                 self.cancel = None;
+                self.auto_retries = 0;
                 self.set_activity(Activity::Idle);
                 self.status = stop_reason;
             }
@@ -490,6 +547,39 @@ impl App {
         }
     }
 }
+
+impl App {
+    /// The provider stayed down through every retry of one call. The session
+    /// is whole up to the failed call, so the work continues from there once
+    /// the provider is back: by itself a few times, a minute apart, and with
+    /// `/retry` at any time.
+    fn after_outage(&mut self) {
+        if self.auto_retries < AUTO_RETRIES {
+            self.auto_retries += 1;
+            self.auto_retry = Some(Instant::now() + AUTO_RETRY_AFTER);
+            self.push(
+                TranscriptKind::Notice,
+                format!(
+                    "The provider is still down. enx continues from here in {}s by itself \
+                     ({} of {AUTO_RETRIES}); /retry continues now, Esc cancels.",
+                    AUTO_RETRY_AFTER.as_secs(),
+                    self.auto_retries
+                ),
+            );
+        } else {
+            self.push(
+                TranscriptKind::Notice,
+                "The provider is still down. /retry continues from here when it is back.",
+            );
+        }
+    }
+}
+
+/// How many times a turn stopped by an outage is continued by itself, and
+/// how long after. Each continuation first retries for a few minutes in the
+/// provider, so three of them wait out a quarter of an hour.
+const AUTO_RETRIES: u32 = 3;
+const AUTO_RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 
 impl App {
     /// Close the thinking that was streaming, now that something else has

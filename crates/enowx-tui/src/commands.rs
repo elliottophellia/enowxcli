@@ -1,4 +1,4 @@
-pub(crate) const COMMANDS: [(&str, &str); 21] = [
+pub(crate) const COMMANDS: [(&str, &str); 22] = [
     ("help", "Show every command"),
     ("new", "Start a fresh session"),
     ("resume", "Reopen a saved session in this workspace"),
@@ -19,6 +19,7 @@ pub(crate) const COMMANDS: [(&str, &str); 21] = [
     ("status", "Show runtime summary"),
     ("clear", "Clear the visible transcript"),
     ("stop", "Interrupt the current turn"),
+    ("retry", "Continue from where a failed turn stopped"),
     ("quit", "Leave enowx-cli"),
 ];
 
@@ -45,6 +46,7 @@ const PALETTE: [(&str, &[(&str, &str)]); 5] = [
             ("compact", "Compact context"),
             ("clear", "Clear transcript"),
             ("stop", "Stop turn"),
+            ("retry", "Retry turn"),
             ("status", "Status"),
         ],
     ),

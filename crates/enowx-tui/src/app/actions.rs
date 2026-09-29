@@ -413,6 +413,7 @@ impl App {
             }
             "clear" => { self.blocks.clear(); self.status = "transcript cleared".into(); }
             "stop" => self.interrupt(),
+            "retry" => self.continue_turn(),
             "status" => self.push(TranscriptKind::System, format!(
                 "Model: {} · {}\nAgent: {}\nWorkspace: {}\nSession: {}\nTokens: {} in / {} out\nTheme: {}\nThinking: {}",
                 self.config.model.active,

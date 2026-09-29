@@ -463,14 +463,16 @@ impl Provider {
     }
 }
 
-/// Hard cap on how many times a single completion is retried. Ten attempts
-/// with the backoff schedule below tops out around 30 seconds of waiting
-/// before giving up, which covers most transient upstream issues without
-/// making the user sit forever.
+/// Hard cap on how many times a single completion is retried. Twenty
+/// attempts with the backoff schedule below wait about three and a half
+/// minutes in all: a gateway that answers 502 while it restarts is usually
+/// back within that, and these failures come before the model does any work,
+/// so waiting costs nothing but time. Thirty seconds was not enough: every
+/// agent gave up together and the whole run stopped.
 ///
 /// This is the budget for `Capacity` and `Transport` only. The other kinds
 /// get their own number — see `FailureKind::retry_budget`.
-const MAX_RETRIES: u32 = 10;
+const MAX_RETRIES: u32 = 20;
 
 /// Attempts allowed when a stream dies *after* the response started.
 ///
@@ -490,9 +492,9 @@ const MAX_MID_STREAM_RETRIES: u32 = 2;
 const MID_STREAM_MARKER: &str = "[mid-stream]";
 
 fn backoff_ms(attempt: u32) -> u64 {
-    // 200, 400, 800, 1600, 3200, 6400, 8000, 8000, 8000
-    let base = 200u64 << attempt.min(6);
-    base.min(8_000)
+    // 400, 800, 1600, 3200, 6400, 12800, then 15000 each
+    let base = 200u64 << attempt.min(7);
+    base.min(15_000)
 }
 
 /// The four ways a model call fails, per the table in `docs/agents.md`.
@@ -983,8 +985,13 @@ mod diagnosis_tests {
     /// them back to one number this is the test that says no.
     #[test]
     fn each_kind_gets_the_budget_the_doc_specifies() {
-        assert_eq!(FailureKind::Capacity.retry_budget(), 10);
-        assert_eq!(FailureKind::Transport.retry_budget(), 10);
+        assert_eq!(FailureKind::Capacity.retry_budget(), 20);
+        assert_eq!(FailureKind::Transport.retry_budget(), 20);
+        let waited: u64 = (1..20).map(backoff_ms).sum();
+        assert!(
+            (180_000..=240_000).contains(&waited),
+            "an outage is waited out for a few minutes, not seconds: {waited}ms"
+        );
         assert_eq!(
             FailureKind::Capability.retry_budget(),
             1,
@@ -998,13 +1005,14 @@ mod diagnosis_tests {
     }
 
     /// The expensive case: tokens were produced and billed before the stream
-    /// broke, so every retry pays for the prompt again. Two attempts, not ten.
+    /// broke, so every retry pays for the prompt again. Two attempts, not the
+    /// full budget.
     #[test]
-    fn a_post_response_stream_failure_gets_two_attempts_not_ten() {
+    fn a_post_response_stream_failure_gets_two_attempts_not_the_full_budget() {
         let fresh = err("connection reset by peer");
         assert_eq!(
             retry_budget_for_error(&fresh),
-            10,
+            MAX_RETRIES,
             "nothing was billed before the first byte"
         );
 
@@ -1012,7 +1020,7 @@ mod diagnosis_tests {
         assert_eq!(
             retry_budget_for_error(&mid),
             2,
-            "billed work must not be retried ten times"
+            "billed work must not get the full budget"
         );
         assert_eq!(
             classify(&mid),

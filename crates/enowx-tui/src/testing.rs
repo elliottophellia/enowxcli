@@ -1525,6 +1525,11 @@ impl TestApp {
             message: message.to_owned(),
         });
     }
+
+    /// Whether a turn stopped by an outage is waiting to continue by itself.
+    pub fn auto_retry_pending(&self) -> bool {
+        self.inner.auto_retry.is_some()
+    }
 }
 
 impl TestApp {

@@ -507,6 +507,8 @@ impl App {
                 // wrong thing to do to someone reaching for the stop key.
                 if self.busy {
                     self.interrupt();
+                } else if self.auto_retry.take().is_some() {
+                    self.status = "automatic retry cancelled; /retry continues".into();
                 } else {
                     self.input.clear();
                     self.cursor = 0;

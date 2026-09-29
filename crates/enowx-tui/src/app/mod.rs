@@ -295,6 +295,11 @@ pub(crate) struct App {
     /// is working through its budget rather than stuck.
     pub(crate) retry_attempt: u32,
     pub(crate) retry_max: u32,
+    /// When a turn that failed because the provider was down is continued
+    /// by itself, and how many times that has happened since a turn last
+    /// finished.
+    pub(crate) auto_retry: Option<Instant>,
+    pub(crate) auto_retries: u32,
     /// How many times the trailing error block's message has arrived in a row.
     /// Shown as `×N` so a silent collapse does not hide that it is still
     /// happening. Reset whenever a non-error block lands.
@@ -421,6 +426,8 @@ impl App {
             render_cache: Vec::new(),
             retry_attempt: 0,
             retry_max: 0,
+            auto_retry: None,
+            auto_retries: 0,
             error_repeats: 0,
             file_link_rects: Vec::new(),
             selection: None,

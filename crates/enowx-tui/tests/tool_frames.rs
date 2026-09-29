@@ -1,53 +1,49 @@
-//! An opened row and what it opened read as one thing: the row is the top
-//! edge of a frame, the body sits between its walls, and every kind of body
-//! (a diff, a file, command output, a thought) is framed the same way.
+//! An opened row and what it opened read as one thing: the row keeps its
+//! place on the rail, the body hangs under it without a box, and every kind
+//! of body (a diff, a file, command output, a thought) hangs the same way.
 
 use enowx_tui::testing::TestApp;
-use unicode_width::UnicodeWidthStr;
 
 const W: u16 = 110;
 const H: u16 = 70;
 
-/// The rows of the frame whose top edge contains `title`, checked to be one
-/// straight box: every row as wide as the top, walls in the same columns.
-fn frame(rows: &[String], title: &str) -> Vec<String> {
+/// The body rows under the opened row that contains `title` and `▾`: every
+/// row down to the next row on the same rail, or the end of the stretch.
+/// Checked to be drawn without a frame: the row is not a frame's top edge.
+fn body(rows: &[String], title: &str) -> Vec<String> {
     let top_at = rows
         .iter()
-        .position(|r| r.contains(title) && r.contains('╭'))
-        .unwrap_or_else(|| panic!("no frame titled {title}: {rows:#?}"));
-    let top = &rows[top_at];
-    let left = top[..top.find('╭').unwrap()].width();
-    let right = left + top[top.find('╭').unwrap()..top.find('╮').unwrap()].width();
-    let mut body = Vec::new();
+        .position(|r| r.contains(title) && r.contains('▾'))
+        .unwrap_or_else(|| panic!("no opened row {title}: {rows:#?}"));
+    assert!(
+        !rows[top_at].contains("╭─ ✓") && !rows[top_at].contains(" ─╮"),
+        "the row is a frame's edge: {}",
+        rows[top_at]
+    );
+    let top: Vec<char> = rows[top_at].chars().collect();
+    let rail = top
+        .iter()
+        .position(|c| *c == '├' || *c == '└')
+        .unwrap_or_else(|| panic!("the row is not on the rail: {}", rows[top_at]));
+    let mut out = Vec::new();
     for row in &rows[top_at + 1..] {
         let cells: Vec<char> = row.chars().collect();
-        let at = |col: usize| {
-            let mut w = 0;
-            for c in &cells {
-                if w == col {
-                    return *c;
-                }
-                w += UnicodeWidthStr::width(c.to_string().as_str());
-            }
-            ' '
-        };
-        match at(left) {
-            '╰' => {
-                assert_eq!(at(right), '╯', "bottom edge meets the right wall: {row}");
-                return body;
-            }
-            '│' => {
-                assert_eq!(at(right), '│', "ragged wall: {row}");
-                body.push(row.clone());
-            }
-            other => panic!("the frame broke off at {other:?}: {row}"),
+        if matches!(cells.get(rail), Some('├' | '└')) {
+            break;
         }
+        let hung: String = cells.iter().skip(rail + 3).collect();
+        let hung = hung.trim_end().trim_end_matches('│').trim_end();
+        if hung.trim().is_empty() {
+            break;
+        }
+        out.push(row.clone());
     }
-    panic!("the frame titled {title} never closed");
+    assert!(!out.is_empty(), "the row {title} opened nothing");
+    out
 }
 
 #[test]
-fn an_opened_row_is_the_top_edge_of_its_frame() {
+fn an_opened_row_hangs_its_body_under_it() {
     let mut app = TestApp::in_conversation();
     app.push_user("perbaiki");
     app.push_tool(
@@ -74,19 +70,19 @@ fn an_opened_row_is_the_top_edge_of_its_frame() {
     }
     let rows = app.render_to_text(W, H);
 
-    let diff = frame(&rows, "✓ edit  src/a.ts");
+    let diff = body(&rows, "src/a.ts");
     assert!(diff.iter().any(|r| r.contains("const a = 2;")), "{diff:#?}");
-    let file = frame(&rows, "✓ write  src/site.ts");
+    let file = body(&rows, "src/site.ts");
     assert!(
         file.iter().any(|r| r.contains("1  export const site")),
         "{file:#?}"
     );
-    let output = frame(&rows, "✓ bash  npm run build");
+    let output = body(&rows, "npm run build");
     assert!(
         output.iter().any(|r| r.contains("built in 366ms")),
         "{output:#?}"
     );
-    let thought = frame(&rows, "✻ Thought");
+    let thought = body(&rows, "✻ Thought");
     assert!(
         thought.iter().any(|r| r.contains("Next I preview it.")),
         "{thought:#?}"
@@ -104,8 +100,7 @@ fn a_closed_row_stays_one_plain_row() {
     );
     let rows = app.render_to_text(W, H);
     let row = rows.iter().find(|r| r.contains("npm run build")).unwrap();
-    assert!(row.contains("✓ bash") && row.contains('▸'), "{row}");
-    assert!(!rows.iter().any(|r| r.contains('╭') && r.contains("bash")));
+    assert!(row.contains("─ bash") && row.contains('▸'), "{row}");
     assert!(!rows.iter().any(|r| r.contains("built in 366ms")));
 }
 
@@ -149,7 +144,7 @@ fn a_write_shows_a_new_file_or_what_it_changed() {
     app.expand_tool("w1");
     app.expand_tool("w2");
     let rows = app.render_to_text(W, H);
-    let new_file = frame(&rows, "✓ write  src/site.ts ─");
+    let new_file = body(&rows, "src/site.ts");
     assert!(
         new_file.iter().any(|r| r.contains(" 1  line 1")),
         "{new_file:#?}"
@@ -159,8 +154,11 @@ fn a_write_shows_a_new_file_or_what_it_changed() {
         "{new_file:#?}"
     );
 
-    let second = rows.iter().rposition(|r| r.contains("╭─ ✓ write")).unwrap();
-    let replaced = frame(&rows[second..], "✓ write");
+    let second = rows
+        .iter()
+        .rposition(|r| r.contains("write") && r.contains('▾'))
+        .unwrap();
+    let replaced = body(&rows[second..], "write");
     let body = replaced.join("\n");
     assert!(
         body.contains("line 7 changed") && body.contains("line 31 changed"),

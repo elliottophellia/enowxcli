@@ -1,6 +1,7 @@
-//! A run of calls that only read and look (reads, searches, commands) is
-//! one row until opened: `✓ 3 calls  read · grep · bash`. What needs the
-//! reader's eye keeps its own row: a change, a failure, a call still going.
+//! A run of calls that only look around (reads, searches, fetches) is one
+//! row until opened: `explored  read · grep  2 calls`. What needs the
+//! reader's eye keeps its own row: a command, a change, a failure, a call
+//! still going.
 
 use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use enowx_tui::testing::TestApp;
@@ -64,7 +65,7 @@ fn reading_calls_fold_into_one_row() {
     let mut app = transcript();
     let text = app.render_to_text(W, H).join("\n");
     assert!(
-        text.contains("3 calls") && text.contains("read · grep · bash"),
+        text.contains("explored") && text.contains("2 calls") && text.contains("read · grep"),
         "{text}"
     );
     assert!(
@@ -76,13 +77,16 @@ fn reading_calls_fold_into_one_row() {
         !text.contains("Thought"),
         "a thought between them folds too: {text}"
     );
-    // The edit changed something, and the failed command needs attention.
-    assert!(text.contains("✓ edit  src/data/site.ts"), "{text}");
+    // A command, the edit and the failed command each keep their own row.
+    assert!(text.contains("npm run build"), "{text}");
+    assert!(
+        text.contains("├─ edit") && text.contains("src/data/site.ts"),
+        "{text}"
+    );
     assert!(
         text.contains("npm test") && text.contains("exit 1"),
         "{text}"
     );
-    assert!(!text.contains("npm run build"), "{text}");
 }
 
 #[test]
@@ -92,22 +96,20 @@ fn a_run_opens_and_closes_on_a_click() {
     let rows = app.render_to_text(W, H);
     let text = rows.join("\n");
     assert!(
-        text.contains("npm run build") && text.contains("Thought"),
+        text.contains("The timeline lives") || text.contains("Thought"),
         "{text}"
     );
-    // Its calls sit under the run's row, indented.
-    let run = rows.iter().position(|r| r.contains("3 calls")).unwrap();
+    // Its calls hang off the run's row, on a rail of their own.
+    let run = rows.iter().position(|r| r.contains("2 calls")).unwrap();
     let under = &rows[run + 1];
-    let at = |row: &str, needle: &str| row.find(needle).unwrap();
-    assert!(
-        at(under, "✓") > at(&rows[run], "✓"),
-        "{}\n{under}",
-        rows[run]
-    );
+    let at = |row: &str| row.rfind("─ ").unwrap();
+    assert!(at(under) > at(&rows[run]), "{}\n{under}", rows[run]);
+    assert!(under.contains("site.ts"), "{under}");
 
     click(&mut app, "group:r1");
     let text = app.render_to_text(W, H).join("\n");
-    assert!(!text.contains("npm run build"), "closed again: {text}");
+    assert!(!text.contains("The timeline lives"), "closed again: {text}");
+    assert!(!text.contains("Thought"), "closed again: {text}");
 }
 
 #[test]

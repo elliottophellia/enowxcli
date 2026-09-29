@@ -41,9 +41,17 @@ fn finished_thinking_is_one_row_until_opened() {
 
     click_row_of(&mut app, "thinking-1");
     let text = app.main_column(W, H).join("\n");
+    let rows = app.main_column(W, H);
+    let row = rows.iter().position(|r| r.contains("✻ Thought")).unwrap();
+    let under = &rows[row + 1];
     assert!(
-        text.contains("│ The first idea. The second, more careful idea."),
-        "a click opens it, behind a thin bar: {text}"
+        under.contains("The first idea. The second, more careful idea."),
+        "a click opens it under its row: {text}"
+    );
+    assert!(
+        under[..under.find("The first").unwrap()].width()
+            > rows[row][..rows[row].find('✻').unwrap()].width(),
+        "the thought hangs in from its row: {text}"
     );
 }
 
@@ -129,8 +137,8 @@ fn a_file_write_is_a_closed_row_by_default() {
     );
 }
 
-/// Opened, the row becomes the top edge of the card around the file:
-/// numbered lines, the rest folded, no `··` for indentation.
+/// Opened, the file hangs under its row: numbered lines, the rest folded,
+/// no `··` for indentation, and no card drawn around it.
 #[test]
 fn an_opened_write_is_a_file_card() {
     let mut app = TestApp::new();
@@ -138,7 +146,10 @@ fn an_opened_write_is_a_file_card() {
     click_row_of(&mut app, "w1");
     let rows = app.main_column(W, H);
     let text = rows.join("\n");
-    assert!(text.contains("╭─ ✓ write  site/index.html ─"), "{text}");
+    assert!(
+        text.contains("─ write") && text.contains("site/index.html") && text.contains('▾'),
+        "{text}"
+    );
     assert!(text.contains("  1  <!DOCTYPE html>"), "{text}");
     assert!(
         text.contains("  4      <meta charset"),
@@ -149,17 +160,23 @@ fn an_opened_write_is_a_file_card() {
         !text.contains('·') || !text.contains("··"),
         "no indent dots: {text}"
     );
-    // The card's walls line up: every row as wide as its top edge.
-    let top = rows.iter().find(|r| r.contains("╭─ ✓ write")).unwrap();
-    let left = top.find('╭').unwrap();
-    let width = top.trim_end().width();
-    for row in rows
+    assert!(!text.contains("╭─ ✓"), "no card around the file: {text}");
+    assert!(
+        rows.iter()
+            .filter(|r| r.contains("placeholder"))
+            .all(|r| r.matches('│').count() == 2),
+        "no walls beside the file's lines, only the panel's: {text}"
+    );
+    // The numbered lines start on one column, past the row's verb.
+    let top = rows.iter().find(|r| r.contains("─ write")).unwrap();
+    let verb = top[..top.find("write").unwrap()].width();
+    let starts: Vec<usize> = rows
         .iter()
-        .filter(|r| r.contains("│ ") && r.contains("placeholder"))
-    {
-        assert_eq!(row.trim_end().width(), width, "ragged card row: {row:?}");
-        assert!(row[left..].starts_with('│'), "{row:?}");
-    }
+        .filter(|r| r.contains("placeholder"))
+        .map(|r| r[..r.find(char::is_numeric).unwrap()].width())
+        .collect();
+    assert!(!starts.is_empty(), "{text}");
+    assert!(starts.iter().all(|&at| at > verb), "{starts:?} {text}");
 }
 
 /// The first click on a row that starts open closes it. It used to do

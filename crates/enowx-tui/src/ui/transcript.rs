@@ -505,21 +505,11 @@ fn render_block(
             tool_headers.push((id.clone(), lines.len()));
             let has_text = !block.text.trim().is_empty();
             if expanded && has_text {
-                // Opened, it is framed like an opened tool row.
-                let (row, _) = frame_top(
-                    ("✻", theme.accent2),
-                    &label,
-                    Style::default().fg(theme.muted),
-                    "",
-                    None,
-                    "▾",
-                    width,
-                    theme,
-                );
-                lines.push(row);
+                // Opened, the thought hangs under its row like a tool's body.
+                lines.push(thinking_row(&label, Some("▾"), width, theme));
                 let body_start = lines.len();
                 let mut body = Vec::new();
-                render_markdown(&block.text, frame_inner(width), &mut body, theme);
+                render_markdown(&block.text, body_width(width), &mut body, theme);
                 for line in body {
                     lines.push(Line::from(
                         line.spans
@@ -528,7 +518,7 @@ fn render_block(
                             .collect::<Vec<_>>(),
                     ));
                 }
-                frame_from(lines, body_start, width, theme);
+                indent_body(lines, body_start, width, theme);
             } else {
                 lines.push(thinking_row(&label, has_text.then_some("▸"), width, theme));
             }
@@ -568,29 +558,18 @@ fn render_block(
             };
             tool_headers.push((id.clone(), lines.len()));
             if expanded && brief_rows > 0 {
-                // Opened, the brief is framed like an opened tool row.
-                let (right, right_style) = row_right(&parts, icon, None, theme);
-                let (row, _) = frame_top(
-                    icon,
-                    &parts.verb,
-                    Style::default().fg(theme.muted),
-                    &parts.arg,
-                    (!right.is_empty()).then_some((right, right_style)),
-                    "▾",
-                    width,
-                    theme,
-                );
-                lines.push(row);
+                // Opened, the brief hangs under its row like a tool's body.
+                lines.push(tool_row(&parts, Some("▾"), icon, None, width, theme));
                 let body_start = lines.len();
                 let mut body = Vec::new();
-                render_markdown(&block.text, frame_inner(width), &mut body, theme);
+                render_markdown(&block.text, body_width(width), &mut body, theme);
                 for mut line in body {
                     for span in line.spans.iter_mut() {
                         span.style = span.style.fg(theme.muted);
                     }
                     lines.push(line);
                 }
-                frame_from(lines, body_start, width, theme);
+                indent_body(lines, body_start, width, theme);
             } else {
                 let chevron = (brief_rows > 0).then_some("▸");
                 lines.push(tool_row(&parts, chevron, icon, None, width, theme));
@@ -614,12 +593,14 @@ fn render_block(
             started,
         } => {
             use crate::ui::tool::{classify, elapsed_note, render_diff, ToolBody, ToolRender};
+            // No status glyph: the rail in front of the row marks it, and
+            // the verb's colour says whether it is running or failed.
             let icon = if *running {
-                ("›", theme.yellow)
+                ("", theme.yellow)
             } else if *error {
-                ("✗", theme.red)
+                ("", theme.red)
             } else {
-                ("✓", theme.green)
+                ("", theme.muted)
             };
             // A tool that has been running a while should say so, rather
             // than looking identical at one second and at two minutes.
@@ -671,35 +652,17 @@ fn render_block(
                     subtitle,
                     body,
                 } => {
-                    // An opened row is the top edge of the frame around its
-                    // body; a closed one is a plain row in the list.
+                    // An opened row keeps its shape; its body hangs under it.
                     let open = expanded || *error;
                     let header_y_marker = lines.len();
-                    let (row, path_columns) = if open {
-                        let (right, right_style) =
-                            row_right(&header, icon, waiting.as_deref(), theme);
-                        // The verb is clipped as a closed row's is, so a long
-                        // MCP name cannot crowd out what it acted on.
-                        frame_top(
-                            icon,
-                            &trim(&header.verb, VERB_COLUMN),
-                            Style::default().fg(theme.muted),
-                            &header.arg,
-                            (!right.is_empty()).then_some((right, right_style)),
-                            "▾",
-                            width,
-                            theme,
-                        )
-                    } else {
-                        tool_row_with_span(
-                            &header,
-                            Some("▸"),
-                            icon,
-                            waiting.as_deref(),
-                            width,
-                            theme,
-                        )
-                    };
+                    let (row, path_columns) = tool_row_with_span(
+                        &header,
+                        Some(if open { "▾" } else { "▸" }),
+                        icon,
+                        waiting.as_deref(),
+                        width,
+                        theme,
+                    );
                     lines.push(row);
                     tool_headers.push((id.clone(), header_y_marker));
                     // The path on the row is also a link: clicking it opens
@@ -712,13 +675,12 @@ fn render_block(
                         file_links,
                     );
                     if open {
-                        // Rendered at the width between the frame's walls,
-                        // then walled in. Lines still go straight into
-                        // `lines`, which keeps the file-link rows the
-                        // renderers record correct.
+                        // Rendered narrower, then shifted under the row.
+                        // Lines still go straight into `lines`, which keeps
+                        // the file-link rows the renderers record correct.
                         let outer = width;
                         let body_start = lines.len();
-                        let width = frame_inner(width);
+                        let width = body_width(width);
                         if let Some(sub) = subtitle {
                             for wrapped in textwrap::wrap(&sub, width) {
                                 lines.push(Line::from(vec![
@@ -753,9 +715,8 @@ fn render_block(
                                 let pieces = crate::ansi::parse(text);
                                 let mut current: Vec<Span<'static>> = Vec::new();
                                 let mut current_w: usize = 0;
-                                // The frame is the border: the output sits on
-                                // the panel inside it, quieter than the
-                                // conversation, in its own colours if any.
+                                // The output is quieter than the conversation,
+                                // in its own colours if any.
                                 let max_body_w = width;
                                 let flush =
                                     |lines: &mut Vec<Line<'static>>,
@@ -865,7 +826,7 @@ fn render_block(
                                 crate::ui::tool::render_todo(&items, width, lines, theme);
                             }
                         }
-                        frame_from(lines, body_start, outer, theme);
+                        indent_body(lines, body_start, outer, theme);
                     }
                 }
             }
@@ -1022,6 +983,18 @@ fn refresh_render_cache(app: &mut App, width: usize) {
         !trailing.is_empty(),
         &app.tool_expanded,
     );
+    // A retry that the turn got past is spent: once anything follows it, it
+    // is no longer news, so it stops drawing rather than staying behind in
+    // the history.
+    let hidden: Vec<bool> = app
+        .blocks
+        .iter()
+        .enumerate()
+        .map(|(at, block)| {
+            routing_row(&block.kind) || (matches!(block.kind, TranscriptKind::Retry) && at != last)
+        })
+        .collect();
+    let rails = tree_rails(&app.blocks, &roles, &markers_for, &hidden);
     // Indexes three collections in step — blocks, their markers, and the cache
     // — so an iterator over any one of them would still need the index.
     #[allow(clippy::needless_range_loop)]
@@ -1141,7 +1114,10 @@ fn refresh_render_cache(app: &mut App, width: usize) {
         };
         let role = &roles[idx];
         role.hash(&mut hasher);
-        let hidden = routing_row(&block.kind);
+        let hidden = hidden[idx];
+        let rail = rails[idx];
+        hidden.hash(&mut hasher);
+        rail.hash(&mut hasher);
         // A hidden block that carries a handover still has to draw, or
         // collapsing reasoning would silently swallow the marker with it.
         // A call folded into a closed run draws nothing: its run's row
@@ -1173,29 +1149,49 @@ fn refresh_render_cache(app: &mut App, width: usize) {
         // marker rows, its click offsets shifted past them. (It used to
         // render into this buffer and be shifted as well, which put the
         // click target of a row after a handover marker on the wrong line.)
-        let indent = match role {
-            GroupRole::Head {
-                id: group,
-                summary,
-                calls,
-                open,
-            } => {
+        let rail_style = Style::default().fg(theme.border);
+        // What goes in front of the block's own rows: its first row, then the
+        // rest. Both are the same width, which the block is rendered narrower
+        // by. `None` draws nothing (a call folded into a closed run).
+        let prefix: Option<(String, String)> = match (role, rail) {
+            (
+                GroupRole::Head {
+                    id: group,
+                    summary,
+                    calls,
+                    open,
+                },
+                Some(rail),
+            ) => {
+                // The run's own row is the node; its calls hang under it
+                // when it is open.
+                let (first, rest) = rail.node();
                 tool_headers.push((group.clone(), lines.len()));
-                lines.push(tool_row(
-                    &crate::ui::tool::RowParts::new(format!("{calls} calls"), summary.clone(), ""),
+                let mut row = tool_row(
+                    &crate::ui::tool::RowParts::new(
+                        "explored",
+                        summary.clone(),
+                        format!("{calls} calls"),
+                    ),
                     Some(if *open { "▾" } else { "▸" }),
-                    ("✓", theme.green),
+                    ("", theme.muted),
                     None,
-                    width,
+                    width.saturating_sub(first.chars().count()).max(1),
                     &theme,
-                ));
-                open.then_some(GUTTER)
+                );
+                row.spans.insert(0, Span::styled(first, rail_style));
+                lines.push(row);
+                open.then(|| rail.member_prefixes(&rest))
             }
-            GroupRole::Member { open: true } => Some(GUTTER),
-            GroupRole::Member { open: false } => None,
-            GroupRole::Alone => Some(0),
+            (GroupRole::Member { open: false }, _) => None,
+            (GroupRole::Member { open: true }, Some(rail)) => {
+                Some(rail.member_prefixes(&rail.node().1))
+            }
+            (_, Some(rail)) => Some(rail.node()),
+            _ => Some((String::new(), String::new())),
         };
-        if let Some(indent) = indent.filter(|_| !hidden) {
+        if let Some((first, rest)) = prefix.filter(|_| !hidden) {
+            let indent = first.chars().count();
             let mut own = Vec::new();
             let mut own_headers = Vec::new();
             let mut own_links = Vec::new();
@@ -1215,10 +1211,10 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 &mut own_links,
             );
             let base = lines.len();
-            // A call inside an opened run sits under the run's row.
-            for mut line in own {
+            for (at, mut line) in own.into_iter().enumerate() {
                 if indent > 0 {
-                    line.spans.insert(0, Span::raw(" ".repeat(indent)));
+                    let lead = if at == 0 { &first } else { &rest };
+                    line.spans.insert(0, Span::styled(lead.clone(), rail_style));
                 }
                 lines.push(line);
             }
@@ -1243,9 +1239,104 @@ fn refresh_render_cache(app: &mut App, width: usize) {
     }
 }
 
-/// Where a block stands in a run of calls that read and look (reads,
-/// searches, commands), which draws as one row until opened:
-/// `✓ 5 calls  read ×3 · grep · bash`.
+/// Where a block's rows sit in the tree that a stretch of calls draws:
+///
+/// ```text
+///   ├─ explored  read ×2 · grep          3 calls ▸
+///   ├─ edit      src/ui/chrome.rs            +2 -2 ▾
+///   │   10  let side = 40;
+///   └─ bash      cargo test          48 passed ▸
+/// ```
+///
+/// The rail ties the calls of one step together without a box around each,
+/// and says where the step ends.
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+struct Rail {
+    /// The stretch's last node, which closes the rail with `└─`.
+    last: bool,
+    /// For a call inside an opened run, whether it is the run's last.
+    member: Option<bool>,
+}
+
+impl Rail {
+    /// The node's first row and the rows under it.
+    fn node(self) -> (String, String) {
+        let gutter = " ".repeat(GUTTER);
+        if self.last {
+            (format!("{gutter}└─ "), format!("{gutter}   "))
+        } else {
+            (format!("{gutter}├─ "), format!("{gutter}│  "))
+        }
+    }
+
+    /// A call inside an opened run: the run's rail, then its own.
+    fn member_prefixes(self, outer: &str) -> (String, String) {
+        if self.member == Some(true) {
+            (format!("{outer}└─ "), format!("{outer}   "))
+        } else {
+            (format!("{outer}├─ "), format!("{outer}│  "))
+        }
+    }
+}
+
+/// Give each drawn call and thought its place on the rail. A stretch ends at
+/// anything else that draws (prose, a delegation, an error) and at a handover
+/// marker, whose rows would otherwise cut through the rail.
+fn tree_rails(
+    blocks: &[crate::session::TranscriptBlock],
+    roles: &[GroupRole],
+    markers_for: &[Vec<String>],
+    hidden: &[bool],
+) -> Vec<Option<Rail>> {
+    fn close(nodes: &mut Vec<Vec<usize>>, roles: &[GroupRole], rails: &mut [Option<Rail>]) {
+        let count = nodes.len();
+        for (at, node) in nodes.drain(..).enumerate() {
+            let size = node.len();
+            for (place, &idx) in node.iter().enumerate() {
+                let member = matches!(
+                    roles[idx],
+                    GroupRole::Head { open: true, .. } | GroupRole::Member { open: true }
+                )
+                .then_some(place + 1 == size);
+                rails[idx] = Some(Rail {
+                    last: at + 1 == count,
+                    member,
+                });
+            }
+        }
+    }
+    let mut rails = vec![None; blocks.len()];
+    // The stretch so far: its nodes, each one call, or a run's calls.
+    let mut nodes: Vec<Vec<usize>> = Vec::new();
+    for idx in 0..blocks.len() {
+        if !markers_for[idx].is_empty() {
+            close(&mut nodes, roles, &mut rails);
+        }
+        match roles[idx] {
+            // Drawn by its run's row.
+            GroupRole::Member { open: false } => continue,
+            _ if hidden[idx] => continue,
+            _ => {}
+        }
+        if !matches!(
+            blocks[idx].kind,
+            TranscriptKind::Tool { .. } | TranscriptKind::Reasoning { .. }
+        ) {
+            close(&mut nodes, roles, &mut rails);
+            continue;
+        }
+        match (&roles[idx], nodes.last_mut()) {
+            (GroupRole::Member { open: true }, Some(node)) => node.push(idx),
+            _ => nodes.push(vec![idx]),
+        }
+    }
+    close(&mut nodes, roles, &mut rails);
+    rails
+}
+
+/// Where a block stands in a run of calls that only look around (reads,
+/// searches, fetches), which draws as one row until opened:
+/// `explored  read ×3 · grep · glob  5 calls`.
 #[derive(Clone, Hash, PartialEq, Eq)]
 enum GroupRole {
     /// Not in a run: drawn as itself.
@@ -1261,21 +1352,14 @@ enum GroupRole {
     Member { open: bool },
 }
 
-/// Tools whose calls only read and look, and so fold into a run.
-const RUN_TOOLS: &[&str] = &[
-    "read",
-    "glob",
-    "grep",
-    "bash",
-    "fetch",
-    "skill_read",
-    "icon",
-];
+/// Tools whose calls only look around, and so fold into a run. A command is
+/// not one of them: what it ran, and whether it passed, is worth its own row.
+const RUN_TOOLS: &[&str] = &["read", "glob", "grep", "fetch", "skill_read", "icon"];
 
-/// Mark the runs of two or more finished calls that read and look, with the
-/// finished thoughts between them. A failed call, a command that exited
-/// non-zero, a running call and a handover marker all end a run, so what
-/// needs the reader's eye keeps its own row.
+/// Mark the runs of two or more finished calls that only look around, with
+/// the finished thoughts between them. A failed call, a running call and a
+/// handover marker all end a run, so what needs the reader's eye keeps its
+/// own row.
 fn group_roles(
     blocks: &[crate::session::TranscriptBlock],
     markers_for: &[Vec<String>],
@@ -1289,14 +1373,10 @@ fn group_roles(
     let quiet_call = |at: usize| match &blocks[at].kind {
         TranscriptKind::Tool {
             name,
-            result,
             running: false,
             error: false,
             ..
-        } => {
-            RUN_TOOLS.contains(&name.as_str())
-                && (name != "bash" || !result.starts_with("exit ") || result.starts_with("exit 0"))
-        }
+        } => RUN_TOOLS.contains(&name.as_str()),
         _ => false,
     };
     let done_thought = |at: usize| {
@@ -1466,14 +1546,23 @@ fn tool_row_with_span(
     let verb = trim(&parts.verb, VERB_COLUMN);
     let verb_pad = VERB_COLUMN.saturating_sub(unicode_width_of(&verb));
 
-    let mut spans = vec![
-        Span::styled(format!("{} ", icon.0), Style::default().fg(icon.1)),
+    let mut spans = Vec::new();
+    let verb_style = if icon.0.is_empty() {
+        // No marker: the verb carries the row's state. A finished call is
+        // passed in quiet, so only a running or failed one stands out.
+        Style::default().fg(icon.1)
+    } else {
+        spans.push(Span::styled(
+            format!("{} ", icon.0),
+            Style::default().fg(icon.1),
+        ));
         // The verb in the text's quiet colour: the status marker before it
         // carries the row's colour, and a coloured verb on every row made
         // a run of tool calls the loudest thing in the transcript.
-        Span::styled(verb, Style::default().fg(theme.muted)),
-        Span::raw(" ".repeat(verb_pad + 2)),
-    ];
+        Style::default().fg(theme.muted)
+    };
+    spans.push(Span::styled(verb, verb_style));
+    spans.push(Span::raw(" ".repeat(verb_pad + 2)));
     // The space and the chevron column at the far right.
     const TAIL: usize = 2;
 
@@ -1522,85 +1611,24 @@ fn row_right(
     (right, style)
 }
 
-/// An opened row as the top edge of the frame around what it opened:
-/// `╭─ ✓ edit  path ──────── +6 −2 ▾ ─╮`. The row and its body read as one
-/// thing, not a row with a box under it. Returns the line and the columns
-/// `arg` occupies, since a path there is a link.
-#[allow(clippy::too_many_arguments)]
-fn frame_top(
-    icon: (&str, ratatui::style::Color),
-    label: &str,
-    label_style: Style,
-    arg: &str,
-    right: Option<(String, Style)>,
-    chevron: &str,
-    width: usize,
-    theme: &Theme,
-) -> (Line<'static>, (u16, u16)) {
-    let border = Style::default().fg(theme.border);
-    let right_w = right
-        .as_ref()
-        .map_or(0, |(text, _)| unicode_width_of(text) + 1);
-    // `╭─ `, the icon and a space, then ` ─` at least, ` ▾` and ` ─╮`.
-    let base = 10 + unicode_width_of(icon.0) + right_w;
-    let label = trim(label, width.saturating_sub(base + 2).max(1));
-    let label_w = unicode_width_of(&label);
-    let arg_room = width.saturating_sub(base + label_w + 4);
-    let arg = if arg.is_empty() || arg_room < 4 {
-        String::new()
-    } else {
-        trim(arg, arg_room)
-    };
-    let arg_w = unicode_width_of(&arg);
-    let arg_start = 3 + unicode_width_of(icon.0) + 1 + label_w + 2;
-    let used = base + label_w + if arg_w > 0 { 2 + arg_w } else { 0 };
-    let mut spans = vec![
-        Span::styled("╭─ ", border),
-        Span::styled(format!("{} ", icon.0), Style::default().fg(icon.1)),
-        Span::styled(label, label_style),
-    ];
-    if arg_w > 0 {
-        spans.push(Span::raw("  "));
-        spans.push(Span::styled(arg, Style::default().fg(theme.text)));
-    }
-    spans.push(Span::styled(
-        format!(" {}", "─".repeat(width.saturating_sub(used).max(1))),
-        border,
-    ));
-    if let Some((text, style)) = right {
-        spans.push(Span::styled(format!(" {text}"), style));
-    }
-    spans.push(Span::styled(
-        format!(" {chevron}"),
-        Style::default().fg(theme.faint),
-    ));
-    spans.push(Span::styled(" ─╮", border));
-    (
-        Line::from(spans),
-        (arg_start as u16, (arg_start + arg_w) as u16),
-    )
+/// How far an opened row's body sits in from the row's verb.
+const BODY_INDENT: usize = 1;
+
+/// The width an opened row's body is rendered at.
+fn body_width(width: usize) -> usize {
+    width.saturating_sub(BODY_INDENT).max(1)
 }
 
-/// The width between a frame's walls.
-fn frame_inner(width: usize) -> usize {
-    width.saturating_sub(4).max(1)
-}
-
-/// Close the frame an opened row began: every line from `from` gets the
-/// walls, fitted to the width between them, and the bottom edge follows.
-fn frame_from(lines: &mut Vec<Line<'static>>, from: usize, width: usize, theme: &Theme) {
-    let border = Style::default().fg(theme.border);
-    let inner = frame_inner(width);
+/// Shift an opened row's body, every line from `from`, under the row. Each
+/// line is fitted to the body's width, so a tinted line (a diff's) keeps its
+/// tint to the edge without spreading it onto the rail in front of it.
+fn indent_body(lines: &mut [Line<'static>], from: usize, width: usize, theme: &Theme) {
+    let inner = body_width(width);
     for line in lines.iter_mut().skip(from) {
-        let mut spans = vec![Span::styled("│ ", border)];
+        let mut spans = vec![Span::raw(" ".repeat(BODY_INDENT))];
         spans.extend(fit_spans(std::mem::take(line), inner, theme));
-        spans.push(Span::styled(" │", border));
         *line = Line::from(spans);
     }
-    lines.push(Line::styled(
-        format!("╰{}╯", "─".repeat(width.saturating_sub(2))),
-        border,
-    ));
 }
 
 /// `line` as spans exactly `width` columns wide: cut with `…` when longer,

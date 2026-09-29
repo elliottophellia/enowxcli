@@ -9,7 +9,7 @@ const H: u16 = 24;
 fn rows_of(app: &mut TestApp) -> Vec<String> {
     app.render_to_text(W, H)
         .into_iter()
-        .filter(|r| r.contains('✓') || r.contains('✗'))
+        .filter(|r| r.contains("├─") || r.contains("└─"))
         .collect()
 }
 
@@ -25,15 +25,15 @@ fn arguments_line_up_across_row_kinds() {
     // Consecutive reads fold into one run; opened, its calls are the rows.
     app.expand_tool("group:t1");
 
-    // Anchor on the status icon, then step over the verb column. Searching
-    // for the verb or the argument text matched substrings elsewhere in the
-    // row — "read" inside "README.md", "ls" inside "lines".
+    // Anchor on the rail's connector, then step over the verb column.
+    // Searching for the verb or the argument text matched substrings
+    // elsewhere in the row — "read" inside "README.md", "ls" inside "lines".
     let cols: Vec<usize> = rows_of(&mut app)
         .iter()
         .filter(|row| !row.contains("calls"))
         .filter_map(|row| {
-            let icon = row.char_indices().find(|(_, c)| *c == '✓')?.0;
-            let rest = &row[icon + '✓'.len_utf8()..];
+            let icon = row.rfind("─ ")?;
+            let rest = &row[icon + "─".len()..];
             let verb_start = rest.find(|c: char| !c.is_whitespace())?;
             let after_verb = rest[verb_start..].find(char::is_whitespace)?;
             let tail = &rest[verb_start + after_verb..];
@@ -110,7 +110,10 @@ fn consecutive_tool_rows_are_not_separated_by_blanks() {
         app.push_tool(&format!("t{i}"), "read", r#"{"path":"a.rs"}"#, "x");
     }
     let folded = app.render_to_text(W, H);
-    let run: Vec<&String> = folded.iter().filter(|r| r.contains('✓')).collect();
+    let run: Vec<&String> = folded
+        .iter()
+        .filter(|r| r.contains("├─ ") || r.contains("└─ "))
+        .collect();
     assert_eq!(run.len(), 1, "five reads are one row: {folded:#?}");
     assert!(
         run[0].contains("5 calls") && run[0].contains("read ×5"),
@@ -122,11 +125,11 @@ fn consecutive_tool_rows_are_not_separated_by_blanks() {
     let rendered = app.render_to_text(W, H);
     let first = rendered
         .iter()
-        .position(|r| r.contains('✓'))
+        .position(|r| r.contains("├─ ") || r.contains("└─ "))
         .expect("a tool row");
     let last = rendered
         .iter()
-        .rposition(|r| r.contains('✓'))
+        .rposition(|r| r.contains("├─ ") || r.contains("└─ "))
         .expect("a tool row");
     assert_eq!(
         last - first,

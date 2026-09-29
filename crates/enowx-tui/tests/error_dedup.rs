@@ -193,14 +193,16 @@ fn a_final_error_replaces_the_retry_line() {
     );
 }
 
-/// A retry that eventually succeeds still leaves its line; the next real
-/// output must not be swallowed by the collapse.
+/// The next real output after a retry must not be swallowed by the collapse,
+/// and the retry it got past stops drawing: it is no longer news.
 #[test]
 fn output_after_a_retry_is_not_absorbed() {
     let mut app = TestApp::new();
     app.push_retry("connection refused", 2, 10);
+    let rows = app.render_to_text(W, H);
+    assert!(rows.iter().any(|r| r.contains("retry 2/10")), "{rows:?}");
     app.push_assistant("Recovered, here is the answer.");
     let rows = app.render_to_text(W, H);
     assert!(rows.iter().any(|r| r.contains("Recovered")));
-    assert!(rows.iter().any(|r| r.contains("retry")));
+    assert!(!rows.iter().any(|r| r.contains("retry")), "{rows:?}");
 }

@@ -181,6 +181,11 @@ old text exactly, and an edit against a stale read is caught. `lsp` asks
 the language server for a definition, references, a symbol's type, a file's
 symbols, or a rename across every file.
 
+Calls in one step that only look (`read`, `glob`, `grep`, `fetch`,
+`diagnostics`, `ui_check`, and at most one `bash` beside them) run at the
+same time; writes and everything else keep their order. A picture that is
+already in the conversation is not sent to the model again.
+
 The orchestrator does not wait on its specialists: a wave it delegates runs
 in the background, its turn ends, and the status bar says how many agents
 are working. When the whole wave has finished, their reports start its next

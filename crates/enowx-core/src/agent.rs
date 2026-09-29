@@ -96,7 +96,8 @@ const EFFORT_RULES: &str = "\
 Effort and tools:\n\
 - Match effort to the task. A small task (a page, a fix in one or two files) is: look, write, check once, report. Most tasks need a handful of tool calls.\n\
 - Use the dedicated tools: `glob` to list or find files, `grep` to search contents, `read` to read (offset and limit for a range). `bash` is for building, running, installing and testing, never for ls, find, cat, head, sed or grep.\n\
-- When you need several files or searches, request them together in one step, not one per turn.\n\
+- Calls that do not depend on each other go in one step, as several tool calls in the same reply: the files to read, the searches, the screenshots to look at, a build beside them. They run at the same time; one per step makes the user wait a model call for each. Only a call that needs another's result waits for the next step.\n\
+- A picture you have read stays in view: look back at it instead of reading it again.\n\
 - Create a file whole with one `write`. Change an existing file with `edit`, and several changes to one file with one `multi_edit`, not one call each; do not rewrite a file to change a detail of it.\n\
 - Verify with what the project already has (its build, tests, linter) or by reading the result. Do not write throwaway scripts (a python heredoc, an ad-hoc validator) to check your own output.\n\
 - Leave nothing running: no servers or background processes (`&`, nohup) that outlive the command that started them.\n\
@@ -1609,15 +1610,57 @@ impl Agent {
             // results: providers take images only in user messages, and a
             // user message between results would split them from their calls.
             let mut pictures: Vec<crate::message::Attachment> = Vec::new();
-            for call in &completion.tool_calls {
-                let _ = events
-                    .send(Event::ToolCall {
-                        id: call.id.clone(),
-                        name: call.name.clone(),
-                        arguments: call.arguments.clone(),
-                    })
+            // Calls that only look run at the same time; the rest keep their
+            // order, one after another.
+            let can_run = !cancel.is_cancelled()
+                && matches!(completion.finish_reason.as_str(), "stop" | "tool_calls");
+            let mut ready: std::collections::HashMap<String, ToolOutput> =
+                std::collections::HashMap::new();
+            let mut announced: std::collections::HashSet<String> = std::collections::HashSet::new();
+            for (index, call) in completion.tool_calls.iter().enumerate() {
+                let run = parallel_run(&completion.tool_calls[index..]);
+                if can_run && run > 1 && !announced.contains(&call.id) {
+                    let together = &completion.tool_calls[index..index + run];
+                    for call in together {
+                        announced.insert(call.id.clone());
+                        let _ = events
+                            .send(Event::ToolCall {
+                                id: call.id.clone(),
+                                name: call.name.clone(),
+                                arguments: call.arguments.clone(),
+                            })
+                            .await;
+                    }
+                    let outputs = futures::future::join_all(together.iter().map(|call| {
+                        let mut ctx = tool_ctx.clone();
+                        ctx.call_id = call.id.clone();
+                        let args = serde_json::from_str::<serde_json::Value>(&call.arguments)
+                            .unwrap_or_default();
+                        let registry = &tools_registry;
+                        let allowed = &allowed_tools;
+                        async move {
+                            registry
+                                .execute_for_agent(allowed, &ctx, &call.name, args)
+                                .await
+                        }
+                    }))
                     .await;
-                let output = if cancel.is_cancelled() {
+                    for (call, output) in together.iter().zip(outputs) {
+                        ready.insert(call.id.clone(), output);
+                    }
+                }
+                if !announced.contains(&call.id) {
+                    let _ = events
+                        .send(Event::ToolCall {
+                            id: call.id.clone(),
+                            name: call.name.clone(),
+                            arguments: call.arguments.clone(),
+                        })
+                        .await;
+                }
+                let mut output = if let Some(output) = ready.remove(&call.id) {
+                    output
+                } else if cancel.is_cancelled() {
                     ToolOutput::error("Cancelled before execution.")
                 } else if !matches!(completion.finish_reason.as_str(), "stop" | "tool_calls") {
                     ToolOutput::error(format!(
@@ -1765,6 +1808,28 @@ impl Agent {
                         if !touched.contains(&path) {
                             touched.push(path);
                         }
+                    }
+                }
+                // A picture already in view is not sent again: every copy
+                // stays in the context of every later call.
+                if !output.images.is_empty() {
+                    let in_view = |image: &crate::message::Attachment| {
+                        pictures.iter().any(|p| p.data_url == image.data_url)
+                            || session.turns.iter().any(|turn| {
+                                turn.message
+                                    .attachments
+                                    .iter()
+                                    .any(|a| a.data_url == image.data_url)
+                            })
+                    };
+                    let before = output.images.len();
+                    let images = std::mem::take(&mut output.images);
+                    output.images = images.into_iter().filter(|i| !in_view(i)).collect();
+                    if output.images.len() < before {
+                        output.content.push_str(
+                            "\n\nThis picture is already in the conversation above, unchanged: \
+                             look at it there instead of reading it again.",
+                        );
                     }
                 }
                 let stored = if self.config.typesafe.gate_tool_results
@@ -2023,6 +2088,30 @@ fn handoff_note(switch: &crate::session::AgentSwitch) -> String {
         from = switch.from,
         reason = switch.reason.trim(),
     )
+}
+
+/// Tools that only look, and so can run beside each other in one step.
+/// `bash` may change files, so at most one joins a run, beside reads.
+const LOOKING_TOOLS: &[&str] = &["read", "glob", "grep", "fetch", "diagnostics", "ui_check"];
+
+/// How many calls from the start of `calls` run together: a stretch of
+/// looking calls with well-formed arguments, and at most one `bash`.
+fn parallel_run(calls: &[crate::message::ToolCall]) -> usize {
+    let mut bash = 0;
+    calls
+        .iter()
+        .take_while(|call| {
+            let fits = match call.name.as_str() {
+                "bash" => {
+                    bash += 1;
+                    bash == 1
+                }
+                name => LOOKING_TOOLS.contains(&name),
+            };
+            fits && serde_json::from_str::<serde_json::Value>(&call.arguments)
+                .is_ok_and(|args| args.is_object())
+        })
+        .count()
 }
 
 fn persist_interrupted(
@@ -2478,5 +2567,30 @@ mod skill_read_tests {
         assert!(stop.contains("without changing a file"), "{stop}");
         reads.changed();
         assert!(reads.check("e").is_ok(), "a change opens reading again");
+    }
+}
+
+#[cfg(test)]
+mod parallel_run_tests {
+    use super::parallel_run;
+    use crate::message::ToolCall;
+
+    fn call(name: &str) -> ToolCall {
+        ToolCall {
+            id: name.into(),
+            name: name.into(),
+            arguments: "{}".into(),
+        }
+    }
+
+    #[test]
+    fn looking_calls_and_one_bash_run_together() {
+        let step = |names: &[&str]| names.iter().map(|n| call(n)).collect::<Vec<_>>();
+        assert_eq!(parallel_run(&step(&["read", "grep", "bash", "glob", "write"])), 4);
+        assert_eq!(parallel_run(&step(&["bash", "read", "bash"])), 2, "one bash per run");
+        assert_eq!(parallel_run(&step(&["write", "read"])), 0);
+        let mut broken = call("read");
+        broken.arguments = "{\"path\":".into();
+        assert_eq!(parallel_run(&[call("read"), broken]), 1);
     }
 }

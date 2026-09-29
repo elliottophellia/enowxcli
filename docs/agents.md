@@ -159,7 +159,7 @@ and three built-in skills are there to stop that (2026-09-28).
 | `review*`, `research*`, `librarian`, `orchestration` | How to review a change and the checklists by kind; how to answer with evidence, read a codebase, search the web and choose a library; how to gather excerpts; how to run a large task across specialists |
 | `code` | Reading the codebase first, structure, names, types, errors, dependencies, frontend specifics, comments, hygiene |
 | `writing` | Specific over generic, words to drop, sentences, interface copy, errors and empty states, docs, voice |
-| `brainstorming` | When to agree a design with the user before building (a new project, feature or page, a redesign) and when not to; how: look first, ask everything open in one `ask` session (always the theme, for a new interface), offer approaches, confirm, hand the agreed design over |
+| `brainstorm` | When to agree a design with the user before building (a new project, feature or page, a redesign) and when not to; how: look first, ask everything open in one `ask` session (always the theme, for a new interface, and which plan documents to write), offer approaches, confirm, write the chosen documents with `plan_write`, hand the agreed design over. Parts: `brainstorm-prd`, `-design`, `-architecture`, `-erd`, `-api`, `-plan`, one template each |
 
 They ship inside the binary (`crates/enowx-core/skills/`), so every install
 has them, and are listed with the scope `built-in`. A project or user skill of
@@ -191,7 +191,7 @@ reviewer's two hundred skills stay a few thousand characters.
 | `research` | every `research*` skill |
 | `librarian` | `librarian` |
 | `general` | `code`, `writing`, `i18n`, and the root skill of each family |
-| `orchestrator` | `brainstorming`, `orchestration` |
+| `orchestrator` | `brainstorm` and its parts, `orchestration` |
 | `compactor` | none |
 
 Every specialist carries the family for its work, a root skill (the
@@ -966,14 +966,14 @@ and then no agent ever asked anything, including before building a whole new
 project on guesses.
 
 Since 2026-09-28 the two are split. Work whose shape is open is brainstormed
-first, through the `ask` tool and the `brainstorming` skill; small details in
+first, through the `ask` tool and the `brainstorm` skill; small details in
 work whose shape is settled are still chosen, not asked:
 
 ```
 BRAINSTORM FIRST WHEN THE SHAPE IS OPEN
 A new project, a new feature or page, a redesign: work two reasonable
 specialists would build differently. Before routing it, read the
-`brainstorming` skill and agree the design with the user through `ask`, one
+`brainstorm` skill and agree the design with the user through `ask`, one
 question at a time, then hand the agreed design over as the brief. Not for a
 fix, a small change with a clear result, a question, work the user already
 specified, or when they say to just build it.

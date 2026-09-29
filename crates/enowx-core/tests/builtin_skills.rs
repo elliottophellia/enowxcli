@@ -69,7 +69,7 @@ fn every_workspace_has_the_builtin_skills() {
         "ui-part-sidebar",
         "code",
         "writing",
-        "brainstorming",
+        "brainstorm",
         "backend",
         "backend-api",
         "backend-data",
@@ -97,7 +97,7 @@ fn every_workspace_has_the_builtin_skills() {
         "`ui-audit`",
         "`code`",
         "`writing`",
-        "`brainstorming`",
+        "`brainstorm`",
     ] {
         assert!(listed.contains(name), "{name} is offered: {listed}");
     }
@@ -364,7 +364,19 @@ fn each_agent_carries_the_skills_for_its_work() {
     assert!(carried("security").iter().any(|s| s == "backend-security"));
     assert!(carried("perf").iter().any(|s| s == "frontend-performance"));
     assert!(carried("test").iter().any(|s| s == "backend-testing"));
-    assert_eq!(carried("orchestrator"), ["brainstorming", "orchestration"]);
+    assert_eq!(
+        carried("orchestrator"),
+        [
+            "brainstorm",
+            "brainstorm-prd",
+            "brainstorm-design",
+            "brainstorm-architecture",
+            "brainstorm-erd",
+            "brainstorm-api",
+            "brainstorm-plan",
+            "orchestration"
+        ]
+    );
     assert_eq!(carried("librarian"), ["librarian"]);
     assert!(carried("compactor").is_empty(), "compactor carries none");
     for root in [
@@ -403,7 +415,7 @@ fn the_builtin_skills_follow_their_own_rules() {
         "ui-part-sidebar",
         "code",
         "writing",
-        "brainstorming",
+        "brainstorm",
         "backend",
         "backend-api",
         "backend-data",
@@ -539,7 +551,7 @@ fn the_motion_prompt_names_its_skills_and_essentials() {
 /// A new page's design settles how much it moves.
 #[test]
 fn brainstorming_asks_how_much_motion() {
-    let source = builtin_source("brainstorming").unwrap();
+    let source = builtin_source("brainstorm").unwrap();
     assert!(source.contains("how much motion"));
 }
 
@@ -573,7 +585,7 @@ fn every_skill_directory_is_built_in() {
 /// A new project with an interface is always asked which theme it gets.
 #[test]
 fn brainstorming_asks_for_the_theme() {
-    let source = builtin_source("brainstorming").unwrap();
+    let source = builtin_source("brainstorm").unwrap();
     assert!(source.contains("light, dark, or both with a toggle"));
 }
 

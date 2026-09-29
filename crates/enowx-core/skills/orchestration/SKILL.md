@@ -12,7 +12,7 @@ writes briefs that prescribe a layout and drop what the user decided; lets
 two agents edit one file; and passes "done" on without looking. This is how
 to choose between answering, handing off and delegating, split by area, run
 waves on a shared contract, brief each part, choose tiers, handle failures
-and report back. Agreeing an open design with the user is `brainstorming`.
+and report back. Agreeing an open design with the user is `brainstorm`.
 
 ## 1. Answer, hand off or delegate
 
@@ -55,6 +55,11 @@ and report back. Agreeing an open design with the user is `brainstorming`.
 
 A wave is one step holding one `delegate` call per part, so its parts run
 at the same time; it waits only for the wave before it.
+
+0. **Plan**, for a new product or a feature across several areas or waves:
+   the documents the user chose in `brainstorm` (PRD, DESIGN, ARCHITECTURE,
+   ERD, API, PLAN), written with `plan_write` from what the user decided;
+   none when they chose none. The waves below are `PLAN.md`'s; the contract is `API.md`'s.
 
 1. **Foundation**, only when the other parts stand on it: a new project's
    scaffold, shared types, the API's routes and shapes, the layout every
@@ -107,6 +112,8 @@ A delegated specialist sees the brief and nothing else:
 
 ```
 Goal: <what the user wants, in their words, one to three lines>
+Read: <the plan documents and sections, when there is a plan:
+  docs/plan/PRD.md (FR-1 to FR-3), docs/plan/API.md (Products), DESIGN.md>
 Decided: <every decision the user made: audience, scope, concept, theme,
   stack, where content comes from; placeholders named as placeholders>
 Your part: <scope>, in <the files or folders you own>
@@ -186,8 +193,9 @@ Previous attempt ran out of steps. Already changed:
 Continue from there; do not redo work that is done.
 ```
 
-Never absorb a part's work yourself: you have no tool that edits, and the
-shell refuses commands that change files.
+Never absorb a part's work yourself: you have no tool that edits code, and
+the shell refuses commands that change files. `plan_write` writes the
+planning documents and nothing else.
 
 ## 9. Check the reports
 

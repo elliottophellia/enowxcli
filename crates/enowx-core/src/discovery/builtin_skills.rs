@@ -710,11 +710,35 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
         "orchestration",
         include_str!("../../skills/orchestration/SKILL.md"),
     ),
+    (
+        "brainstorm",
+        include_str!("../../skills/brainstorm/SKILL.md"),
+    ),
+    (
+        "brainstorm-prd",
+        include_str!("../../skills/brainstorm-prd/SKILL.md"),
+    ),
+    (
+        "brainstorm-design",
+        include_str!("../../skills/brainstorm-design/SKILL.md"),
+    ),
+    (
+        "brainstorm-architecture",
+        include_str!("../../skills/brainstorm-architecture/SKILL.md"),
+    ),
+    (
+        "brainstorm-erd",
+        include_str!("../../skills/brainstorm-erd/SKILL.md"),
+    ),
+    (
+        "brainstorm-api",
+        include_str!("../../skills/brainstorm-api/SKILL.md"),
+    ),
+    (
+        "brainstorm-plan",
+        include_str!("../../skills/brainstorm-plan/SKILL.md"),
+    ),
     ("code", include_str!("../../skills/code/SKILL.md")),
     ("writing", include_str!("../../skills/writing/SKILL.md")),
     ("i18n", include_str!("../../skills/i18n/SKILL.md")),
-    (
-        "brainstorming",
-        include_str!("../../skills/brainstorming/SKILL.md"),
-    ),
 ];

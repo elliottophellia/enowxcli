@@ -292,8 +292,9 @@ pub fn builtin_agents() -> Vec<AgentDef> {
     // root skill and its parts, read only when the work reaches that part.
     // Anything that writes code carries `code`; anything whose words people
     // read carries `writing`, and `i18n` when users read them in a product.
-    // The orchestrator carries `brainstorming` and `orchestration`, for
-    // agreeing a design and running a large task; the compactor carries none.
+    // The orchestrator carries `brainstorm` (agreeing a design, then the plan
+    // documents the user chose) and `orchestration` (running a large task);
+    // the compactor carries none.
     let family = |root: &str| -> Vec<&'static str> {
         crate::discovery::skills::builtin_names()
             .filter(|name| {
@@ -329,6 +330,13 @@ pub fn builtin_agents() -> Vec<AgentDef> {
     let performance = family("performance");
     let review_family = family("review");
     let research = family("research");
+    let brainstorm = family("brainstorm");
+    // The plan documents alone, without the questions.
+    let plan_documents: Vec<&'static str> = brainstorm
+        .iter()
+        .copied()
+        .filter(|n| *n != "brainstorm")
+        .collect();
 
     // Interface work: how it looks (`ui`), how it moves (`motion`) and how
     // it works (`frontend`).
@@ -364,7 +372,11 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             "code",
         ],
     ]);
-    let docs = join(&[&docs_family, &["writing"]]);
+    // Docs also writes the plan documents when asked to.
+    let docs = join(&[&docs_family, &plan_documents, &["writing"]]);
+    // The orchestrator agrees the design, writes the plan the user chose,
+    // and runs it.
+    let orchestrator = join(&[&brainstorm, &["orchestration"]]);
     let security = join(&[
         &security_family,
         &[
@@ -448,10 +460,11 @@ pub fn builtin_agents() -> Vec<AgentDef> {
                 "fetch",
                 "todo",
                 "skill_bind",
+                "plan_write",
             ],
             Tier::Cheap,
             Delegation::Orchestrator,
-            &["brainstorming", "orchestration"],
+            &orchestrator,
             ORCHESTRATOR_PROMPT,
         ),
         // Domain: which part of the stack.
@@ -1330,7 +1343,13 @@ sub-agents, it is large, and split wider: more parts, each smaller.
 
 RUNNING A LARGE TASK IN WAVES
 Read the `orchestration` skill before delegating a task that touches several \
-areas. Plan the parts, then run them in waves. A wave is one step holding one \
+areas. For a new product, or a feature across several areas or waves, the `brainstorm` \
+skill asks which plan documents the user wants (PRD, DESIGN.md, architecture, ERD, \
+API, PLAN); write the ones they chose with `plan_write` before the first wave, \
+from what the user decided and nothing invented, and skip the rest. Every brief then names \
+the documents and requirement numbers its part reads, and copies its contract \
+from API.md. Update PLAN.md as each wave reports. Plan the parts, then run them \
+in waves. A wave is one step holding one \
 `delegate` call per part, so every part in it runs at the same time:
 1. Foundation, only when the other parts stand on it: a new project's \
 scaffold, the shared types, the list of API routes and their shapes, the \
@@ -1398,7 +1417,7 @@ hero with stats\", \"a list of every repository\"); its skills decide those.
 BRAINSTORM FIRST WHEN THE SHAPE IS OPEN
 A new project, a new feature or page, a redesign: work two reasonable \
 specialists would build differently. Before routing it, read the \
-`brainstorming` skill and agree the design with the user through `ask`, every \
+`brainstorm` skill and agree the design with the user through `ask`, every \
 open question in one session the user steps through, then hand the agreed \
 design over as the brief. The look is offered as concepts drawn from the \
 subject, never as the category's default: not \"dark developer / terminal\", \

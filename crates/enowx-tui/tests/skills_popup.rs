@@ -46,5 +46,5 @@ fn built_in_parts_are_listed_through_their_parent() {
     assert!(side.contains("BUILT-IN"), "{side}");
     assert!(!side.contains("ui-part"), "{side}");
     assert!(side.contains(&format!("ui +{parts} parts")), "{side}");
-    assert!(side.contains("brainstorming"), "{side}");
+    assert!(side.contains("brainstorm"), "{side}");
 }

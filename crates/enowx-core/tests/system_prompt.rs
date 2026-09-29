@@ -269,7 +269,7 @@ async fn built_in_skills_reach_only_the_agents_that_carry_them() {
         );
     }
     assert!(
-        lists(&orchestrator, "brainstorming"),
+        lists(&orchestrator, "brainstorm"),
         "it agrees a new project's design first:\n{orchestrator}"
     );
     assert!(tools.iter().any(|t| t == "skill_read"), "{tools:?}");
@@ -290,7 +290,7 @@ fn the_orchestrator_brainstorms_only_when_the_shape_is_open() {
         .find(|a| a.name == "orchestrator")
         .unwrap();
     for needed in [
-        "read the `brainstorming` skill",
+        "read the `brainstorm` skill",
         "Not for a fix, a small change with a clear result",
         "never as prose",
         "concepts drawn from the subject, never as the category's default",

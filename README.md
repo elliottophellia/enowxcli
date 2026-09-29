@@ -134,7 +134,9 @@ testing, SEO, security, errors), databases (`database*`), infrastructure
 (`testing*`), documentation (`docs*`), security audits (`security*`),
 performance (`performance*`), reviewing (`review*`), research (`research*`),
 gathering (`librarian`) and running large tasks (`orchestration`), plus
-`code`, `writing`, `i18n` and `brainstorming`, each carried by the agents
+`code`, `writing`, `i18n` and `brainstorm` (agreeing a design, then the
+plan documents the user chooses: PRD, DESIGN, ARCHITECTURE, ERD, API, PLAN,
+written by the orchestrator with `plan_write`), each carried by the agents
 whose work needs it and read only when the work does. A project or user skill of the same
 name replaces one. A skill installed in the project or `~/` goes to every
 agent until the orchestrator binds it, with `skill_bind`, to the agents whose

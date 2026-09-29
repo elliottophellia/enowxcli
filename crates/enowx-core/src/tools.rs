@@ -11,7 +11,7 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 mod fetch;
-mod files;
+pub mod files;
 mod icon;
 pub mod mcp_proxy;
 mod preview_tool;
@@ -109,6 +109,7 @@ impl Default for ToolRegistry {
         registry.register(EditTool);
         registry.register(MultiEditTool);
         registry.register(files::DiagnosticsTool);
+        registry.register(files::PlanWriteTool);
         registry.register(ui::UiCheckTool);
         registry.register(icon::IconTool::default());
         registry.register(preview_tool::PreviewTool);

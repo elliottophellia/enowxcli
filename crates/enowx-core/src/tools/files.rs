@@ -362,3 +362,84 @@ impl Tool for DiagnosticsTool {
         })
     }
 }
+
+/// Where each planning document lives, relative to the workspace. `DESIGN.md`
+/// stays at the root, where the interface agents read it before every change.
+pub fn plan_doc_path(doc: &str, feature: Option<&str>) -> Option<String> {
+    let name = match doc.trim().to_ascii_lowercase().as_str() {
+        "design" => return Some("DESIGN.md".to_owned()),
+        "prd" => "PRD",
+        "architecture" => "ARCHITECTURE",
+        "erd" => "ERD",
+        "api" => "API",
+        "plan" => "PLAN",
+        _ => return None,
+    };
+    let feature: String = feature
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    Some(if feature.is_empty() {
+        format!("docs/plan/{name}.md")
+    } else {
+        format!("docs/plan/{name}-{feature}.md")
+    })
+}
+
+/// The orchestrator's one writing tool: the planning documents and nothing
+/// else, so it can write the plan without being able to edit code.
+pub(super) struct PlanWriteTool;
+
+#[async_trait]
+impl Tool for PlanWriteTool {
+    fn name(&self) -> &str {
+        "plan_write"
+    }
+    fn description(&self) -> &str {
+        "Write a planning document the specialists will read: `prd` (docs/plan/PRD.md), \
+         `design` (DESIGN.md at the root), `architecture`, `erd`, `api` or `plan` \
+         (docs/plan/*.md). `feature` names a document for one feature in an existing \
+         project (docs/plan/PRD-invoices.md). Replaces the file: read it first and keep what \
+         still holds. The `brainstorm` skill's parts hold each document's template."
+    }
+    fn parameters(&self) -> Value {
+        json!({"type":"object","properties":{
+            "doc":{"type":"string","enum":["prd","design","architecture","erd","api","plan"]},
+            "content":{"type":"string","description":"The whole document, in Markdown"},
+            "feature":{"type":"string","description":"Optional: a feature name for a per-feature document"}
+        },"required":["doc","content"],"additionalProperties":false})
+    }
+    async fn execute(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput> {
+        let doc = string_arg(&args, "doc")?;
+        let content = string_arg(&args, "content")?;
+        let feature = args.get("feature").and_then(Value::as_str);
+        let Some(relative) = plan_doc_path(doc, feature) else {
+            return Ok(ToolOutput::error(format!(
+                "`{doc}` is not a planning document: use prd, design, architecture, erd, api or plan"
+            )));
+        };
+        let path = resolve_for_write(&ctx.workspace, &relative)?;
+        let before = std::fs::read_to_string(&path).ok();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        crate::config::atomic_write(&path, content.as_bytes())?;
+        let lines = content.lines().count();
+        let mut output = ToolOutput::ok(match &before {
+            None => format!("Created {relative} ({lines} lines)"),
+            Some(old) => {
+                let (added, removed) = line_changes(old, content);
+                format!("Replaced {relative} ({lines} lines; +{added} -{removed})")
+            }
+        });
+        output.before = before;
+        Ok(output)
+    }
+}

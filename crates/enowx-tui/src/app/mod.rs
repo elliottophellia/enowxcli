@@ -577,11 +577,14 @@ impl App {
         let m = self.config.model.active.trim();
         if m.is_empty() {
             "no model".to_string()
-        } else if self.config.model.effort.is_empty() {
-            m.to_string()
-        } else {
+        } else if !self.config.model.effort.is_empty() {
             // The effort beside the model it applies to.
-            format!("{m} · {}", self.config.model.effort)
+            format!("{m} · effort {}", self.config.model.effort)
+        } else if !self.config.model.efforts.is_empty() {
+            // A model that can think harder, left at its provider's default.
+            format!("{m} · effort default")
+        } else {
+            m.to_string()
         }
     }
 }

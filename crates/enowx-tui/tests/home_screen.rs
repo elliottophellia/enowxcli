@@ -334,3 +334,26 @@ fn a_running_turn_shows_the_mark_under_the_composer() {
     let rows = app.render_to_text(W, H);
     assert!(find(&rows, "Esc to stop").is_none(), "{rows:#?}");
 }
+
+/// The thinking effort sits beside the model under the composer: the one
+/// chosen, or the provider's default when the model offers a choice.
+#[test]
+fn the_thinking_effort_sits_beside_the_model() {
+    let mut app = settled(ready());
+    let under = |app: &mut TestApp| {
+        let rows = app.render_to_text(W, H);
+        let (_, y) = find(&rows, "╰").expect("the composer's bottom edge");
+        rows[y + 1].clone()
+    };
+    let line = under(&mut app);
+    assert!(
+        line.contains("deepseek-flash") && !line.contains("effort"),
+        "{line}"
+    );
+    app.set_efforts(&["low", "high"], "");
+    let line = under(&mut app);
+    assert!(line.contains("deepseek-flash · effort default"), "{line}");
+    app.set_efforts(&["low", "high"], "high");
+    let line = under(&mut app);
+    assert!(line.contains("deepseek-flash · effort high"), "{line}");
+}

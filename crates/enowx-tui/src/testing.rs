@@ -1526,6 +1526,13 @@ impl TestApp {
         });
     }
 
+    /// Give the model in use the thinking efforts it offers, and the chosen
+    /// one (empty for the provider's default).
+    pub fn set_efforts(&mut self, efforts: &[&str], chosen: &str) {
+        self.inner.config.model.efforts = efforts.iter().map(|e| (*e).to_owned()).collect();
+        self.inner.config.model.effort = chosen.to_owned();
+    }
+
     /// Whether a turn stopped by an outage is waiting to continue by itself.
     pub fn auto_retry_pending(&self) -> bool {
         self.inner.auto_retry.is_some()

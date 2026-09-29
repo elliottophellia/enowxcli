@@ -228,7 +228,58 @@ pub(super) fn render_todo(
 
 /// Decide which representation a tool call gets. Args are the raw JSON from
 /// the provider; result is the stringified tool output.
+/// A file tool's result, and what the language servers said after it
+/// (`Diagnostics` and below), when they said anything.
+fn split_diagnostics(result: &str) -> (&str, Option<&str>) {
+    match result.split_once("\n\nDiagnostics\n") {
+        Some((head, diagnostics)) => (head, Some(diagnostics)),
+        None => (result, None),
+    }
+}
+
+/// How many errors and warnings the language servers reported.
+fn diagnostic_counts(diagnostics: &str) -> (usize, usize) {
+    let count = |kind: &str| {
+        diagnostics
+            .lines()
+            .filter(|line| line.starts_with("  ") && line.contains(kind))
+            .count()
+    };
+    (count(" error: "), count(" warning: "))
+}
+
 pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRender<'a> {
+    let (result, diagnostics) = match name {
+        "write" | "edit" | "multi_edit" => split_diagnostics(result),
+        _ => (result, None),
+    };
+    let mut render = classify_result(name, args, result);
+    // A file tool's row says when the language server found problems, and
+    // opening it shows them above the change.
+    if let (
+        Some(diagnostics),
+        ToolRender::Detail {
+            header, subtitle, ..
+        },
+    ) = (diagnostics, &mut render)
+    {
+        let (errors, warnings) = diagnostic_counts(diagnostics);
+        let mut found = Vec::new();
+        if errors > 0 {
+            found.push(counted(errors, "error", "errors"));
+        }
+        if warnings > 0 {
+            found.push(counted(warnings, "warning", "warnings"));
+        }
+        if !found.is_empty() {
+            header.metric = format!("{} · {}", header.metric, found.join(", "));
+        }
+        *subtitle = Some(diagnostics.trim_end().to_owned());
+    }
+    render
+}
+
+fn classify_result<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRender<'a> {
     let parsed: Value = serde_json::from_str(args).unwrap_or(Value::Null);
     match name {
         "bash" => {
@@ -1735,5 +1786,42 @@ pub(crate) fn opens_by_default(name: &str, master_toggle: bool) -> bool {
         // Everything else — a diff, a file being written, a todo list, an
         // MCP payload — is the reason the call was made.
         _ => master_toggle,
+    }
+}
+
+#[cfg(test)]
+mod diagnostics_tests {
+    use super::*;
+
+    #[test]
+    fn an_edit_row_counts_what_the_language_server_found() {
+        let args = r#"{"path":"main.go","old_text":"a","new_text":"b"}"#;
+        let result = "Updated main.go at line 4\n\nDiagnostics\ngopls: 1 error in main.go\n  \
+                      main.go:4:14 error: cannot use \"four\" (untyped string constant) as int value";
+        let ToolRender::Detail {
+            header,
+            subtitle,
+            body,
+        } = classify("edit", args, result)
+        else {
+            panic!("an edit renders as a detail row");
+        };
+        assert_eq!(header.metric, "+1 -1 · 1 error");
+        assert!(subtitle.unwrap().contains("main.go:4:14 error"));
+        assert!(matches!(body, ToolBody::Diff { start_line: 4, .. }));
+    }
+
+    #[test]
+    fn a_clean_write_keeps_its_metric() {
+        let args = r#"{"path":"main.go","content":"package main\n"}"#;
+        let result = "Replaced main.go (1 lines; +1 -0)\n\nDiagnostics\ngopls: no errors or warnings in main.go";
+        let ToolRender::Detail {
+            header, subtitle, ..
+        } = classify("write", args, result)
+        else {
+            panic!("a write renders as a detail row");
+        };
+        assert_eq!(header.metric, "+1 -0");
+        assert!(subtitle.unwrap().contains("no errors"));
     }
 }

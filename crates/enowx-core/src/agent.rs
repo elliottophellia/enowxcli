@@ -123,6 +123,7 @@ fn build_registry(discovery: Arc<Discovery>, disabled_skills: Vec<String>) -> To
             disabled_skills,
         ));
     }
+    registry.register(crate::tools::skill::SkillBindTool::new(discovery));
     registry
 }
 /// How long a turn waits for MCP servers still starting before it calls the
@@ -292,6 +293,9 @@ pub struct Agent {
     /// Which files the agents of the current run are editing, so two of
     /// them working at once never edit the same file.
     board: crate::contract::Board,
+    /// Language servers started for this workspace, shared by every agent
+    /// of the run.
+    lsp: Arc<crate::lsp::Lsp>,
 }
 
 impl Agent {
@@ -318,6 +322,7 @@ impl Agent {
         let disabled = config.ui.disabled_skills.clone();
         let registry = build_registry(discovery.clone(), disabled);
         let system_one = crate::systemone::SystemOne::new(&config.typesafe);
+        let config_workspace = config.workspace();
         Self {
             config,
             tools: Arc::new(tokio::sync::RwLock::new(registry)),
@@ -333,6 +338,7 @@ impl Agent {
             asks_user: false,
             questions: std::sync::Mutex::new(std::collections::HashMap::new()),
             board: crate::contract::Board::default(),
+            lsp: Arc::new(crate::lsp::Lsp::new(config_workspace)),
         }
     }
 
@@ -517,12 +523,30 @@ impl Agent {
         if agent.delegation != crate::agent_def::Delegation::None {
             prompt.push_str(&self.roster_block(agent));
         }
+        if self.config.agent.lsp && agent.tools.iter().any(|t| t == "diagnostics") {
+            prompt.push_str(
+                "\nWhen `write` or `edit` reports errors from the language server, fix them \
+                 before you move on; warnings too when they are lint on code you wrote. When the \
+                 server was still checking, call `diagnostics` on the file before you report the \
+                 work done.\n",
+            );
+        }
+        let carried = self.discovery.carried_by(agent);
         if let Some(extra) = self
             .discovery
-            .system_prompt_for(&self.config.ui.disabled_skills, Some(&agent.skills))
+            .system_prompt_for(&self.config.ui.disabled_skills, Some(&carried))
         {
             prompt.push('\n');
             prompt.push_str(&extra);
+        }
+        // Only the orchestrator decides who gets a skill found on disk.
+        if agent.delegation == crate::agent_def::Delegation::Orchestrator {
+            if let Some(block) = self
+                .discovery
+                .local_skills_block(&self.config.ui.disabled_skills)
+            {
+                prompt.push_str(&block);
+            }
         }
         prompt
     }
@@ -991,7 +1015,10 @@ impl Agent {
         // it carries, or one found on disk.
         let readable = self
             .discovery
-            .skills_for(&self.config.ui.disabled_skills, &active.skills)
+            .skills_for(
+                &self.config.ui.disabled_skills,
+                &self.discovery.carried_by(&active),
+            )
             .next()
             .is_some();
         let mut schemas = tools_registry.schemas_for_agent(&active.tools, readable);
@@ -1052,7 +1079,8 @@ impl Agent {
             }
         });
         let tool_ctx = ToolCtx {
-            skills: active.skills.clone(),
+            skills: self.discovery.carried_by(&active),
+            lsp: self.config.agent.lsp.then(|| self.lsp.clone()),
             workspace,
             shell_timeout: Duration::from_secs(self.config.agent.shell_timeout_secs),
             cancel: cancel.clone(),

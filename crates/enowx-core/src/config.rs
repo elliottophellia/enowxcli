@@ -264,6 +264,9 @@ pub struct AgentConfig {
     /// Model id per agent name, overriding the agent's tier. This is the
     /// escape hatch for "everything is fine except `fe`".
     pub models: BTreeMap<String, String>,
+    /// Whether written files go to the project's language server, so type
+    /// errors and lint warnings come back with the edit.
+    pub lsp: bool,
 }
 
 impl Default for AgentConfig {
@@ -278,6 +281,7 @@ impl Default for AgentConfig {
             auto_switch: true,
             tiers: TierModels::default(),
             models: BTreeMap::new(),
+            lsp: true,
         }
     }
 }

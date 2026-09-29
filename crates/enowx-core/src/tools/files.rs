@@ -5,6 +5,7 @@ use super::{
 use anyhow::{Context as _, Result};
 use async_trait::async_trait;
 use serde_json::{json, Value};
+use std::path::Path;
 
 pub(super) struct ReadTool;
 
@@ -153,7 +154,7 @@ impl Tool for WriteTool {
         };
         // A file too large to diff on screen is not worth carrying there.
         output.before = before.filter(|old| old.len() <= 512 * 1024);
-        Ok(output)
+        Ok(with_diagnostics(ctx, &path, output).await)
     }
 }
 
@@ -244,11 +245,12 @@ impl Tool for MultiEditTool {
         }
         crate::config::atomic_write(&path, text.as_bytes())?;
         let at: Vec<String> = lines.iter().map(ToString::to_string).collect();
-        Ok(ToolOutput::ok(format!(
+        let output = ToolOutput::ok(format!(
             "Updated {raw}: {} edits, at lines {}",
             lines.len(),
             at.join(", ")
-        )))
+        ));
+        Ok(with_diagnostics(ctx, &path, output).await)
     }
 }
 
@@ -288,8 +290,75 @@ impl Tool for EditTool {
         let start_byte = source.find(old).unwrap_or(0);
         let start_line = source[..start_byte].bytes().filter(|b| *b == b'\n').count() + 1;
         crate::config::atomic_write(&path, source.replacen(old, new, 1).as_bytes())?;
-        Ok(ToolOutput::ok(format!(
-            "Updated {raw} at line {start_line}"
-        )))
+        let output = ToolOutput::ok(format!("Updated {raw} at line {start_line}"));
+        Ok(with_diagnostics(ctx, &path, output).await)
+    }
+}
+
+/// The line that starts what the language servers said, after the tool's own
+/// result. The interface splits on it.
+pub const DIAGNOSTICS_HEADING: &str = "\n\nDiagnostics\n";
+
+/// Add what the language servers say about the file just written, when
+/// checking is on and a server covers the file.
+async fn with_diagnostics(ctx: &ToolCtx, path: &Path, mut output: ToolOutput) -> ToolOutput {
+    let Some(lsp) = &ctx.lsp else {
+        return output;
+    };
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return output;
+    };
+    let report = tokio::select! {
+        report = lsp.check(path, &text, crate::lsp::Wait::Edit) => report,
+        _ = ctx.cancel.cancelled() => None,
+    };
+    if let Some(report) = report {
+        output.content.push_str(DIAGNOSTICS_HEADING);
+        output.content.push_str(&report);
+    }
+    output
+}
+
+/// Type errors and lint warnings for one file, from its language server,
+/// waiting until the server has finished checking.
+pub(super) struct DiagnosticsTool;
+
+#[async_trait]
+impl Tool for DiagnosticsTool {
+    fn name(&self) -> &str {
+        "diagnostics"
+    }
+    fn description(&self) -> &str {
+        "Type errors and lint warnings for a file from the project's language server \
+         (rust-analyzer with clippy, typescript-language-server, pyright, ruff, gopls). \
+         write and edit already add what the server says first; call this when it was still \
+         checking, or before changing a file you suspect is broken. Waits until the check \
+         finishes."
+    }
+    fn parameters(&self) -> Value {
+        json!({"type":"object","properties":{
+            "path":{"type":"string","description":"The file to check"}
+        },"required":["path"],"additionalProperties":false})
+    }
+    async fn execute(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput> {
+        let raw = string_arg(&args, "path")?;
+        let path = resolve_existing(&ctx.workspace, raw)?;
+        let Some(lsp) = &ctx.lsp else {
+            return Ok(ToolOutput::error(
+                "language server checks are off (agent.lsp = false in the config)",
+            ));
+        };
+        let text = std::fs::read_to_string(&path)?;
+        let report = tokio::select! {
+            report = lsp.check(&path, &text, crate::lsp::Wait::Full) => report,
+            _ = ctx.cancel.cancelled() => return Ok(ToolOutput::error("cancelled")),
+        };
+        Ok(match report {
+            Some(report) => ToolOutput::ok(report),
+            None => ToolOutput::ok(format!(
+                "No language server covers {raw}: checking runs for Rust, TypeScript and \
+                 JavaScript, Python and Go."
+            )),
+        })
     }
 }

@@ -215,6 +215,7 @@ mod tests {
             progress: None,
             call_id: String::new(),
             skills: Vec::new(),
+            lsp: None,
         }
     }
 

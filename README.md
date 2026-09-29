@@ -107,6 +107,7 @@ with the old file kept as `config.toml.before-providers.bak`.
 | `agent.max_steps` | Hard cap on model calls per turn |
 | `agent.workspace` | Directory the file and shell tools are rooted in |
 | `agent.shell_timeout_secs` | Kill a shell command after this long |
+| `agent.lsp` | Check written files with the project's language servers (default on) |
 | `agent.auto_compact_at` | Fraction of the context window that triggers auto-compact |
 | `agent.compact_keep_last` | Turns kept verbatim during compact |
 | `ui.theme` | `obsidian_ice`, `neo_acid`, `chrome_void`, `oled_stealth`, or `classic` |
@@ -135,9 +136,20 @@ performance (`performance*`), reviewing (`review*`), research (`research*`),
 gathering (`librarian`) and running large tasks (`orchestration`), plus
 `code`, `writing`, `i18n` and `brainstorming`, each carried by the agents
 whose work needs it and read only when the work does. A project or user skill of the same
-name replaces one. `/skills` and `/mcp` open popups to toggle or add entries;
-`/compact` folds older turns into a summary; auto-compact fires when the
-context window nears its cap.
+name replaces one. A skill installed in the project or `~/` goes to every
+agent until the orchestrator binds it, with `skill_bind`, to the agents whose
+work it serves; bindings are kept in `~/.enx/skill-bindings.json`, and the
+Skills tab shows who has each one. `/skills` and `/mcp` open popups to toggle
+or add entries; `/compact` folds older turns into a summary; auto-compact fires
+when the context window nears its cap.
+
+After `write`, `edit` and `multi_edit`, the file goes to its language server
+(rust-analyzer with clippy, typescript-language-server, pyright and ruff,
+gopls) and the errors and warnings come back with the result, so an agent
+fixes a type error before it builds anything on top of it. An edit waits only
+for the server's first answer; the `diagnostics` tool waits for the full
+check. A server that is not installed is named once, with its install
+command. `agent.lsp = false` turns this off.
 
 File tools reject paths and symlinks outside the workspace. `bash` runs with
 the user's OS permissions and is **not a sandbox**; use only with trusted tasks

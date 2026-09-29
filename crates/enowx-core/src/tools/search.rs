@@ -220,6 +220,7 @@ mod excerpt_tests {
             progress: None,
             call_id: String::new(),
             skills: Vec::new(),
+            lsp: None,
         };
         let out = GrepTool
             .execute(&ctx, serde_json::json!({ "pattern": "Shell" }))

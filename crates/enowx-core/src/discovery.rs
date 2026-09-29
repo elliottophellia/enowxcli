@@ -169,6 +169,9 @@ pub struct Discovery {
     /// Warnings collected during parsing (malformed frontmatter, unreadable
     /// files, etc.). Surfaced in the sidebar; never fatal.
     pub warnings: Vec<String>,
+    /// Which agents each skill found on disk is bound to.
+    #[serde(skip)]
+    pub bindings: crate::skill_bindings::SharedBindings,
 }
 
 /// Whether `skill` is turned off: by its own name, or, for a built-in part
@@ -187,7 +190,69 @@ impl Discovery {
         instructions::collect(workspace, &mut result);
         mcp::collect(workspace, &mut result);
         agents::collect(workspace, &mut result);
+        result.bindings = std::sync::Arc::new(std::sync::RwLock::new(
+            crate::skill_bindings::SkillBindings::load(),
+        ));
         result
+    }
+
+    /// The skills `agent` carries: its built-in ones, and the skills found on
+    /// disk that are bound to it.
+    pub fn carried_by(&self, agent: &crate::agent_def::AgentDef) -> Vec<String> {
+        let mut carried = agent.skills.clone();
+        if let Ok(bindings) = self.bindings.read() {
+            carried.extend(bindings.skills_of(&agent.name));
+        }
+        carried
+    }
+
+    /// Whether a skill found on disk has been bound to particular agents.
+    pub fn is_bound(&self, skill: &str) -> bool {
+        self.bindings
+            .read()
+            .map(|bindings| bindings.is_bound(skill))
+            .unwrap_or(false)
+    }
+
+    /// For the orchestrator: every skill found on disk and who has it, so it
+    /// can bind the ones nobody owns yet.
+    pub fn local_skills_block(&self, disabled: &[String]) -> Option<String> {
+        let local: Vec<&SkillEntry> = self
+            .skills
+            .iter()
+            .filter(|s| s.scope != SkillScope::Builtin && !is_disabled(s, disabled))
+            .collect();
+        if local.is_empty() {
+            return None;
+        }
+        let bindings = self.bindings.read().ok()?;
+        let mut out = String::from(
+            "\n## Skills installed on this machine\n\
+             Skills found in the project or the user's home, and who is offered them. One not \
+             bound yet goes to every agent: bind it with `skill_bind` to the agents whose work \
+             it serves (a Stripe skill to `be`, a design-system skill to `fe` and `motion`) \
+             before you delegate work it applies to. Bind from what its name and description \
+             say; leave one unbound when it serves every agent.\n",
+        );
+        for skill in local {
+            let one_liner = skill.description.split('\n').next().unwrap_or("");
+            let owners = match bindings.agents_for(&skill.name) {
+                Some(agents) => agents
+                    .iter()
+                    .map(|a| format!("`{a}`"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                None => "every agent (not bound yet)".to_owned(),
+            };
+            out.push_str(&format!(
+                "- `{}` ({}) — {}\n  offered to: {}\n",
+                skill.name,
+                skill.scope.label(),
+                one_liner,
+                owners
+            ));
+        }
+        Some(out)
     }
 
     /// System-prompt block combining every collected instruction, bounded by
@@ -197,17 +262,32 @@ impl Discovery {
         self.system_prompt_for(&[], None)
     }
 
-    /// The skills an agent carrying the built-ins `carried` is offered: every
-    /// skill found on disk, and of the built-in ones only those it carries;
-    /// none in `disabled`.
+    /// The skills an agent carrying `carried` is offered: the built-in ones it
+    /// carries, and the ones found on disk that are unbound or bound to it
+    /// (`carried_by` adds those); none in `disabled`.
     pub fn skills_for<'a>(
         &'a self,
         disabled: &'a [String],
         carried: &'a [String],
     ) -> impl Iterator<Item = &'a SkillEntry> + 'a {
+        let bound: HashSet<String> = self
+            .bindings
+            .read()
+            .map(|b| {
+                self.skills
+                    .iter()
+                    .filter(|s| b.is_bound(&s.name))
+                    .map(|s| s.name.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
         self.skills.iter().filter(move |skill| {
+            let carries = carried.iter().any(|c| c == &skill.name);
             !is_disabled(skill, disabled)
-                && (skill.scope != SkillScope::Builtin || carried.iter().any(|c| c == &skill.name))
+                && match skill.scope {
+                    SkillScope::Builtin => carries,
+                    _ => carries || !bound.contains(&skill.name),
+                }
         })
     }
 

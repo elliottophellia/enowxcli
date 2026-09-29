@@ -695,6 +695,20 @@ fn detail_lines(app: &App, width: usize) -> Detail {
                                 Style::default().fg(t.muted),
                             ));
                         }
+                        // A skill found on disk says who is offered it: the
+                        // agents the orchestrator bound it to, or everyone.
+                        if title != "BUILT-IN" {
+                            let owners = app
+                                .discovery
+                                .bindings
+                                .read()
+                                .ok()
+                                .and_then(|b| b.agents_for(name).map(|a| a.join(", ")));
+                            row.push(Span::styled(
+                                format!(" → {}", owners.as_deref().unwrap_or("every agent")),
+                                Style::default().fg(t.muted),
+                            ));
+                        }
                         lines.push(Line::from(row));
                     }
                     if group.len() > 40 {

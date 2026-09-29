@@ -44,6 +44,8 @@ pub struct ToolCtx {
     /// The built-in skills the running agent carries. `skill_read` refuses
     /// the others, since the model can name a skill it was never shown.
     pub skills: Vec<String>,
+    /// The agent's language servers; None when checking is off.
+    pub lsp: Option<std::sync::Arc<crate::lsp::Lsp>>,
 }
 
 #[derive(Debug, Clone)]
@@ -106,6 +108,7 @@ impl Default for ToolRegistry {
         registry.register(WriteTool);
         registry.register(EditTool);
         registry.register(MultiEditTool);
+        registry.register(files::DiagnosticsTool);
         registry.register(ui::UiCheckTool);
         registry.register(icon::IconTool::default());
         registry.register(preview_tool::PreviewTool);
@@ -493,6 +496,7 @@ mod tests {
                 progress: None,
                 call_id: String::new(),
                 skills: Vec::new(),
+                lsp: None,
             },
             root,
         )

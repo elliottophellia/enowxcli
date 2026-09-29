@@ -314,6 +314,18 @@ pub async fn compact(
 /// `keep_last` turns verbatim, everything before them summarised. The cut is
 /// by age alone, so a turn from twenty minutes ago that the work still rests
 /// on is folded away along with everything genuinely finished.
+/// Where to split a session into turns to fold and turns to keep: `keep_last`
+/// from the end, moved back so the kept part never starts on a tool result.
+/// Its call would be folded into the summary and the result left without it,
+/// which providers refuse.
+fn safe_split(turns: &[StoredTurn], keep_last: usize) -> usize {
+    let mut split = turns.len().saturating_sub(keep_last);
+    while split > 0 && turns[split].message.role == MessageRole::Tool {
+        split -= 1;
+    }
+    split
+}
+
 pub async fn compact_with(
     session: &mut Session,
     provider: &Provider,
@@ -323,7 +335,10 @@ pub async fn compact_with(
     if session.turns.len() < keep_last + 2 {
         return Ok(None);
     }
-    let split = session.turns.len() - keep_last;
+    let split = safe_split(&session.turns, keep_last);
+    if split == 0 {
+        return Ok(None);
+    }
     let (mut older, keep): (Vec<StoredTurn>, Vec<StoredTurn>) = {
         let mut turns = std::mem::take(&mut session.turns);
         let keep = turns.split_off(split);
@@ -675,5 +690,39 @@ mod rescue_tests {
                 .is_empty(),
             "a failed judgement must not change the fold"
         );
+    }
+}
+
+#[cfg(test)]
+mod split_tests {
+    use super::*;
+
+    fn turn(message: Message) -> StoredTurn {
+        StoredTurn {
+            id: uuid::Uuid::new_v4().to_string(),
+            created_at: chrono::Utc::now(),
+            message,
+        }
+    }
+
+    #[test]
+    fn the_kept_part_never_starts_on_a_tool_result() {
+        let mut call = Message::assistant("");
+        call.tool_calls.push(crate::message::ToolCall {
+            id: "c1".into(),
+            name: "read".into(),
+            arguments: "{}".into(),
+        });
+        let turns = vec![
+            turn(Message::user("brief")),
+            turn(Message::assistant("looking")),
+            turn(call),
+            turn(Message::tool_result("c1", "a")),
+            turn(Message::tool_result("c1", "b")),
+            turn(Message::assistant("done")),
+        ];
+        // Keeping the last three would start on a tool result: back up to the call.
+        assert_eq!(safe_split(&turns, 3), 2);
+        assert_eq!(safe_split(&turns, 1), 5);
     }
 }

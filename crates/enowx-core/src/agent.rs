@@ -740,6 +740,51 @@ impl Agent {
         Provider::from_config(agent_config).ok()
     }
 
+    /// Fold older steps of this turn into a summary when the session is near
+    /// the window, keeping a delegated agent's brief word for word.
+    async fn compact_mid_turn(
+        &self,
+        session: &mut Session,
+        agent_config: &Config,
+        events: &mpsc::Sender<Event>,
+    ) {
+        if !self.config.agent.auto_compact || self.config.agent.auto_compact_at <= 0.0 {
+            return;
+        }
+        let window = agent_config
+            .model
+            .context_window
+            .max(self.config.model.context_window)
+            .max(1) as f32;
+        if estimate_session_tokens(session) / window < self.config.agent.auto_compact_at {
+            return;
+        }
+        let brief = session
+            .turns
+            .first()
+            .filter(|turn| turn.message.role == MessageRole::User)
+            .cloned();
+        let Ok(provider) = Provider::from_config(agent_config) else {
+            return;
+        };
+        let keep = self.config.agent.compact_keep_last.max(6);
+        let _ = events
+            .send(Event::Notice {
+                message: "compacting mid-turn to stay inside the context window…".into(),
+            })
+            .await;
+        if let Ok(Some(_)) =
+            crate::compact::compact_with(session, &provider, keep, self.ranking_judge()).await
+        {
+            if let Some(brief) = brief {
+                if !session.turns.iter().any(|turn| turn.id == brief.id) {
+                    session.turns.insert(0, brief);
+                }
+            }
+            let _ = self.store.save(session);
+        }
+    }
+
     /// Run the delegations asked for in one step, all at the same time, each in
     /// its own branch session, and return their summaries in the same order.
     ///
@@ -1352,10 +1397,21 @@ impl Agent {
         let mut touched: Vec<String> = Vec::new();
         let mut skill_reads = SkillReads::from(&session);
         let mut checked_ui = false;
+        // How many times a delegated agent that stopped without its report
+        // has been sent back to finish.
+        let mut nudged = 0u32;
         while limit == 0 || step < limit {
             if cancel.is_cancelled() {
                 stop_reason = "aborted".into();
                 break;
+            }
+            // A long turn fills the window within itself: a sub-agent works
+            // in one turn of a hundred steps. Fold older steps before the
+            // window fills, or the provider answers with a summary of its own
+            // instead of the next step.
+            if step > 0 {
+                self.compact_mid_turn(&mut session, &agent_config, events)
+                    .await;
             }
             let mut wire = Vec::with_capacity(session.turns.len() + 1);
             wire.push(system.clone());
@@ -1523,6 +1579,26 @@ impl Agent {
                         step += 1;
                         continue;
                     }
+                }
+                // A delegated agent owes its caller a report. One that stopped
+                // without it (a summary of its context, a sentence mid-task)
+                // is sent back to finish, twice at most, rather than ending
+                // with nothing the caller can use.
+                if session.parent.is_some()
+                    && nudged < 2
+                    && extract_report(completion.text.trim()).is_none()
+                    && completion.finish_reason == "stop"
+                {
+                    nudged += 1;
+                    session.push(Message::user(
+                        "[harness] You stopped without your report, and the work may not be \
+                         done. If what you just wrote is a summary of your progress, carry on \
+                         from it: do what is left with your tools. When the task is finished \
+                         (or cannot be), end with the report: DONE, CHANGED, VERIFIED, NEXT.",
+                    ));
+                    self.store.save(&session)?;
+                    step += 1;
+                    continue;
                 }
                 stop_reason = completion.finish_reason;
                 break;

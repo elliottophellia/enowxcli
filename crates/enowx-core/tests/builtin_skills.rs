@@ -210,6 +210,8 @@ fn each_agent_carries_the_skills_for_its_work() {
     assert!(carried("fe").iter().any(|s| s == "ui-part-hero"));
     assert!(carried("fe").iter().any(|s| s == "ui-page-dashboard"));
     assert!(carried("fe").iter().any(|s| s == "writing"));
+    assert!(carried("fe").iter().any(|s| s == "ui-themes"));
+    assert!(carried("mobile").iter().any(|s| s == "ui-themes"));
     for reference in [
         "ui-reference-launch",
         "ui-reference-saas",

@@ -66,6 +66,7 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
     ("ui", include_str!("../../skills/ui/SKILL.md")),
     ("ui-layout", include_str!("../../skills/ui-layout/SKILL.md")),
     ("ui-audit", include_str!("../../skills/ui-audit/SKILL.md")),
+    ("ui-themes", include_str!("../../skills/ui-themes/SKILL.md")),
     (
         "ui-reference-launch",
         include_str!("../../skills/ui-reference-launch/SKILL.md"),

@@ -607,3 +607,119 @@ async fn a_page_behind_a_sign_in_is_seen_after_signing_in() {
     assert!(missing.contains("no field for email"), "{missing}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A line drawing on a page: its strokes left black (`fixed`), or drawn in
+/// `currentColor` from a colour token for each theme.
+fn drawing(strokes: &str, themes: &str) -> String {
+    format!(
+        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Drawing</title>
+<style>{themes}
+body {{ margin: 0; font: 16px/1.5 system-ui; background: var(--bg); color: var(--text); }}
+main {{ max-width: 640px; margin: 0 auto; padding: 24px 16px; }}
+.drawing {{ color: var(--ink); }}</style></head>
+<body><main><h1>Survey vessel</h1>
+<figure class="drawing"><svg width="400" height="120" viewBox="0 0 400 120" style="max-width: 100%; height: auto" role="img" aria-label="Side elevation">
+<g fill="none" stroke="{strokes}" stroke-width="2"><path d="M10 80 L390 80"/><path d="M40 80 L60 40 L340 40 L360 80"/><path d="M200 40 L200 10"/></g>
+</svg></figure></main></body></html>"##
+    )
+}
+
+const DARK_ONLY: &str = ":root { --bg: #0f1419; --text: #e6e8eb; --ink: #c9ced6; }";
+const BY_SYSTEM: &str = ":root { --bg: #fafaf7; --text: #16150f; --ink: #1a1d21; }
+@media (prefers-color-scheme: dark) { :root { --bg: #0c0d0f; --text: #ecebe8; --ink: #c9ced6; } }";
+const BY_CLASS: &str = ":root { --bg: #fafaf7; --text: #16150f; --ink: #1a1d21; }
+:root.dark { --bg: #0c0d0f; --text: #ecebe8; --ink: #c9ced6; }";
+
+async fn look(page: &str) -> (Vec<WidthReport>, String) {
+    let dir = folder(page);
+    let reports = preview::preview(&dir, Target::File(dir.clone()), None, &dir.join("shots"))
+        .await
+        .unwrap();
+    let text = preview::report("index.html", &reports);
+    let _ = std::fs::remove_dir_all(&dir);
+    (reports, text)
+}
+
+#[tokio::test]
+async fn a_drawing_left_black_on_a_dark_page_is_reported() {
+    if no_chrome() {
+        return;
+    }
+    let (reports, text) = look(&drawing("#000", DARK_ONLY)).await;
+    assert!(
+        has(
+            &reports[2].low_contrast_graphics,
+            "drawn in #000000 on #0f1419"
+        ),
+        "{text}"
+    );
+    assert!(text.contains("ui-themes"), "{text}");
+
+    let (reports, text) = look(&drawing("currentColor", DARK_ONLY)).await;
+    assert!(
+        reports.iter().all(|r| r.low_contrast_graphics.is_empty()),
+        "{text}"
+    );
+    assert_eq!(reports.len(), 3, "one theme, three widths: {text}");
+}
+
+#[tokio::test]
+async fn the_other_theme_is_looked_at_too() {
+    if no_chrome() {
+        return;
+    }
+    // A colour fixed for the light theme is fine there and lost in the dark.
+    for themes in [BY_SYSTEM, BY_CLASS] {
+        let (reports, text) = look(&drawing("#1a1d21", themes)).await;
+        assert_eq!(reports.len(), 4, "a pass in the dark theme: {text}");
+        assert!(reports[2].low_contrast_graphics.is_empty(), "{text}");
+        let dark = &reports[3];
+        assert_eq!(dark.theme.as_deref(), Some("dark"), "{text}");
+        assert!(!dark.low_contrast_graphics.is_empty(), "{text}");
+        assert!(text.contains("1440px in the dark theme"), "{text}");
+        assert!(
+            dark.screenshot
+                .as_ref()
+                .is_some_and(|shot| shot.ends_with("1440-dark.png")),
+            "{text}"
+        );
+
+        // Drawn from the token, it holds in both.
+        let (reports, text) = look(&drawing("currentColor", themes)).await;
+        assert_eq!(reports.len(), 4, "{text}");
+        assert!(
+            reports.iter().all(|r| r.low_contrast_graphics.is_empty()),
+            "{text}"
+        );
+    }
+}
+
+/// A drawing in `currentColor`, loaded with `<img>` on a dark page: an image
+/// never takes the page's colours, so it draws black.
+#[tokio::test]
+async fn a_drawing_loaded_as_an_image_keeps_its_own_colours() {
+    if no_chrome() {
+        return;
+    }
+    let svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 120' fill='none' stroke='currentColor' stroke-width='2'><path d='M10 80 L390 80'/><path d='M40 80 L60 40 L340 40 L360 80'/></svg>";
+    let page = format!(
+        r##"<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Ship</title>
+<style>body {{ margin: 0; background: #0f1419; color: #e6e8eb; font: 16px system-ui; }} main {{ padding: 24px; }} img {{ max-width: 100%; height: auto; }} .dial {{ width: 44px; height: 15px; }}</style></head>
+<body><main><h1>Survey vessel</h1><img src="data:image/svg+xml,{svg}" width="400" height="120" alt="The vessel in profile">
+<img class="dial" src="data:image/svg+xml,{svg}" alt=""></main></body></html>"##,
+        svg = svg.replace('#', "%23")
+    );
+    let (reports, text) = look(&page).await;
+    let wide = &reports[2];
+    assert!(
+        wide.low_contrast_graphics
+            .iter()
+            .any(|item| item.contains("400x120") && item.contains("drawn in #000000")),
+        "{text}"
+    );
+    assert!(
+        has(&wide.low_contrast_graphics, "44x15"),
+        "a thin dial counts too: {text}"
+    );
+    assert!(text.contains("keeps its own colours"), "{text}");
+}

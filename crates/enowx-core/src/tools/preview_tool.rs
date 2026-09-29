@@ -14,9 +14,10 @@ impl Tool for PreviewTool {
     fn description(&self) -> &str {
         "Open a page in headless Chrome at 360, 768 and 1440px wide and measure what a \
          person would see: horizontal overflow and what causes it, text below AA \
-         contrast, links to nowhere, images without alt, controls without a name, touch \
-         targets under 44px, console errors, the number of h1s. Saves a screenshot per \
-         width. Give `path` for an HTML file, or `url` for a served page with `start`, \
+         contrast, drawings and icons below 3:1, links to nowhere, images without alt, \
+         controls without a name, touch targets under 44px, console errors, the number \
+         of h1s. A page with a second theme (dark or light) is looked at in it too, at \
+         1440px. Saves a screenshot per width. Give `path` for an HTML file, or `url` for a served page with `start`, \
          the command that serves it (such as \"npm run dev\"), which is started and \
          stopped for you. For a page behind a sign-in, give `login` (the sign-in page \
          and the fields to type, with a test account from the project's seed) and it \

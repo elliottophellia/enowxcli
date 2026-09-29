@@ -749,6 +749,10 @@ the project's theme), never one-off values.
 as #0c0d0f, not a charcoal #1e1e1e), a light page is light (93% or more), text \
 is near-black or off-white, and the neutrals carry a slight tint of the \
 concept's temperature. The `ui` skill has the numbers.
+- With a light and a dark theme, every colour is a token with a value in each, \
+and icons, line drawings, logos and charts are drawn from those tokens \
+(currentColor), never a fixed black or white that vanishes in the other \
+theme. Read `ui-themes`.
 - Semantic HTML: `button` for actions, `a` for navigation, a `label` for every \
 input, headings in order.
 - Typed props and no `any`; minimal state, derived where it can be; no dead \

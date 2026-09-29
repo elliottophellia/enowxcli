@@ -170,6 +170,10 @@ page:
 - Dark by default only with a reason the concept gives (a media player, a
   photographer of night scenes). "It is for developers" is not a reason on
   its own. Otherwise light, or a toggle where both themes are checked.
+- With two themes, every token has a value in each, and everything drawn
+  (icons, line drawings, logos, charts) is coloured from those tokens, so it
+  stays visible in both: a drawing left black disappears on the dark page.
+  Read `ui-themes` before building the second theme or a drawing for it.
 - Gradients, glass, glow and large shadows are accents with a purpose, on
   one or two elements, never the page's texture.
 

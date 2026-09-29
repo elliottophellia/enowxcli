@@ -92,6 +92,13 @@ pub struct WidthReport {
     /// sidebar on a wide screen, as `210px from the sidebar and 226px from
     /// the right edge on a 2400px screen`.
     pub floating_content: Option<String>,
+    /// Drawings and icons whose main colour is below 3:1 against what is
+    /// behind them, as `svg.ship 540x160 drawn in #000000 on #0f1419,
+    /// 1.08:1, needs 3:1`.
+    pub low_contrast_graphics: Vec<String>,
+    /// The theme this report was taken in, when it is the page's second:
+    /// `dark` or `light`.
+    pub theme: Option<String>,
     /// A sidebar still beside the content at a phone or tablet width, as
     /// `aside takes 224 of 360px`.
     pub open_sidebar: Option<String>,
@@ -119,7 +126,27 @@ impl WidthReport {
             + usize::from(self.short_side.is_some())
             + usize::from(self.repeated_primary.is_some())
             + usize::from(self.floating_content.is_some())
+            + self.low_contrast_graphics.len()
             + usize::from(self.open_sidebar.is_some())
+    }
+
+    /// Keep only what a theme changes: colour and contrast. The layout was
+    /// measured in the first theme already.
+    fn keep_theme_findings(&mut self) {
+        let keep = WidthReport {
+            width: self.width,
+            page_height: self.page_height,
+            low_contrast: std::mem::take(&mut self.low_contrast),
+            low_contrast_graphics: std::mem::take(&mut self.low_contrast_graphics),
+            grey_background: self.grey_background.take(),
+            console_errors: std::mem::take(&mut self.console_errors),
+            theme: self.theme.take(),
+            screenshot: self.screenshot.take(),
+            h1_count: 1,
+            viewport_meta: true,
+            ..WidthReport::default()
+        };
+        *self = keep;
     }
 }
 
@@ -272,12 +299,24 @@ async fn look(
         for method in ["Page.enable", "Runtime.enable", "Log.enable"] {
             cdp.call(method, json!({}), Some(&session)).await?;
         }
+        // The first look is in the light system setting, whatever this
+        // machine's is, so a page reports the same everywhere; the other
+        // theme gets its own look at the end.
+        cdp.call(
+            "Emulation.setEmulatedMedia",
+            json!({"features": [{"name": "prefers-color-scheme", "value": "light"}]}),
+            Some(&session),
+        )
+        .await?;
         if let Some(login) = login {
             cdp.sign_in(&session, login).await?;
         }
         let mut reports = Vec::new();
         for width in WIDTHS {
             reports.push(cdp.look_at(&session, url, width, out_dir).await?);
+        }
+        if let Some(other) = cdp.look_in_other_theme(&session, url, out_dir).await? {
+            reports.push(other);
         }
         let _ = cdp.call("Browser.close", json!({}), None).await;
         Ok::<_, anyhow::Error>(reports)
@@ -371,6 +410,80 @@ impl Cdp {
         width: u32,
         out_dir: &Path,
     ) -> Result<WidthReport> {
+        self.open(session, url, width).await?;
+        self.measure(session, width, out_dir, &format!("{width}.png"))
+            .await
+    }
+
+    /// The page again at 1440px in its other theme, when it has one: the
+    /// system setting flipped, and the usual class and attribute switches
+    /// flipped too when the setting alone changes nothing. None for a page
+    /// with one theme.
+    async fn look_in_other_theme(
+        &mut self,
+        session: &str,
+        url: &str,
+        out_dir: &Path,
+    ) -> Result<Option<WidthReport>> {
+        let width = 1440;
+        self.open(session, url, width).await?;
+        let Some(before) = self.page_lightness(session).await? else {
+            return Ok(None);
+        };
+        let other = if before >= 50.0 { "dark" } else { "light" };
+        self.call(
+            "Emulation.setEmulatedMedia",
+            json!({"features": [{"name": "prefers-color-scheme", "value": other}]}),
+            Some(session),
+        )
+        .await?;
+        self.open(session, url, width).await?;
+        let mut after = self.page_lightness(session).await?.unwrap_or(before);
+        if (after - before).abs() < 20.0 {
+            self.call(
+                "Runtime.evaluate",
+                json!({"expression": FLIP_THEME.replace("__THEME__", other),
+                       "returnByValue": true, "awaitPromise": true}),
+                Some(session),
+            )
+            .await?;
+            after = self.page_lightness(session).await?.unwrap_or(before);
+        }
+        let report = if (after - before).abs() < 20.0 {
+            None
+        } else {
+            let mut report = self
+                .measure(session, width, out_dir, &format!("{width}-{other}.png"))
+                .await?;
+            report.theme = Some(other.to_owned());
+            report.keep_theme_findings();
+            Some(report)
+        };
+        let _ = self
+            .call(
+                "Emulation.setEmulatedMedia",
+                json!({"features": [{"name": "prefers-color-scheme", "value": "light"}]}),
+                Some(session),
+            )
+            .await;
+        Ok(report)
+    }
+
+    /// The lightness of the page's background, 0 to 100, or None when no
+    /// solid background can be found.
+    async fn page_lightness(&mut self, session: &str) -> Result<Option<f64>> {
+        let result = self
+            .call(
+                "Runtime.evaluate",
+                json!({"expression": PAGE_LIGHTNESS, "returnByValue": true}),
+                Some(session),
+            )
+            .await?;
+        Ok(result["result"]["value"].as_f64())
+    }
+
+    /// Load `url` at `width` and wait for it to settle.
+    async fn open(&mut self, session: &str, url: &str, width: u32) -> Result<()> {
         let mobile = width < 600;
         self.call(
             "Emulation.setDeviceMetricsOverride",
@@ -392,6 +505,17 @@ impl Cdp {
         }
         // Late scripts and web fonts settle before anything is measured.
         tokio::time::sleep(Duration::from_millis(600)).await;
+        Ok(())
+    }
+
+    /// Measure the page on screen, and save its screenshot as `shot`.
+    async fn measure(
+        &mut self,
+        session: &str,
+        width: u32,
+        out_dir: &Path,
+        shot: &str,
+    ) -> Result<WidthReport> {
         let result = self
             .call(
                 "Runtime.evaluate",
@@ -434,11 +558,13 @@ impl Cdp {
             repeated_primary: found["repeated_primary"].as_str().map(str::to_owned),
             floating_content: found["floating_content"].as_str().map(str::to_owned),
             open_sidebar: found["open_sidebar"].as_str().map(str::to_owned),
+            low_contrast_graphics: strings("low_contrast_graphics"),
+            theme: None,
             console_errors: self.console_errors(session),
             screenshot: None,
         };
         let height = (report.page_height as u32).clamp(1, MAX_SHOT_HEIGHT);
-        let shot = self
+        let capture = self
             .call(
                 "Page.captureScreenshot",
                 json!({"format": "png", "captureBeyondViewport": true,
@@ -446,10 +572,10 @@ impl Cdp {
                 Some(session),
             )
             .await?;
-        if let Some(data) = shot["data"].as_str() {
+        if let Some(data) = capture["data"].as_str() {
             use base64::Engine as _;
             let bytes = base64::engine::general_purpose::STANDARD.decode(data)?;
-            let path = out_dir.join(format!("{width}.png"));
+            let path = out_dir.join(shot);
             std::fs::write(&path, bytes)?;
             report.screenshot = Some(path);
         }
@@ -659,8 +785,12 @@ pub fn report(target: &str, reports: &[WidthReport]) -> String {
     let mut out = format!("Preview of {target}\n");
     for r in reports {
         out.push_str(&format!(
-            "\n{}px, page {}px tall: {}\n",
+            "\n{}px{}, page {}px tall: {}\n",
             r.width,
+            r.theme
+                .as_deref()
+                .map(|theme| format!(" in the {theme} theme"))
+                .unwrap_or_default(),
             r.page_height,
             match r.problems() {
                 0 => "nothing found".to_owned(),
@@ -684,6 +814,11 @@ pub fn report(target: &str, reports: &[WidthReport]) -> String {
             list(&wider, &r.overflowing);
         }
         list("text below AA contrast", &r.low_contrast);
+        list(
+            "drawings and icons below 3:1 (draw them with currentColor and a colour token per \
+             theme, ui-themes)",
+            &r.low_contrast_graphics,
+        );
         list("links to nowhere", &r.dead_anchors);
         list("images without alt", &r.missing_alt);
         list("controls without a name", &r.unnamed_controls);
@@ -827,6 +962,37 @@ const STILL_SIGNING_IN: &str = r#"(() => {
   return { password, alert, path: location.pathname };
 })()"#;
 
+/// Run in the page: the lightness of its background, 0 to 100, from the
+/// body or the root, else from what sits in the window's bottom corner.
+const PAGE_LIGHTNESS: &str = r#"(() => {
+  const parse = c => {
+    const m = c && c.match(/rgba?\(([^)]+)\)/);
+    if (!m) return null;
+    const p = m[1].split(/[\s,\/]+/).filter(Boolean).map(Number);
+    return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+  };
+  const solid = el => { for (let e = el; e; e = e.parentElement) { const c = parse(getComputedStyle(e).backgroundColor); if (c && c.a > 0.95) return c; } return null; };
+  const c = solid(document.body) || solid(document.elementFromPoint(innerWidth - 4, innerHeight - 4));
+  if (!c) return null;
+  return (Math.max(c.r, c.g, c.b) + Math.min(c.r, c.g, c.b)) / 2 / 255 * 100;
+})()"#;
+
+/// Run in the page: switch it to `__THEME__` the usual ways a toggle does,
+/// a class or an attribute on the root.
+const FLIP_THEME: &str = r#"(async () => {
+  const want = '__THEME__';
+  for (const el of [document.documentElement, document.body]) {
+    el.classList.toggle('dark', want === 'dark');
+    el.classList.toggle('light', want === 'light');
+  }
+  for (const attr of ['data-theme', 'data-mode', 'data-color-scheme', 'data-bs-theme']) {
+    document.documentElement.setAttribute(attr, want);
+  }
+  document.documentElement.style.colorScheme = want;
+  await new Promise(done => setTimeout(done, 400));
+  return true;
+})()"#;
+
 /// Run in the page: what a person would run into, as plain data.
 const CHECK_SCRIPT: &str = r#"(async () => {
   try { await document.fonts.ready; } catch (e) {}
@@ -936,6 +1102,83 @@ const CHECK_SCRIPT: &str = r#"(async () => {
   low.sort((x, y) => x.ratio - y.ratio);
   out.low_contrast = low.slice(0, 6).map(x => x.text);
   out.small_text = [...seen].filter(el => parseFloat(getComputedStyle(el).fontSize) < 12).length;
+  // Drawings and icons: the colour most of each visible SVG is drawn in,
+  // against what is behind it, at 3:1. A drawing left in the SVG default,
+  // black, disappears on a dark page. A large decoration spread behind the
+  // content is exempt.
+  out.low_contrast_graphics = [];
+  const hexOf = c => '#' + [c.r, c.g, c.b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+  // The colour most of a drawing's strokes and fills are made of.
+  const mainPaint = svg => {
+    const counts = new Map();
+    for (const shape of [...svg.querySelectorAll('path, line, polyline, polygon, rect, circle, ellipse, text, use')].slice(0, 300)) {
+      const cs = getComputedStyle(shape);
+      if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+      const paints = [];
+      if (cs.stroke && cs.stroke !== 'none' && parseFloat(cs.strokeWidth) > 0 && parseFloat(cs.strokeOpacity) > 0.2) paints.push(cs.stroke);
+      if (cs.fill && cs.fill !== 'none' && parseFloat(cs.fillOpacity) > 0.2) paints.push(cs.fill);
+      for (const paint of paints) {
+        const c = parse(paint);
+        if (!c || c.a < 0.2) continue;
+        const key = hexOf(c);
+        counts.set(key, { c, n: ((counts.get(key) || {}).n || 0) + 1 });
+      }
+    }
+    return counts.size ? [...counts.values()].sort((x, y) => y.n - x.n)[0].c : null;
+  };
+  // A drawing's contrast against what is behind `el`, or null when it holds.
+  const weak = (el, main) => {
+    const bg = background(el);
+    if (!bg || !main) return null;
+    const drawn = { r: main.r * main.a + bg.r * (1 - main.a), g: main.g * main.a + bg.g * (1 - main.a), b: main.b * main.a + bg.b * (1 - main.a) };
+    const l1 = lum(drawn), l2 = lum(bg);
+    const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+    return ratio < 3 ? ' drawn in ' + hexOf(drawn) + ' on ' + hexOf(bg) + ', ' + ratio.toFixed(2) + ':1, needs 3:1' : null;
+  };
+  const worthChecking = (el, min) => {
+    if (!visible(el)) return false;
+    const box = el.getBoundingClientRect();
+    // Long and thin still counts: a dial or a rule 40 by 14.
+    if (Math.max(box.width, box.height) < min || Math.min(box.width, box.height) < 8) return false;
+    const st = getComputedStyle(el);
+    // A large decoration spread behind the content is exempt.
+    if (/absolute|fixed/.test(st.position) && box.width > W * 0.5) return false;
+    return parseFloat(st.opacity) >= 0.3;
+  };
+  const size = el => { const b = el.getBoundingClientRect(); return Math.round(b.width) + 'x' + Math.round(b.height); };
+  // Inline drawings and icons, in the page's own colours. A drawing left in
+  // the SVG default, black, disappears on a dark page.
+  for (const svg of document.querySelectorAll('svg')) {
+    if (out.low_contrast_graphics.length >= 6) break;
+    if (svg.parentElement && svg.parentElement.closest('svg')) continue;
+    if (!worthChecking(svg, 12)) continue;
+    const found = weak(svg, mainPaint(svg));
+    if (found) out.low_contrast_graphics.push(describe(svg) + ' ' + size(svg) + found);
+  }
+  // Drawings loaded with <img>. An image never takes the page's colours:
+  // `currentColor` in it is black, whatever the theme. Each is drawn once
+  // off screen with black as its colour, as the image renders it.
+  const offscreen = document.createElement('div');
+  offscreen.style.cssText = 'position:absolute;left:-10000px;top:0;width:800px;color:#000;visibility:visible';
+  document.body.appendChild(offscreen);
+  for (const img of document.querySelectorAll('img')) {
+    if (out.low_contrast_graphics.length >= 6) break;
+    const src = img.currentSrc || img.src || '';
+    if (!/\.svg([?#]|$)/i.test(src) && !src.startsWith('data:image/svg+xml')) continue;
+    if (!worthChecking(img, 24)) continue;
+    let text = '';
+    try { text = await (await fetch(src)).text(); } catch (e) { continue; }
+    offscreen.innerHTML = text;
+    const svg = offscreen.querySelector('svg');
+    if (!svg) continue;
+    const found = weak(img, mainPaint(svg));
+    if (found) {
+      const name = src.startsWith('data:') ? 'an inline data SVG' : src.split('/').pop().split(/[?#]/)[0];
+      out.low_contrast_graphics.push('img ' + name + ' ' + size(img) + found
+        + ' (an SVG in an <img> keeps its own colours: inline it, or give each theme its file)');
+    }
+  }
+  offscreen.remove();
   // A link inside a sentence is exempt, as WCAG exempts it.
   const inText = el => {
     if (el.tagName !== 'A') return false;

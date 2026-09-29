@@ -316,30 +316,20 @@ fn the_empty_composer_says_what_it_is_for() {
     assert!(find(&rows, "fix the login bug").is_some());
 }
 
-/// While a turn runs, the mark turns above the composer, with what the turn
-/// is doing; the line goes when the turn ends.
+/// While a turn runs, the mark's middle row turns under the composer, with
+/// what the turn is doing; the line goes when the turn ends.
 #[test]
-fn a_running_turn_shows_the_mark_above_the_composer() {
+fn a_running_turn_shows_the_mark_under_the_composer() {
     let mut app = TestApp::in_conversation();
     let rows = app.render_to_text(W, H);
     assert!(find(&rows, "Esc to stop").is_none(), "{rows:#?}");
     let _cancel = app.start_fake_turn();
     let rows = app.render_to_text(W, H);
-    let (x, y) = find(&rows, "Esc to stop").expect("the working line");
+    let (_, y) = find(&rows, "Esc to stop").expect("the working line");
     let (_, composer) = find(&rows, "❯").expect("the composer");
-    assert_eq!(
-        composer,
-        y + 3,
-        "the middle of three rows over it: {rows:#?}"
-    );
+    assert_eq!(y, composer + 2, "right under the composer: {rows:#?}");
     let line = &rows[y];
-    assert!(line.contains("0s"), "{line}");
-    // The mark to the left of the words: five cells, a column apart.
-    let mark: String = line.chars().take(x).collect();
-    assert!(
-        mark.contains("▀ ▀ ▀ ▀ ▀") || mark.contains("█ █ █ █ █"),
-        "{line}"
-    );
+    assert!(line.contains("■ ■ ■ ■ ■") && line.contains("0s"), "{line}");
     app.deliver_done("stop");
     let rows = app.render_to_text(W, H);
     assert!(find(&rows, "Esc to stop").is_none(), "{rows:#?}");

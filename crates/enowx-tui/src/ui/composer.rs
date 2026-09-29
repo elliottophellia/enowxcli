@@ -32,7 +32,14 @@ pub(super) fn draw_main_column(frame: &mut Frame, app: &mut App, area: Rect) {
     // A question the agent waits on sits where the command list would, and
     // like it shortens the chat box rather than covering it.
     let qh = question_height(app, area.width).min(area.height.saturating_sub(ih + 3));
-    let chat_h = area.height.saturating_sub(ih + ph + qh);
+    // While a turn runs, the mark turns above the composer with what the
+    // turn is doing; the chat gives up those rows while it does.
+    let wh = if app.busy && app.question.is_none() && area.height >= ih + ph + qh + WORKING_H + 6 {
+        WORKING_H
+    } else {
+        0
+    };
+    let chat_h = area.height.saturating_sub(ih + ph + qh + wh);
     draw_chat_box(frame, app, Rect::new(area.x, area.y, area.width, chat_h));
     if ph > 0 {
         draw_palette(
@@ -49,6 +56,13 @@ pub(super) fn draw_main_column(frame: &mut Frame, app: &mut App, area: Rect) {
             Rect::new(area.x, area.y + chat_h + ph, area.width, qh),
         );
     }
+    if wh > 0 {
+        draw_working(
+            frame,
+            app,
+            Rect::new(area.x, area.y + chat_h + ph + qh, area.width, wh),
+        );
+    }
     // While questions wait, the panel above has the keyboard.
     let look = ComposerLook {
         fill: app.theme.subtle,
@@ -60,12 +74,66 @@ pub(super) fn draw_main_column(frame: &mut Frame, app: &mut App, area: Rect) {
     draw_composer_box(
         frame,
         app,
-        Rect::new(area.x, area.y + chat_h + ph + qh, area.width, ih),
+        Rect::new(area.x, area.y + chat_h + ph + qh + wh, area.width, ih),
         &input,
         row,
         col,
         look,
     );
+}
+
+/// Rows the working line takes: the mark is five pixels tall, two to a row.
+const WORKING_H: u16 = 3;
+/// One round of the mark's motion while a turn runs: quicker than the home
+/// screen's, since here it says that something is happening.
+const WORKING_ROUND: f32 = 1.6;
+
+/// The mark, small, with what the turn is doing and how long it has taken.
+/// Its cells are one pixel each with a column between them, the grid of the
+/// mark as it is drawn everywhere else.
+fn draw_working(frame: &mut Frame, app: &App, area: Rect) {
+    let t = app.theme;
+    let elapsed = app.turn_started.elapsed().as_secs_f32();
+    let mark_at = Rect::new(area.x + 1 + PAD_X, area.y, 9, WORKING_H);
+    super::mark::draw_pixels(frame.buffer_mut(), &t, mark_at, |x, y| {
+        // Pixel rows 1 to 5 of 6, so the mark sits on the middle row.
+        let row = y.checked_sub(1)?;
+        (x % 2 == 0 && row < super::mark::CELLS)
+            .then(|| super::mark::cell_colour(&t, x / 2, row, elapsed, WORKING_ROUND))
+    });
+    let label = Line::from(vec![
+        Span::styled(
+            // Before the first event of a turn there is no activity yet.
+            match app.activity {
+                crate::session::Activity::Idle => "Working".to_owned(),
+                ref activity => capitalised(activity.label()),
+            },
+            Style::default().fg(t.text).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(
+                " · {}",
+                crate::app::fmt_elapsed(app.turn_started.elapsed().as_secs())
+            ),
+            Style::default().fg(t.yellow),
+        ),
+        Span::styled(" · Esc to stop", Style::default().fg(t.muted)),
+    ]);
+    let text_x = mark_at.right() + 2;
+    if text_x < area.right() {
+        frame.render_widget(
+            Paragraph::new(label),
+            Rect::new(text_x, area.y + 1, area.right() - text_x, 1),
+        );
+    }
+}
+
+fn capitalised(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
 }
 
 /// How the composer is dressed. In the chat layout it is a box of the grid,

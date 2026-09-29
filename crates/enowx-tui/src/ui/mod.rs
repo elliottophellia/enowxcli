@@ -16,6 +16,7 @@ use unicode_width::UnicodeWidthStr;
 mod chrome;
 mod composer;
 mod home;
+mod mark;
 mod markdown;
 mod pickers;
 mod popups;

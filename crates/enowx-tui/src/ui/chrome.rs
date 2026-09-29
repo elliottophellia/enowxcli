@@ -348,13 +348,6 @@ pub(super) fn status_spans(app: &App) -> Vec<Span<'static>> {
     // Segments rather than a sentence. Each block is one fact, read at a
     // glance and in a fixed place: state, then agent, then what the session
     // has cost. A run-on line of "· ·" separators makes the reader parse it.
-    // While a turn runs, the mark turns in front of the state.
-    if app.busy && app.question.is_none() {
-        left_spans.push(Span::styled(
-            format!("{} ", app.spinner()),
-            Style::default().fg(crate::theme::BRAND),
-        ));
-    }
     let (state_label, state_colour) = if app.question.is_some() {
         ("QUESTION", t.accent2)
     } else if app.busy {

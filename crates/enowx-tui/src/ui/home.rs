@@ -2,45 +2,56 @@
 //!
 //! No sidebar and no transcript box. Until the first message there is
 //! nothing for them to show, so the window holds one block in its middle:
-//! the mark, the composer, and under it the state, agent and model the
+//! the wordmark, the composer, and under it the state, agent and model the
 //! status bar shows everywhere else, with where the agent will work (or what
 //! to set up before it can) and the version. The status bar keeps only its
 //! keys, on the columns they have in the chat layout.
 //!
-//! The block is centred with the same gap on every side as it looks on
-//! screen, which is what sets the composer's width.
+//! The block sits a little above the middle, and the composer takes three
+//! quarters of the window's width.
 
 use super::*;
 use ratatui::style::Color;
 use std::time::Instant;
 
-/// The enowX mark: an X of lit cells on a 5 by 5 grid, its centre cell in
-/// the brand colour. Cells are 2 by 2 pixels with a pixel between them, and a
-/// character cell holds two pixel rows, so the mark is 14 columns by 7 rows.
-const CELLS: usize = 5;
+/// The letters `enow`, one character per pixel, with strokes two pixels
+/// thick each way. The mark stands in for the X after them.
+const LETTERS: [&str; 10] = [
+    ".######...#######....######..##......##",
+    "########..########..########.##......##",
+    "##....##..##....##..##....##.##......##",
+    "##....##..##....##..##....##.##..##..##",
+    "########..##....##..##....##.##..##..##",
+    "########..##....##..##....##.##..##..##",
+    "##........##....##..##....##.##..##..##",
+    "##........##....##..##....##.##..##..##",
+    "########..##....##..########.##########",
+    ".#######..##....##...######...###..###.",
+];
+const LETTERS_W: usize = 39;
+
+/// The mark's cells are 2 by 2 pixels with a pixel between them: 14 pixels
+/// square, standing four pixels above the letters' tops, as a capital does.
 const CELL: usize = 2;
 const PITCH: usize = CELL + 1;
-const LOGO_W: u16 = (CELLS * PITCH - 1) as u16;
-const LOGO_H: u16 = LOGO_W / 2;
+const MARK_PX: usize = mark::CELLS * PITCH - 1;
+const MARK_GAP: usize = 3;
+const LOGO_W: u16 = (LETTERS_W + MARK_GAP + MARK_PX) as u16;
+/// A character cell holds two pixel rows.
+const LOGO_H: u16 = (MARK_PX / 2) as u16;
 
 /// The composer's narrowest, and its widest, so a message on a very wide
 /// window still wraps at a measure that can be read back.
-const HOME_MIN_W: u16 = 57;
-const HOME_MAX_W: u16 = 120;
+const HOME_MIN_W: u16 = 64;
+const HOME_MAX_W: u16 = 150;
 /// What the empty composer says it is for.
 const PLACEHOLDER: &str = "Ask, or type / for commands";
 
-/// The mark's motion, in seconds, repeated for as long as the screen is up.
-/// The centre lights first and stays; the rings around it light outward, hold,
-/// and go out inward, and the next round lights them again.
+/// One round of the mark's motion, in seconds.
 const ROUND: f32 = 4.0;
-const CENTRE_ON: f32 = 0.15;
-const RING_STAGGER: f32 = 0.2;
-const RING_FADE_IN: f32 = 0.22;
-const RINGS_OUT: f32 = 3.0;
-const RING_FADE_OUT: f32 = 0.3;
-/// How much of the text colour a cell of the grid keeps while it is not lit.
-const GRID: f32 = 0.12;
+/// The letters fade in as the mark first lights, a beat apart.
+const LETTER_FADE: f32 = 0.6;
+const LETTER_STAGGER: f32 = 0.05;
 
 pub(super) fn draw_home(frame: &mut Frame, app: &mut App, area: Rect) {
     let elapsed = app
@@ -64,27 +75,25 @@ pub(super) fn draw_home(frame: &mut Frame, app: &mut App, area: Rect) {
     // line when the composer is too narrow to carry everything on one.
     let block = |info: u16| logo_rows + FRAME + 1 + info;
     let inner = |width: u16| width.saturating_sub(2 * (1 + PAD_X));
-    let mut box_w = home_width(body, block(1));
-    let mut info = info_rows(app, inner(box_w));
-    if info.len() > 1 {
-        box_w = home_width(body, block(info.len() as u16));
-        info = info_rows(app, inner(box_w));
-    }
+    let box_w = home_width(body);
+    let info = info_rows(app, inner(box_w));
     let info_h = info.len() as u16;
 
     let field_w = box_w.saturating_sub(COMPOSER_LEFT + 1 + PAD_X).max(1) as usize;
     let (input, row, col) = input_rows(&app.input, app.cursor, field_w);
     let ih = (input.len().clamp(1, 8) as u16 + FRAME).min((body.height / 2).max(FRAME + 1));
-    // Centred for a one-line composer. One that grows with the message grows
+    // Placed for a one-line composer. One that grows with the message grows
     // down, so the mark stays put, and moves up only when it would pass
     // the bottom.
-    let top = (body.y + body.height.saturating_sub(block(info_h)) / 2)
+    // A little above the middle: two parts of the free rows above, three
+    // below, so what sits under the composer is not pressed to the keys.
+    let top = (body.y + body.height.saturating_sub(block(info_h)) * 2 / 5)
         .min(body.bottom().saturating_sub(logo_rows + ih + info_h))
         .max(body.y);
 
     if show_logo {
         let at = Rect::new(body.x + (body.width - LOGO_W) / 2, top, LOGO_W, LOGO_H);
-        draw_mark(frame, &app.theme, at, elapsed);
+        draw_wordmark(frame, &app.theme, at, elapsed);
     }
     let boxed = Rect::new(
         body.x + body.width.saturating_sub(box_w) / 2,
@@ -129,24 +138,13 @@ pub(super) fn draw_home(frame: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
-/// The composer's width for a block `block_h` rows tall, centred with the
-/// same gap on every side as it looks on screen. A cell is about twice as
-/// tall as it is wide, so the gap at the sides is twice as many columns as
-/// the gap above and below is rows. Kept even with the window's width, so
-/// the two sides get the same number of columns.
-fn home_width(body: Rect, block_h: u16) -> u16 {
-    let gap_rows = body.height.saturating_sub(block_h) / 2;
-    let widest = body
-        .width
-        .saturating_sub(4)
-        .max(body.width.min(12))
-        .min(HOME_MAX_W);
-    let narrowest = HOME_MIN_W.min(widest);
-    let width = body
-        .width
-        .saturating_sub(4 * gap_rows)
-        .clamp(narrowest, widest);
-    if (body.width - width) % 2 == 1 && width > narrowest {
+/// The composer's width: three quarters of the window, kept between its
+/// narrowest and widest and never closer than two columns to either edge,
+/// and even with the window's width so the two sides get the same columns.
+fn home_width(body: Rect) -> u16 {
+    let widest = body.width.saturating_sub(4).min(HOME_MAX_W);
+    let width = (body.width * 3 / 4).clamp(HOME_MIN_W.min(widest), widest);
+    if (body.width - width) % 2 == 1 {
         width - 1
     } else {
         width
@@ -237,72 +235,34 @@ fn tail(text: &str, width: usize) -> String {
     format!("…{}", keep.iter().collect::<String>())
 }
 
-fn draw_mark(frame: &mut Frame, theme: &Theme, at: Rect, elapsed: f32) {
-    let buf = frame.buffer_mut();
-    let area = buf.area;
-    for row in 0..LOGO_H {
-        for col in 0..LOGO_W {
-            let (x, y) = (at.x + col, at.y + row);
-            if x >= area.right() || y >= area.bottom() {
-                continue;
-            }
-            let top = pixel(theme, col as usize, row as usize * 2, elapsed);
-            let bottom = pixel(theme, col as usize, row as usize * 2 + 1, elapsed);
-            let (symbol, fg, bg) = match (top, bottom) {
-                (None, None) => continue,
-                (Some(a), None) => ("▀", a, theme.canvas),
-                (None, Some(b)) => ("▄", b, theme.canvas),
-                (Some(a), Some(b)) if a == b => ("█", a, theme.canvas),
-                (Some(a), Some(b)) => ("▀", a, b),
-            };
-            buf[(x, y)].set_symbol(symbol).set_fg(fg).set_bg(bg);
-        }
-    }
+fn draw_wordmark(frame: &mut Frame, theme: &Theme, at: Rect, elapsed: f32) {
+    mark::draw_pixels(frame.buffer_mut(), theme, at, |x, y| {
+        pixel(theme, x, y, elapsed)
+    });
 }
 
-/// One pixel of the mark at `elapsed` seconds, or None between cells.
+/// One pixel of the wordmark at `elapsed` seconds, or None where it is empty.
 fn pixel(theme: &Theme, x: usize, y: usize, elapsed: f32) -> Option<Color> {
+    if x < LETTERS_W {
+        let row = y.checked_sub(MARK_PX - LETTERS.len())?;
+        if LETTERS[row].as_bytes()[x] != b'#' {
+            return None;
+        }
+        let letter = (x / 10) as f32;
+        let shown = mark::ease_out((elapsed - letter * LETTER_STAGGER) / LETTER_FADE);
+        return (shown > 0.0).then(|| mark::mix(theme.canvas, theme.text, shown));
+    }
+    let x = x.checked_sub(LETTERS_W + MARK_GAP)?;
     if x % PITCH == CELL || y % PITCH == CELL {
         return None;
     }
-    let (col, row) = (x / PITCH, y / PITCH);
-    let grid = mix(theme.canvas, theme.text, GRID);
-    if row != col && row != CELLS - 1 - col {
-        return Some(grid);
-    }
-    let ring = row.abs_diff(CELLS / 2).max(col.abs_diff(CELLS / 2));
-    if ring == 0 {
-        let lit = ease_out((elapsed - CENTRE_ON) / RING_FADE_IN);
-        return Some(mix(grid, crate::theme::BRAND, lit));
-    }
-    Some(mix(grid, theme.text, ring_lit(ring, elapsed % ROUND)))
-}
-
-/// How lit a ring is, from 0 to 1, `t` seconds into a round: on from the
-/// centre outward, off from the outside inward.
-fn ring_lit(ring: usize, t: f32) -> f32 {
-    let on = CENTRE_ON + ring as f32 * RING_STAGGER;
-    let off = RINGS_OUT + (CELLS / 2 - ring) as f32 * RING_STAGGER;
-    ease_out((t - on) / RING_FADE_IN) * (1.0 - ease_out((t - off) / RING_FADE_OUT))
-}
-
-fn ease_out(progress: f32) -> f32 {
-    let p = progress.clamp(0.0, 1.0);
-    1.0 - (1.0 - p).powi(3)
-}
-
-/// `from` moved `amount` of the way to `to`. A theme without RGB colours
-/// has nothing to interpolate, so it snaps at the halfway point.
-fn mix(from: Color, to: Color, amount: f32) -> Color {
-    let amount = amount.clamp(0.0, 1.0);
-    match (from, to) {
-        (Color::Rgb(r1, g1, b1), Color::Rgb(r2, g2, b2)) => {
-            let lerp = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * amount).round() as u8;
-            Color::Rgb(lerp(r1, r2), lerp(g1, g2), lerp(b1, b2))
-        }
-        _ if amount < 0.5 => from,
-        _ => to,
-    }
+    Some(mark::cell_colour(
+        theme,
+        x / PITCH,
+        y / PITCH,
+        elapsed,
+        ROUND,
+    ))
 }
 
 #[cfg(test)]
@@ -310,16 +270,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_rings_light_outward_and_go_out_inward_every_round() {
-        assert_eq!((LOGO_W, LOGO_H), (14, 7));
-        assert_eq!(ring_lit(1, 0.0), 0.0);
-        assert!(ring_lit(1, 0.6) > ring_lit(2, 0.6), "the inner ring first");
-        assert_eq!(ring_lit(2, 2.0), 1.0, "both held");
-        assert!(
-            ring_lit(2, 3.35) < ring_lit(1, 3.35),
-            "the outer ring out first"
-        );
-        assert_eq!(ring_lit(1, 3.9), 0.0, "dark before the next round");
+    fn the_letters_are_one_rectangle_beside_the_mark() {
+        for row in LETTERS {
+            assert_eq!(row.len(), LETTERS_W, "{row}");
+        }
+        assert_eq!((LOGO_W, LOGO_H), (56, 7));
     }
 
     #[test]

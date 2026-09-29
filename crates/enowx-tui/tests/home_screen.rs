@@ -92,8 +92,9 @@ fn the_composer_sits_in_the_middle_under_the_mark() {
         box_y < H as usize / 2 + 4,
         "in the middle, not at the bottom"
     );
-    // The mark centred over the composer, to half a column.
-    let logo_centre = logo_x * 2 + 14;
+    // The wordmark centred over the composer, to half a column: `enow` and
+    // a gap, 42 columns, then the 14 of the mark.
+    let logo_centre = (logo_x - 42) * 2 + 56;
     let box_centre = box_x + box_right;
     assert!(logo_centre.abs_diff(box_centre) <= 1, "{rows:#?}");
 }
@@ -240,24 +241,24 @@ fn gaps(rows: &[String], height: u16) -> (usize, usize, usize, usize) {
     (first, keys - 1 - last, left, right)
 }
 
-/// The block sits in the middle with the same gap on every side as it looks
-/// on screen: as many rows above as below, as many columns left as right,
-/// and twice as many columns as rows, a cell being twice as tall as wide.
+/// The block sits a little above the middle, with the same columns on
+/// either side, and the composer takes about three quarters of the width.
 #[test]
-fn the_gap_is_the_same_on_every_side() {
+fn the_block_sits_a_little_high_with_a_wide_composer() {
     for (w, h) in [(142, 27), (100, 30), (120, 36)] {
         let mut app = settled(ready());
         let rows = app.render_to_text(w, h);
         let (top, bottom, left, right_edge) = gaps(&rows, h);
         let right = w as usize - 1 - right_edge;
         assert!(
-            top.abs_diff(bottom) <= 1,
+            top < bottom && bottom <= 2 * top + 2,
             "{w}x{h}: {top} above, {bottom} below"
         );
         assert_eq!(left, right, "{w}x{h}: {left} left, {right} right");
+        let width = right_edge + 1 - left;
         assert!(
-            left.abs_diff(2 * top) <= 2,
-            "{w}x{h}: {left} columns at the sides against {top} rows above"
+            width.abs_diff(w as usize * 3 / 4) <= 1,
+            "{w}x{h}: {width} columns wide"
         );
     }
 }
@@ -315,17 +316,31 @@ fn the_empty_composer_says_what_it_is_for() {
     assert!(find(&rows, "fix the login bug").is_some());
 }
 
-/// While a turn runs, the mark in braille turns in front of the state.
+/// While a turn runs, the mark turns above the composer, with what the turn
+/// is doing; the line goes when the turn ends.
 #[test]
-fn a_running_turn_shows_the_mark_turning() {
+fn a_running_turn_shows_the_mark_above_the_composer() {
     let mut app = TestApp::in_conversation();
-    let idle = app.status_bar(W, H);
-    assert!(!idle.contains('⡱'), "{idle}");
+    let rows = app.render_to_text(W, H);
+    assert!(find(&rows, "Esc to stop").is_none(), "{rows:#?}");
     let _cancel = app.start_fake_turn();
-    let frames = ["⠰⠆", "⡱⢎", "⠀⠀"];
-    let bar = app.status_bar(W, H);
-    assert!(
-        frames.iter().any(|f| bar.contains(&format!("{f} "))) && bar.contains("WORKING"),
-        "{bar}"
+    let rows = app.render_to_text(W, H);
+    let (x, y) = find(&rows, "Esc to stop").expect("the working line");
+    let (_, composer) = find(&rows, "❯").expect("the composer");
+    assert_eq!(
+        composer,
+        y + 3,
+        "the middle of three rows over it: {rows:#?}"
     );
+    let line = &rows[y];
+    assert!(line.contains("0s"), "{line}");
+    // The mark to the left of the words: five cells, a column apart.
+    let mark: String = line.chars().take(x).collect();
+    assert!(
+        mark.contains("▀ ▀ ▀ ▀ ▀") || mark.contains("█ █ █ █ █"),
+        "{line}"
+    );
+    app.deliver_done("stop");
+    let rows = app.render_to_text(W, H);
+    assert!(find(&rows, "Esc to stop").is_none(), "{rows:#?}");
 }

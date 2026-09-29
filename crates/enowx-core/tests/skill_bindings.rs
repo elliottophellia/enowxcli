@@ -16,6 +16,7 @@ fn ctx(skills: Vec<String>) -> ToolCtx {
         skills,
         lsp: None,
         repair: None,
+        vision: false,
     }
 }
 

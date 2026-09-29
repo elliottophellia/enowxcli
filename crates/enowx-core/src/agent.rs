@@ -1370,6 +1370,7 @@ impl Agent {
         let tool_ctx = ToolCtx {
             skills: self.discovery.carried_by(&active),
             lsp: self.config.agent.lsp.then(|| self.lsp.clone()),
+            vision: agent_config.model.vision,
             repair: Some(Arc::new(ModelRepair {
                 config: self.config.clone(),
             })),
@@ -1604,6 +1605,10 @@ impl Agent {
                 break;
             }
 
+            // Pictures a tool returned, shown to the model after the step's
+            // results: providers take images only in user messages, and a
+            // user message between results would split them from their calls.
+            let mut pictures: Vec<crate::message::Attachment> = Vec::new();
             for call in &completion.tool_calls {
                 let _ = events
                     .send(Event::ToolCall {
@@ -1790,8 +1795,19 @@ impl Agent {
                 if output.is_error {
                     result.error = Some("Tool execution failed".into());
                 }
+                pictures.extend(output.images.iter().cloned());
                 session.push(result);
                 self.store.save(&session)?;
+            }
+            if !pictures.is_empty() {
+                let names: Vec<&str> = pictures.iter().map(|p| p.name.as_str()).collect();
+                session.push(
+                    Message::user(format!(
+                        "[harness] The image `read` returned: {}",
+                        names.join(", ")
+                    ))
+                    .with_attachments(pictures),
+                );
             }
             self.store.save(&session)?;
             if !matches!(completion.finish_reason.as_str(), "stop" | "tool_calls") {

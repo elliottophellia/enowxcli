@@ -1394,8 +1394,8 @@ pub fn report(target: &str, reports: &[WidthReport]) -> String {
         }
     }
     out.push_str(
-        "\nThe measurements are facts about the rendered page; fix what they show. The \
-         screenshots are for the user to look at, and for you if you can read images.",
+        "\nThe measurements are facts about the rendered page; fix what they show. When your \
+         model can see images, `read` a screenshot's path above to look at the page too.",
     );
     out
 }

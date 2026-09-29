@@ -49,6 +49,8 @@ pub struct ToolCtx {
     /// What mends an edit that broke a file's syntax; None refuses such
     /// edits instead.
     pub repair: Option<std::sync::Arc<dyn crate::syntax::Repair>>,
+    /// Whether the model in use can see images, so `read` may return one.
+    pub vision: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +60,10 @@ pub struct ToolOutput {
     /// What a file held before this call replaced it, so the interface can
     /// show the change. Never sent to the model.
     pub before: Option<String>,
+    /// Images the call returns (`read` on a picture). They reach the model
+    /// in a message after the step's results, since providers take images
+    /// only in user messages.
+    pub images: Vec<crate::message::Attachment>,
 }
 
 impl ToolOutput {
@@ -66,6 +72,7 @@ impl ToolOutput {
             content: content.into(),
             is_error: false,
             before: None,
+            images: Vec::new(),
         }
     }
 
@@ -74,6 +81,7 @@ impl ToolOutput {
             content: content.into(),
             is_error: true,
             before: None,
+            images: Vec::new(),
         }
     }
 }
@@ -260,6 +268,11 @@ impl ToolRegistry {
     /// Shared by the role and agent entry points so the two gates differ only
     /// in who is allowed to call what, never in how a call is validated.
     async fn dispatch(&self, ctx: &ToolCtx, name: &str, args: Value) -> ToolOutput {
+        // `edit` sent line anchors meant for `edit_lines`: run that.
+        let (name, args) = match (name, files::anchored_edit(&args)) {
+            ("edit", Some(lines)) if self.tools.contains_key("edit_lines") => ("edit_lines", lines),
+            _ => (name, args),
+        };
         let Some(tool) = self.tools.get(name) else {
             return ToolOutput::error(format!("unknown tool `{name}`"));
         };
@@ -591,6 +604,79 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    /// A picture comes back as an image for a model that can see, including a
+    /// preview screenshot outside the workspace; a model that cannot is told so.
+    #[tokio::test]
+    async fn read_shows_a_picture_to_a_model_that_can_see() {
+        let (mut ctx, root) = temp_ctx();
+        let png = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+        )
+        .unwrap();
+        std::fs::write(root.join("shot.png"), &png).unwrap();
+        let registry = ToolRegistry::default();
+        let blind = registry
+            .dispatch(&ctx, "read", serde_json::json!({"path": "shot.png"}))
+            .await;
+        assert!(blind.is_error && blind.content.contains("cannot see images"));
+        ctx.vision = true;
+        let seen = registry
+            .dispatch(&ctx, "read", serde_json::json!({"path": "shot.png"}))
+            .await;
+        assert!(!seen.is_error, "{}", seen.content);
+        assert!(seen.images[0]
+            .data_url
+            .starts_with("data:image/png;base64,"));
+        let preview =
+            std::env::temp_dir().join(format!("enx-preview-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir_all(&preview).unwrap();
+        std::fs::write(preview.join("1440.png"), &png).unwrap();
+        let outside = registry
+            .dispatch(
+                &ctx,
+                "read",
+                serde_json::json!({"path": preview.join("1440.png").to_string_lossy()}),
+            )
+            .await;
+        assert!(!outside.is_error, "{}", outside.content);
+        let elsewhere = registry
+            .dispatch(&ctx, "read", serde_json::json!({"path": "/etc/hosts.png"}))
+            .await;
+        assert!(
+            elsewhere.is_error,
+            "other paths outside the workspace stay closed"
+        );
+        let _ = std::fs::remove_dir_all(&preview);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// `edit` called with line anchors, as `edit_lines` takes them, runs as that.
+    #[tokio::test]
+    async fn an_edit_by_anchor_is_run_as_edit_lines() {
+        let (ctx, root) = temp_ctx();
+        std::fs::write(
+            root.join("a.css"),
+            "a { color: red; }\nb { color: blue; }\n",
+        )
+        .unwrap();
+        let out = ToolRegistry::default()
+            .dispatch(
+                &ctx,
+                "edit",
+                serde_json::json!({"path": "a.css", "op": "replace",
+                    "lines": format!("2#{}", files::anchor("b { color: blue; }")),
+                    "text": "b { color: green; }"}),
+            )
+            .await;
+        assert!(!out.is_error, "{}", out.content);
+        assert_eq!(
+            std::fs::read_to_string(root.join("a.css")).unwrap(),
+            "a { color: red; }\nb { color: green; }\n"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     /// One edit that does not apply leaves the file as it was.
     #[tokio::test]
     async fn multi_edit_is_all_or_nothing() {
@@ -628,6 +714,7 @@ mod tests {
                 skills: Vec::new(),
                 lsp: None,
                 repair: None,
+                vision: false,
             },
             root,
         )

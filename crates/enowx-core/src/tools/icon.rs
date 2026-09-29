@@ -217,6 +217,7 @@ mod tests {
             skills: Vec::new(),
             lsp: None,
             repair: None,
+            vision: false,
         }
     }
 

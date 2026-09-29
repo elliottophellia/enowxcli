@@ -233,6 +233,9 @@ pub struct ProviderEntry {
 pub struct ModelEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_window: Option<u32>,
+    /// Whether the model can see images, over what the catalogue says.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vision: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub price_input: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -142,6 +142,7 @@ async fn a_builtin_skill_reads_from_the_binary() {
         skills: vec!["ui".into()],
         lsp: None,
         repair: None,
+        vision: false,
     };
     let tool = SkillReadTool::new(discovery.clone());
     let out = tool
@@ -181,6 +182,7 @@ async fn an_agent_cannot_read_a_builtin_it_does_not_carry() {
         skills: vec!["code".into()],
         lsp: None,
         repair: None,
+        vision: false,
     };
     let tool = SkillReadTool::new(discovery);
     let ui = tool

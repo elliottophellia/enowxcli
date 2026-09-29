@@ -16,7 +16,9 @@ impl Tool for ReadTool {
     }
     fn description(&self) -> &str {
         "Read a UTF-8 file. Each line comes as `12#a3f:text`: its number and an anchor that \
-         `edit_lines` uses to name it. Use offset and limit for large files."
+         `edit_lines` uses to name it. Use offset and limit for large files. An image (png, \
+         jpg, gif, webp) is shown to you when your model can see images, including the \
+         screenshots `preview` saves."
     }
     fn parameters(&self) -> Value {
         json!({"type":"object","properties":{
@@ -27,6 +29,9 @@ impl Tool for ReadTool {
     }
     async fn execute(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput> {
         let raw = string_arg(&args, "path")?;
+        if let Some(mime) = image_type(Path::new(raw)) {
+            return Ok(read_image(ctx, raw, mime));
+        }
         let path = resolve_existing(&ctx.workspace, raw)?;
         let offset = number_arg(&args, "offset", 1, usize::MAX).max(1);
         let limit = number_arg(&args, "limit", 240, 1000);
@@ -769,4 +774,111 @@ impl Tool for EditLinesTool {
         ));
         Ok(with_diagnostics(ctx, &path, output).await)
     }
+}
+
+/// The media type of a picture `read` can show, by its extension.
+fn image_type(path: &Path) -> Option<&'static str> {
+    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        _ => None,
+    }
+}
+
+/// Whether `path` is a picture enx saved itself: `preview`'s screenshots,
+/// in a folder of the temp directory. Those may be read from outside the
+/// workspace.
+fn enx_picture(path: &Path) -> bool {
+    let Ok(canonical) = path.canonicalize() else {
+        return false;
+    };
+    let temp = std::env::temp_dir()
+        .canonicalize()
+        .unwrap_or_else(|_| std::env::temp_dir());
+    canonical.starts_with(&temp)
+        && canonical.components().any(|part| {
+            part.as_os_str()
+                .to_string_lossy()
+                .starts_with("enx-preview-")
+        })
+}
+
+/// A picture for the model to look at.
+fn read_image(ctx: &ToolCtx, raw: &str, mime: &str) -> ToolOutput {
+    use base64::Engine as _;
+    const LIMIT: u64 = 8 * 1024 * 1024;
+    if !ctx.vision {
+        return ToolOutput::error(
+            "The model in use cannot see images (the catalogue lists no image input for it). \
+             Work from `preview`'s measurements instead, or set the model's `vision = true` in \
+             config.toml when it can.",
+        );
+    }
+    let candidate = Path::new(raw);
+    let path = if candidate.is_absolute() && enx_picture(candidate) {
+        candidate.to_path_buf()
+    } else {
+        match resolve_existing(&ctx.workspace, raw) {
+            Ok(path) => path,
+            Err(error) => return ToolOutput::error(format!("{error:#}")),
+        }
+    };
+    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    if size > LIMIT {
+        return ToolOutput::error(format!(
+            "{raw} is {} MB; images up to 8 MB can be shown",
+            size / (1024 * 1024)
+        ));
+    }
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) => return ToolOutput::error(format!("reading {raw}: {error}")),
+    };
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| raw.to_owned());
+    let mut output = ToolOutput::ok(format!(
+        "{name} ({} KB) is attached below for you to look at.",
+        bytes.len() / 1024
+    ));
+    output.images.push(crate::message::Attachment {
+        name,
+        data_url: format!(
+            "data:{mime};base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(&bytes)
+        ),
+    });
+    output
+}
+
+/// An `edit` call in the shape `edit_lines` takes (line anchors in `from` or
+/// `lines`, an `op`, `text`), as that tool's arguments. A model that has read
+/// anchors sometimes sends them to `edit`; this runs what it meant.
+pub(super) fn anchored_edit(args: &Value) -> Option<Value> {
+    if args.get("old_text").is_some() {
+        return None;
+    }
+    let anchor = args
+        .get("from")
+        .or_else(|| args.get("lines"))
+        .and_then(Value::as_str)?;
+    if !anchor.contains('#') {
+        return None;
+    }
+    let (from, to) = match anchor.split_once(['-', '–']) {
+        Some((from, to)) if to.contains('#') => (from.trim(), Some(to.trim())),
+        _ => (anchor.trim(), args.get("to").and_then(Value::as_str)),
+    };
+    let mut edit = json!({
+        "op": args.get("op").and_then(Value::as_str).unwrap_or("replace"),
+        "from": from,
+        "text": args.get("text").or_else(|| args.get("new_text")).cloned().unwrap_or(json!("")),
+    });
+    if let Some(to) = to {
+        edit["to"] = json!(to);
+    }
+    Some(json!({ "path": args.get("path").cloned().unwrap_or(Value::Null), "edits": [edit] }))
 }

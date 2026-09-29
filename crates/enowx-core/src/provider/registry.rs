@@ -368,7 +368,9 @@ impl Config {
                 own.and_then(|m| m.price_cache_read),
                 listed.and_then(|m| m.cost.cache_read),
             ),
-            vision: listed.is_some_and(|m| m.modalities.supports_vision()),
+            vision: own
+                .and_then(|m| m.vision)
+                .unwrap_or_else(|| listed.is_some_and(|m| m.modalities.supports_vision())),
             tool_call: listed.map(|m| m.tool_call).unwrap_or(true),
             reasoning: listed.is_some_and(|m| m.reasoning),
         }

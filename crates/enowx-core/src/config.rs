@@ -277,6 +277,11 @@ pub struct AgentConfig {
     /// Whether written files go to the project's language server, so type
     /// errors and lint warnings come back with the edit.
     pub lsp: bool,
+    /// Whether agents may look at pages in headless Chrome (`preview`).
+    pub preview: bool,
+    /// Whether the orchestrator's delegations run in the background: its
+    /// turn ends, and their reports start a new one when they finish.
+    pub background_delegation: bool,
 }
 
 impl Default for AgentConfig {
@@ -292,6 +297,8 @@ impl Default for AgentConfig {
             tiers: TierModels::default(),
             models: BTreeMap::new(),
             lsp: true,
+            preview: true,
+            background_delegation: true,
         }
     }
 }

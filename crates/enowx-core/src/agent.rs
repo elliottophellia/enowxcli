@@ -296,6 +296,14 @@ pub struct Agent {
     /// Language servers started for this workspace, shared by every agent
     /// of the run.
     lsp: Arc<crate::lsp::Lsp>,
+    /// This agent, when the host holds it in an `Arc` (`into_shared`), so a
+    /// turn can leave delegations running after it ends.
+    me: std::sync::Weak<Agent>,
+    /// Where delegations that outlive their turn report, when the host
+    /// listens (`background_events`).
+    background: std::sync::Mutex<Option<mpsc::Sender<Event>>>,
+    /// Batches of delegations still running in the background.
+    waiting: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl Agent {
@@ -339,7 +347,36 @@ impl Agent {
             questions: std::sync::Mutex::new(std::collections::HashMap::new()),
             board: crate::contract::Board::default(),
             lsp: Arc::new(crate::lsp::Lsp::new(config_workspace)),
+            me: std::sync::Weak::new(),
+            background: std::sync::Mutex::new(None),
+            waiting: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
+    }
+
+    /// Hold the agent in an `Arc` that it knows about, so the orchestrator's
+    /// delegations can run on after its turn ends.
+    pub fn into_shared(mut self) -> Arc<Self> {
+        Arc::new_cyclic(|me| {
+            self.me = me.clone();
+            self
+        })
+    }
+
+    /// Listen for what delegations running in the background send: each
+    /// one's `DelegationFinished`, then `DelegationsReported` when a batch is
+    /// done. Until a host listens (and the agent is shared), delegations run
+    /// inside the turn that started them.
+    pub fn background_events(&self) -> mpsc::Receiver<Event> {
+        let (tx, rx) = mpsc::channel(256);
+        if let Ok(mut slot) = self.background.lock() {
+            *slot = Some(tx);
+        }
+        rx
+    }
+
+    /// How many batches of delegations are still running in the background.
+    pub fn delegations_running(&self) -> usize {
+        self.waiting.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Let the agent holding the conversation ask the user questions. The
@@ -523,6 +560,13 @@ impl Agent {
         if agent.delegation != crate::agent_def::Delegation::None {
             prompt.push_str(&self.roster_block(agent));
         }
+        if !self.config.agent.preview && agent.tools.iter().any(|t| t == "preview") {
+            prompt.push_str(
+                "\nThe user turned `preview` off: do not look at pages in a browser. Check \
+                 interface work with `ui_check` and by reading the code, and say in your report \
+                 that it was not looked at.\n",
+            );
+        }
         if self.config.agent.lsp && agent.tools.iter().any(|t| t == "diagnostics") {
             prompt.push_str(
                 "\nWhen `write` or `edit` reports errors from the language server, fix them \
@@ -626,8 +670,11 @@ impl Agent {
         cancel: CancellationToken,
     ) -> Result<()> {
         let outcome = self.run_inner(request, &events, cancel).await;
-        // The run is over and every agent in it has finished.
-        self.board.clear();
+        // The run is over and every agent in it has finished, unless some
+        // still work in the background and hold files on the board.
+        if self.delegations_running() == 0 {
+            self.board.clear();
+        }
         match outcome {
             Ok(()) => Ok(()),
             Err(error) => {
@@ -694,9 +741,22 @@ impl Agent {
         delegations: &[crate::routing::Delegation],
         events: &mpsc::Sender<Event>,
     ) -> Vec<String> {
-        // Start every branch first: records, events and the lineage the
-        // contract uses, so the runs themselves share nothing mutable.
-        let mut started: Vec<Result<Session, String>> = Vec::new();
+        let started = self.start_branches(parent, delegations, events).await;
+        let reports = self.finish_branches(delegations, started, events).await;
+        self.absorb_reports(parent, &reports);
+        reports.into_iter().map(|report| report.summary).collect()
+    }
+
+    /// Start a branch for each delegation: records, events and the lineage the
+    /// contract uses, so the runs themselves share nothing mutable. A branch
+    /// that could not start is its failure summary.
+    async fn start_branches(
+        &self,
+        parent: &mut Session,
+        delegations: &[crate::routing::Delegation],
+        events: &mpsc::Sender<Event>,
+    ) -> Vec<Result<Session, crate::event::DelegationReport>> {
+        let mut started = Vec::new();
         for delegation in delegations {
             let branch = parent.branch(&delegation.to);
             if let Err(error) = self.store.save(&branch) {
@@ -712,7 +772,12 @@ impl Agent {
                         failed: true,
                     })
                     .await;
-                started.push(Err(summary));
+                started.push(Err(crate::event::DelegationReport {
+                    agent: delegation.to.clone(),
+                    session_id: branch.id.clone(),
+                    summary,
+                    failed: true,
+                }));
                 continue;
             }
             self.board.branch(&branch.id, &parent.id);
@@ -730,7 +795,16 @@ impl Agent {
                 .await;
             started.push(Ok(branch));
         }
+        started
+    }
 
+    /// Run the started branches together and say how each ended.
+    async fn finish_branches(
+        &self,
+        delegations: &[crate::routing::Delegation],
+        started: Vec<Result<Session, crate::event::DelegationReport>>,
+        events: &mpsc::Sender<Event>,
+    ) -> Vec<crate::event::DelegationReport> {
         let runs = delegations
             .iter()
             .zip(&started)
@@ -765,21 +839,18 @@ impl Agent {
             });
         let outcomes = futures::future::join_all(runs).await;
 
-        let mut summaries = Vec::new();
+        let mut reports = Vec::new();
         for ((delegation, branch), outcome) in delegations.iter().zip(started).zip(outcomes) {
-            let (mut branch, outcome) = match (branch, outcome) {
-                (Err(summary), _) => {
-                    summaries.push(summary);
+            let (branch, outcome) = match (branch, outcome) {
+                (Err(report), _) => {
+                    reports.push(report);
                     continue;
                 }
                 (Ok(branch), Some(outcome)) => (branch, outcome),
                 (Ok(_), None) => unreachable!("a started branch always runs"),
             };
             // Reload: the nested run owns the branch on disk from here.
-            if let Ok(finished) = self.store.load(&branch.id) {
-                branch = finished;
-            }
-            parent.absorb_usage(&branch.usage);
+            let branch = self.store.load(&branch.id).unwrap_or(branch);
             let summary = match outcome {
                 Ok(()) => branch_summary(&branch),
                 Err(error) => {
@@ -797,14 +868,6 @@ impl Agent {
                 }
             };
             let failed = summary.starts_with("failed") || summary.starts_with("PARTIAL FAILURE");
-            if let Some(record) = parent
-                .delegations
-                .iter_mut()
-                .rev()
-                .find(|record| record.session_id == branch.id)
-            {
-                record.failed = failed;
-            }
             let _ = events
                 .send(Event::DelegationFinished {
                     agent: delegation.to.clone(),
@@ -813,9 +876,120 @@ impl Agent {
                     failed,
                 })
                 .await;
-            summaries.push(summary);
+            reports.push(crate::event::DelegationReport {
+                agent: delegation.to.clone(),
+                session_id: branch.id.clone(),
+                summary,
+                failed,
+            });
         }
-        summaries
+        reports
+    }
+
+    /// Roll finished branches into the session that delegated: their token
+    /// spend, and which of them failed.
+    fn absorb_reports(&self, parent: &mut Session, reports: &[crate::event::DelegationReport]) {
+        for report in reports {
+            if let Ok(branch) = self.store.load(&report.session_id) {
+                parent.absorb_usage(&branch.usage);
+            }
+            if let Some(record) = parent
+                .delegations
+                .iter_mut()
+                .rev()
+                .find(|record| record.session_id == report.session_id)
+            {
+                record.failed = report.failed;
+            }
+        }
+    }
+
+    /// Whether this turn's delegations can run on after it: the host holds the
+    /// agent in an `Arc` and listens on the background channel.
+    fn can_delegate_in_background(&self) -> bool {
+        self.me.upgrade().is_some()
+            && self
+                .background
+                .lock()
+                .map(|slot| slot.is_some())
+                .unwrap_or(false)
+    }
+
+    /// Leave started branches running after this turn ends. Their reports come
+    /// back on the background channel together, as `DelegationsReported`, for
+    /// the host to wake the orchestrator with.
+    ///
+    /// A plain function, not `async`: the task it spawns runs the branches,
+    /// whose turns may come back here, and a future that contained itself
+    /// could not be proven safe to send between threads.
+    fn continue_in_background(
+        &self,
+        parent_id: String,
+        delegations: Vec<crate::routing::Delegation>,
+        started: Vec<Result<Session, crate::event::DelegationReport>>,
+    ) {
+        let (Some(me), Some(background)) = (
+            self.me.upgrade(),
+            self.background.lock().ok().and_then(|slot| slot.clone()),
+        ) else {
+            return;
+        };
+        self.waiting
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let run: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> =
+            Box::pin(async move {
+                let reports = me.finish_branches(&delegations, started, &background).await;
+                me.waiting.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                let _ = background
+                    .send(Event::DelegationsReported {
+                        session_id: parent_id,
+                        reports,
+                    })
+                    .await;
+            });
+        tokio::spawn(run);
+    }
+
+    /// Wake the orchestrator with the reports of delegations that ran in the
+    /// background: they go into its session as the reports of a delegation
+    /// that ran inside the turn do, and its turn carries on from them.
+    pub async fn resume_with_reports(
+        &self,
+        session_id: &str,
+        role: Role,
+        reports: Vec<crate::event::DelegationReport>,
+        events: mpsc::Sender<Event>,
+        cancel: CancellationToken,
+    ) -> Result<()> {
+        let mut session = self.store.load(session_id)?;
+        self.absorb_reports(&mut session, &reports);
+        for report in &reports {
+            session.push(Message {
+                role: MessageRole::User,
+                content: crate::routing::report_message(&report.agent, &report.summary),
+                reasoning: None,
+                tool_calls: Vec::new(),
+                attachments: Vec::new(),
+                tool_call_id: None,
+                interrupted: false,
+                error: None,
+                model: None,
+                message_id: None,
+            });
+        }
+        self.store.save(&session)?;
+        self.run(
+            RunRequest {
+                prompt: String::new(),
+                session_id: Some(session_id.to_owned()),
+                role,
+                attachments: Vec::new(),
+                agent: None,
+            },
+            events,
+            cancel,
+        )
+        .await
     }
 
     async fn run_inner(
@@ -1021,7 +1195,14 @@ impl Agent {
             )
             .next()
             .is_some();
-        let mut schemas = tools_registry.schemas_for_agent(&active.tools, readable);
+        // Tools the user turned off are neither offered nor run.
+        let allowed_tools: Vec<String> = active
+            .tools
+            .iter()
+            .filter(|tool| self.config.agent.preview || tool.as_str() != "preview")
+            .cloned()
+            .collect();
+        let mut schemas = tools_registry.schemas_for_agent(&allowed_tools, readable);
         // Only the agent holding the user's conversation can ask them, and
         // only where the host can put the question to them.
         if self.asks_user && session.parent.is_none() {
@@ -1379,7 +1560,7 @@ impl Agent {
                                     let mut ctx = tool_ctx.clone();
                                     ctx.call_id = call.id.clone();
                                     tools_registry
-                                        .execute_for_agent(&active.tools, &ctx, &call.name, args)
+                                        .execute_for_agent(&allowed_tools, &ctx, &call.name, args)
                                         .await
                                 }
                             }
@@ -1484,6 +1665,42 @@ impl Agent {
             }
             if !pending_delegations.is_empty() {
                 let delegations = std::mem::take(&mut pending_delegations);
+                // The orchestrator holding the user's conversation does not
+                // wait on its specialists: they run on after this turn, and
+                // their reports start a new one when they are all done.
+                if self.config.agent.background_delegation
+                    && session.parent.is_none()
+                    && self.can_delegate_in_background()
+                {
+                    let started = self
+                        .start_branches(&mut session, &delegations, events)
+                        .await;
+                    self.continue_in_background(session.id.clone(), delegations.clone(), started);
+                    let names: Vec<String> =
+                        delegations.iter().map(|d| format!("`{}`", d.to)).collect();
+                    session.push(Message {
+                        role: MessageRole::User,
+                        content: format!(
+                            "[harness] Started in the background: {}. They report when they \
+                             finish, all together, in a new turn. End this turn now with one \
+                             line to the user saying who is working on what, unless there is \
+                             work that does not depend on them. Do not wait, poll or check \
+                             their files.",
+                            names.join(", ")
+                        ),
+                        reasoning: None,
+                        tool_calls: Vec::new(),
+                        attachments: Vec::new(),
+                        tool_call_id: None,
+                        interrupted: false,
+                        error: None,
+                        model: None,
+                        message_id: None,
+                    });
+                    self.store.save(&session)?;
+                    step += 1;
+                    continue;
+                }
                 let summaries = self
                     .run_delegations(&mut session, &delegations, events)
                     .await;

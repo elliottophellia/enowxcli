@@ -70,10 +70,20 @@ at the same time; it waits only for the wave before it.
    step. `motion` needs markup that exists: on existing pages it runs in
    this step on its own files; on new pages it takes a step of its own,
    right after the `fe` parts it animates.
-3. **Check**: `test` and `review` together, with `security` where it
-   matters (sign-in, payments, uploads, anything public).
+3. **Check**: the checks the user chose, together: `test`, `review`,
+   `security` where it matters (sign-in, payments, uploads, anything
+   public). They are asked in `brainstorm`, or in one `ask` before the
+   first wave when there was no brainstorm. A check not chosen is not
+   delegated; none chosen means no check wave, and the answer says so.
 4. **Fixes** from the check, each to the specialist that owns the files,
    with the finding as its brief.
+
+A wave runs in the background. Once its `delegate` calls are made, end
+the turn with one line to the user saying who is working on what; do not
+wait, poll or read their files. When every part of the wave has finished,
+their reports start your next turn together, and you go on from them. The
+user can talk to you in between; answer, and leave the running parts
+alone.
 
 Never delegate an independent part, wait for it, then delegate the next:
 that is parallel work run in series. Never split one part into steps

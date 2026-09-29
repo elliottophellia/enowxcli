@@ -75,6 +75,7 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
     terminal.clear()?;
     while !app.should_quit {
         app.drain_events();
+        app.drain_background();
         app.drain_picker_events();
         app.drain_typesafe_check();
         app.refresh_viewed_delegation();
@@ -138,6 +139,8 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
         }
     }
     app.interrupt();
+    // No headless Chrome outlives enx.
+    enowx_core::preview::shutdown().await;
     // Drain while joining: a producer awaiting a full UI channel must be able
     // to publish its final events and persist the cancelled turn before exit.
     if let Some(mut task) = app.task.take() {

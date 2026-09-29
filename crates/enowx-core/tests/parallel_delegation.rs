@@ -114,6 +114,9 @@ async fn answer(body: &str) -> String {
     if body.contains("DONE: A") && body.contains("DONE: B") {
         return says("Both parts are built.");
     }
+    if body.contains("Started in the background") {
+        return says("Frontend is on both parts.");
+    }
     two_delegations()
 }
 
@@ -206,5 +209,106 @@ async fn one_step_delegates_run_together_and_keep_to_the_contract() {
         "both reports came back"
     );
     assert!(started.elapsed() < Duration::from_secs(20));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Held by a host that listens, the orchestrator does not wait on its
+/// specialists: its turn ends, their reports arrive on the background
+/// channel together, and they wake it for a new turn.
+#[tokio::test]
+async fn delegations_run_on_after_the_turn_and_wake_the_orchestrator() {
+    let dir = std::env::temp_dir().join(format!("enx-background-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (url, _bodies) = provider().await;
+    let mut config = Config::default();
+    config.use_endpoint("test", &url, "test-key", "test-model");
+    config.agent.workspace = Some(dir.clone());
+    config.agent.auto_compact = false;
+    let agent = Agent::with_discovery(
+        config,
+        SessionStore::new(dir.with_extension("sessions")),
+        Discovery {
+            agents: builtin_agents(),
+            ..Discovery::default()
+        },
+    )
+    .into_shared();
+    let mut background = agent.background_events();
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+    let request = enowx_core::agent::RunRequest {
+        prompt: "build both parts".into(),
+        session_id: None,
+        role: Role::Orchestrator,
+        attachments: Vec::new(),
+        agent: Some("orchestrator".into()),
+    };
+    let turn = agent.clone();
+    tokio::spawn(async move {
+        turn.run(request, tx, tokio_util::sync::CancellationToken::new())
+            .await
+    });
+    let mut session = String::new();
+    let mut started = 0;
+    let mut finished_in_turn = 0;
+    let mut said = String::new();
+    while let Some(event) = rx.recv().await {
+        match event {
+            enowx_core::Event::Session { id, .. } => session = id,
+            enowx_core::Event::DelegationStarted { .. } => started += 1,
+            enowx_core::Event::DelegationFinished { .. } => finished_in_turn += 1,
+            enowx_core::Event::Text { delta } => said.push_str(&delta),
+            _ => {}
+        }
+    }
+    assert_eq!(started, 2);
+    assert_eq!(
+        finished_in_turn, 0,
+        "the turn ended before the parts finished"
+    );
+    assert!(said.contains("Frontend is on both parts"), "{said}");
+    assert!(agent.delegations_running() > 0 || !background.is_empty());
+
+    let mut finished = 0;
+    let reports = loop {
+        match tokio::time::timeout(Duration::from_secs(30), background.recv())
+            .await
+            .expect("the reports arrive")
+            .expect("the channel stays open")
+        {
+            enowx_core::Event::DelegationFinished { .. } => finished += 1,
+            enowx_core::Event::DelegationsReported {
+                session_id,
+                reports,
+            } => {
+                assert_eq!(session_id, session);
+                break reports;
+            }
+            _ => {}
+        }
+    };
+    assert_eq!(finished, 2);
+    assert_eq!(reports.len(), 2);
+    assert!(reports.iter().all(|r| !r.failed), "{reports:?}");
+    assert_eq!(agent.delegations_running(), 0);
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+    agent
+        .resume_with_reports(
+            &session,
+            Role::Orchestrator,
+            reports,
+            tx,
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let mut said = String::new();
+    while let Ok(event) = rx.try_recv() {
+        if let enowx_core::Event::Text { delta } = event {
+            said.push_str(&delta);
+        }
+    }
+    assert!(said.contains("Both parts are built"), "{said}");
     let _ = std::fs::remove_dir_all(&dir);
 }

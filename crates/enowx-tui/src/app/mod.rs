@@ -91,6 +91,13 @@ pub(crate) struct Viewing {
 
 pub(crate) struct App {
     pub(crate) agent: Arc<Agent>,
+    /// What delegations still running after their turn send: one receiver
+    /// per agent this app has had, since an agent replaced by a settings
+    /// change keeps its delegations running to the end.
+    pub(crate) background: Vec<mpsc::Receiver<Event>>,
+    /// Reports of background delegations waiting to wake the orchestrator,
+    /// by the session that delegated.
+    pub(crate) reports: Vec<(String, Vec<enowx_core::event::DelegationReport>)>,
     pub(crate) config: Config,
     pub(crate) store: SessionStore,
     pub(crate) blocks: Vec<TranscriptBlock>,
@@ -306,13 +313,16 @@ impl App {
         let workspace = config.workspace();
         // The interface can put a question to the user, so the agent
         // holding the conversation may ask one.
-        let agent = Arc::new(Agent::new(config.clone()).asking_user());
+        let agent = Agent::new(config.clone()).asking_user().into_shared();
+        let background = vec![agent.background_events()];
         // Started at launch, in the background: the first message used to
         // wait for every MCP server in turn, 33 seconds with one that hung.
         agent.start_mcp();
         let discovery = agent.discovery();
         Self {
             agent,
+            background,
+            reports: Vec::new(),
             settings: SettingsDraft::default(),
             config,
             store: SessionStore::default(),
@@ -589,7 +599,8 @@ impl App {
         self.show_sidebar = config.ui.show_sidebar;
         self.context_window = config.model.context_window;
         self.config = config.clone();
-        self.agent = Arc::new(Agent::new(config).asking_user());
+        self.agent = Agent::new(config).asking_user().into_shared();
+        self.background.push(self.agent.background_events());
         // MCP servers start now, in the background, so the next message
         // does not wait on them.
         self.agent.start_mcp();

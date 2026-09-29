@@ -108,6 +108,8 @@ with the old file kept as `config.toml.before-providers.bak`.
 | `agent.workspace` | Directory the file and shell tools are rooted in |
 | `agent.shell_timeout_secs` | Kill a shell command after this long |
 | `agent.lsp` | Check written files with the project's language servers (default on) |
+| `agent.preview` | Let agents look at pages in headless Chrome (default on; `/preview` toggles it) |
+| `agent.background_delegation` | The orchestrator's delegations run on after its turn and their reports wake it (default on) |
 | `agent.auto_compact_at` | Fraction of the context window that triggers auto-compact |
 | `agent.compact_keep_last` | Turns kept verbatim during compact |
 | `ui.theme` | `obsidian_ice`, `neo_acid`, `chrome_void`, `oled_stealth`, or `classic` |
@@ -152,6 +154,17 @@ fixes a type error before it builds anything on top of it. An edit waits only
 for the server's first answer; the `diagnostics` tool waits for the full
 check. A server that is not installed is named once, with its install
 command. `agent.lsp = false` turns this off.
+
+The orchestrator does not wait on its specialists: a wave it delegates runs
+in the background, its turn ends, and the status bar says how many agents
+are working. When the whole wave has finished, their reports start its next
+turn on their own. Tests and review run only when the user chose them at
+the start.
+
+`preview` shares one headless Chrome across every look, each in a throwaway
+browser context, two at a time; the browser closes after 90 seconds without
+a look and never outlives enx. Looking again at a page with no file changed
+returns the last result instead of opening a browser.
 
 File tools reject paths and symlinks outside the workspace. `bash` runs with
 the user's OS permissions and is **not a sandbox**; use only with trusted tasks

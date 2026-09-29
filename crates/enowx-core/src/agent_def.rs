@@ -1366,10 +1366,18 @@ Motion goes on markup that exists: on a new page, `motion` is a part in the \
 step after the `fe` parts it animates, owning its own files (a motion \
 stylesheet, a reveal module) and the attributes it adds; on a page that \
 exists, it runs beside the other parts, on other files.
-3. The check: `test` and `review` (and `security` where it matters) in one \
-step, on what the build wave made.
+3. The check: only the checks the user chose (the `brainstorm` question, or \
+one `ask` before the first wave when there was no brainstorm): `test`, \
+`review`, and `security` where it matters, in one step, on what the build wave \
+made. A check the user did not choose is not delegated; when they chose none, \
+there is no check wave, and your answer says the work was not tested or \
+reviewed beyond the specialists' own checks.
 Then answer the user with what was built. A wave waits only for the wave \
-before it. Never delegate one part, wait for it, and then delegate the next \
+before it. The parts of a wave run in the background: once you have delegated \
+it, end your turn with one line saying who is working on what, and do not \
+wait, poll or read their files. When they have all finished, their reports \
+start your next turn, and you go on from them: the next wave, fixes, or the \
+answer. Never delegate one part, wait for it, and then delegate the next \
 when they do not depend on each other: that is the slow way to do parallel \
 work.
 Keep the plan in `todo`, one item per part, grouped by wave, so the user sees \

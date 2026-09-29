@@ -120,8 +120,27 @@ pub enum Event {
     Error {
         message: String,
     },
+    /// Delegations that ran in the background have all finished. Sent on the
+    /// agent's background channel after the turn that started them ended;
+    /// the host wakes the orchestrator with them (`Agent::resume_with_reports`).
+    DelegationsReported {
+        /// The session that delegated.
+        session_id: String,
+        reports: Vec<DelegationReport>,
+    },
     /// Turn finished cleanly. Terminal.
     Done {
         stop_reason: String,
     },
+}
+
+/// What one delegated agent reported, carried back to the agent that
+/// delegated.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DelegationReport {
+    pub agent: String,
+    /// The branch session holding what it did.
+    pub session_id: String,
+    pub summary: String,
+    pub failed: bool,
 }

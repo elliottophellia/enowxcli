@@ -27,6 +27,22 @@ impl App {
         Ok(())
     }
 
+    /// Let agents look at pages in headless Chrome, or stop them. Kept in
+    /// `config.toml`, and the agent is rebuilt so the next call sees it.
+    pub(crate) fn toggle_preview(&mut self) -> Result<()> {
+        let mut config = self.config.clone();
+        config.agent.preview = !config.agent.preview;
+        config.save()?;
+        let on = config.agent.preview;
+        self.adopt(config);
+        self.status = if on {
+            "preview on: agents may look at pages in a browser".into()
+        } else {
+            "preview off: agents check pages without a browser".into()
+        };
+        Ok(())
+    }
+
     pub(crate) fn select_theme(&mut self, index: usize) -> Result<()> {
         let theme = THEMES[index];
         let mut config = self.config.clone();

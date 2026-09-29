@@ -439,6 +439,14 @@ impl App {
                 self.set_activity(Activity::Idle);
                 self.status = "failed".into();
             }
+            // Only ever on the background channel, where `drain_background`
+            // takes it before it would reach here.
+            Event::DelegationsReported {
+                session_id,
+                reports,
+            } => {
+                self.reports.push((session_id, reports));
+            }
             Event::Done { stop_reason } => {
                 // A turn the user already stopped reports back when it has
                 // finished unwinding. The UI moved on at the keypress, so
@@ -496,5 +504,81 @@ impl App {
                 }
             }
         }
+    }
+}
+
+impl App {
+    /// Take what delegations running in the background sent: their progress
+    /// goes to the transcript and the Agents card as it would during a turn,
+    /// and a finished batch wakes the orchestrator as soon as it is free.
+    pub(crate) fn drain_background(&mut self) {
+        let mut arrived = Vec::new();
+        for receiver in &mut self.background {
+            while let Ok(event) = receiver.try_recv() {
+                arrived.push(event);
+            }
+        }
+        for event in arrived {
+            match event {
+                Event::DelegationsReported {
+                    session_id,
+                    reports,
+                } => self.reports.push((session_id, reports)),
+                other => self.apply_event(other),
+            }
+        }
+        if !self.busy && self.question.is_none() {
+            self.wake_with_reports();
+        }
+    }
+
+    /// Start the orchestrator's next turn with the reports of the delegations
+    /// it left running, when they belong to the conversation on screen.
+    fn wake_with_reports(&mut self) {
+        let Some(current) = self.session_id.clone() else {
+            return;
+        };
+        let Some(index) = self.reports.iter().position(|(id, _)| *id == current) else {
+            return;
+        };
+        let (session_id, reports) = self.reports.remove(index);
+        if self.viewing.is_some() {
+            self.leave_delegation();
+        }
+        let names: Vec<String> = reports
+            .iter()
+            .map(|r| enowx_core::agent_def::display_name(&r.agent).to_string())
+            .collect();
+        self.push(
+            TranscriptKind::Notice,
+            format!(
+                "Reports in from {}; the orchestrator carries on.",
+                names.join(", ")
+            ),
+        );
+        self.auto_scroll = true;
+        self.busy = true;
+        self.turn_started = Instant::now();
+        self.set_activity(Activity::Waiting);
+        self.status = "working".into();
+        self.forget_abandoned_turns();
+        let cancel = CancellationToken::new();
+        let (tx, rx) = mpsc::channel(256);
+        self.cancel = Some(cancel.clone());
+        self.events = Some(rx);
+        let agent = self.agent.clone();
+        let role = self.role;
+        self.task = Some(tokio::spawn(async move {
+            if let Err(error) = agent
+                .resume_with_reports(&session_id, role, reports, tx.clone(), cancel)
+                .await
+            {
+                let _ = tx
+                    .send(Event::Error {
+                        message: format!("{error:#}"),
+                    })
+                    .await;
+            }
+        }));
     }
 }

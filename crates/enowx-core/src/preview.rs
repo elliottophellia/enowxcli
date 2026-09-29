@@ -334,15 +334,70 @@ pub async fn preview_with(
     result
 }
 
-async fn look(
-    chrome: &Path,
-    url: &str,
-    login: Option<&Login>,
-    motion: bool,
-    out_dir: &Path,
-) -> Result<(Vec<WidthReport>, Option<MotionReport>)> {
+/// One headless Chrome for every look, shared by the agents of the process.
+///
+/// Each look used to start its own browser and profile, so an agent that
+/// looked after every edit, or four page agents at once, kept several
+/// Chromes of a few hundred megabytes each alive. Now a look opens a
+/// throwaway browser context (its own cookies and storage) in the one
+/// browser, at most `LOOKS_AT_ONCE` at a time, and the browser closes itself
+/// after `IDLE` without a look.
+struct Browser {
+    child: tokio::process::Child,
+    endpoint: String,
+    profile: PathBuf,
+    looking: usize,
+    last_used: std::time::Instant,
+}
+
+const LOOKS_AT_ONCE: usize = 2;
+const IDLE: Duration = Duration::from_secs(90);
+
+static BROWSER: tokio::sync::Mutex<Option<Browser>> = tokio::sync::Mutex::const_new(None);
+static LOOKS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(LOOKS_AT_ONCE);
+
+fn pid_file() -> PathBuf {
+    crate::config::home_dir().join("chrome.pid")
+}
+
+/// A browser left running by an enx that exited without closing it: stop it
+/// when its command line says it is ours.
+async fn stop_leftover() {
+    let Ok(text) = std::fs::read_to_string(pid_file()) else {
+        return;
+    };
+    let Ok(pid) = text.trim().parse::<u32>() else {
+        return;
+    };
+    let command = tokio::process::Command::new("ps")
+        .args(["-o", "command=", "-p", &pid.to_string()])
+        .output()
+        .await;
+    if let Ok(out) = command {
+        if String::from_utf8_lossy(&out.stdout).contains("enx-chrome-") {
+            let _ = tokio::process::Command::new("kill")
+                .args(["-TERM", &format!("-{pid}")])
+                .status()
+                .await;
+        }
+    }
+    let _ = std::fs::remove_file(pid_file());
+}
+
+async fn launch(chrome: &Path) -> Result<Browser> {
+    stop_leftover().await;
     let profile = std::env::temp_dir().join(format!("enx-chrome-{}", uuid::Uuid::new_v4()));
-    let mut child = tokio::process::Command::new(chrome)
+    // Chrome runs under a small shell that watches enx: when enx is gone,
+    // however it ended, the shell stops Chrome. A browser kept for the whole
+    // process would otherwise outlive a crash or a test run. The shell leads
+    // its own process group, so closing it stops Chrome and its helpers.
+    const WATCH: &str = "\"$0\" \"$@\" & c=$!; p=$PPID; \
+        while kill -0 $p 2>/dev/null && kill -0 $c 2>/dev/null; do sleep 2; done; \
+        kill $c 2>/dev/null; wait $c 2>/dev/null";
+    let mut child = tokio::process::Command::new("sh")
+        .arg("-c")
+        .arg(WATCH)
+        .arg(chrome)
         .args([
             "--headless=new",
             "--disable-gpu",
@@ -350,12 +405,15 @@ async fn look(
             "--no-default-browser-check",
             "--hide-scrollbars",
             "--mute-audio",
+            "--disable-extensions",
+            "--disable-background-networking",
             "--remote-debugging-port=0",
         ])
         .arg(format!("--user-data-dir={}", profile.display()))
         .arg("about:blank")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
+        .process_group(0)
         .kill_on_drop(true)
         .spawn()
         .context("starting Chrome")?;
@@ -376,11 +434,116 @@ async fn look(
     // Chrome keeps logging; its stderr is read until it exits so it never
     // blocks on a full pipe.
     tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });
+    if let Some(pid) = child.id() {
+        let _ = std::fs::write(pid_file(), pid.to_string());
+    }
+    // Close the browser once nobody has looked for a while.
+    tokio::spawn(async {
+        loop {
+            tokio::time::sleep(Duration::from_secs(15)).await;
+            let mut slot = BROWSER.lock().await;
+            let Some(browser) = slot.as_mut() else {
+                return;
+            };
+            if browser.looking == 0 && browser.last_used.elapsed() >= IDLE {
+                if let Some(browser) = slot.take() {
+                    close(browser).await;
+                }
+                return;
+            }
+        }
+    });
+    Ok(Browser {
+        child,
+        endpoint,
+        profile,
+        looking: 0,
+        last_used: std::time::Instant::now(),
+    })
+}
 
+async fn close(mut browser: Browser) {
+    // The whole group: the watching shell, Chrome and its helpers.
+    if let Some(group) = browser.child.id() {
+        let _ = tokio::process::Command::new("kill")
+            .args(["-TERM", &format!("-{group}")])
+            .status()
+            .await;
+    }
+    let _ = browser.child.kill().await;
+    let _ = std::fs::remove_dir_all(&browser.profile);
+    let _ = std::fs::remove_file(pid_file());
+}
+
+/// Close the shared browser now: at exit, so no Chrome outlives enx.
+pub async fn shutdown() {
+    if let Some(browser) = BROWSER.lock().await.take() {
+        close(browser).await;
+    }
+}
+
+/// The endpoint of the running browser, starting one when there is none or
+/// the last one died, counted as in use until `done_looking`.
+async fn borrow(chrome: &Path) -> Result<String> {
+    let mut slot = BROWSER.lock().await;
+    let alive = slot
+        .as_mut()
+        .is_some_and(|browser| matches!(browser.child.try_wait(), Ok(None)));
+    if !alive {
+        if let Some(dead) = slot.take() {
+            close(dead).await;
+        }
+        *slot = Some(launch(chrome).await?);
+    }
+    let browser = slot.as_mut().context("a browser")?;
+    browser.looking += 1;
+    browser.last_used = std::time::Instant::now();
+    Ok(browser.endpoint.clone())
+}
+
+async fn done_looking() {
+    if let Some(browser) = BROWSER.lock().await.as_mut() {
+        browser.looking = browser.looking.saturating_sub(1);
+        browser.last_used = std::time::Instant::now();
+    }
+}
+
+async fn look(
+    chrome: &Path,
+    url: &str,
+    login: Option<&Login>,
+    motion: bool,
+    out_dir: &Path,
+) -> Result<(Vec<WidthReport>, Option<MotionReport>)> {
+    let _turn = LOOKS.acquire().await.context("looking")?;
+    let endpoint = borrow(chrome).await?;
+    let outcome = look_in(&endpoint, url, login, motion, out_dir).await;
+    done_looking().await;
+    outcome
+}
+
+async fn look_in(
+    endpoint: &str,
+    url: &str,
+    login: Option<&Login>,
+    motion: bool,
+    out_dir: &Path,
+) -> Result<(Vec<WidthReport>, Option<MotionReport>)> {
+    let mut cdp = Cdp::connect(endpoint).await?;
+    // A context of its own: its cookies, storage and sign-in end with it.
+    let context = cdp
+        .call("Target.createBrowserContext", json!({}), None)
+        .await?["browserContextId"]
+        .as_str()
+        .context("a browser context")?
+        .to_owned();
     let outcome = async {
-        let mut cdp = Cdp::connect(&endpoint).await?;
         let target = cdp
-            .call("Target.createTarget", json!({"url": "about:blank"}), None)
+            .call(
+                "Target.createTarget",
+                json!({"url": "about:blank", "browserContextId": context}),
+                None,
+            )
             .await?;
         let target_id = target["targetId"]
             .as_str()
@@ -424,12 +587,16 @@ async fn look(
         } else {
             None
         };
-        let _ = cdp.call("Browser.close", json!({}), None).await;
         Ok::<_, anyhow::Error>((reports, moved))
     }
     .await;
-    let _ = child.kill().await;
-    let _ = std::fs::remove_dir_all(&profile);
+    let _ = cdp
+        .call(
+            "Target.disposeBrowserContext",
+            json!({"browserContextId": context}),
+            None,
+        )
+        .await;
     outcome
 }
 

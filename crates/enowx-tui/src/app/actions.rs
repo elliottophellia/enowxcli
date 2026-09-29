@@ -399,6 +399,7 @@ impl App {
             "mcp" => self.open_mcp(),
             "compact" => self.start_compact()?,
             "sidebar" => self.toggle_sidebar()?,
+            "preview" => self.toggle_preview()?,
             "reasoning" => {
                 self.show_reasoning = !self.show_reasoning;
                 self.status = format!(

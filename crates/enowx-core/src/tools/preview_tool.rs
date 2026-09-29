@@ -6,6 +6,43 @@ use serde_json::{json, Value};
 /// Looking at a page in headless Chrome, through `crate::preview`.
 pub(super) struct PreviewTool;
 
+/// The last look at each page, with the state of the workspace it saw.
+struct Looked {
+    workspace: (usize, u128),
+    report: String,
+    at: std::time::Instant,
+}
+
+static LOOKED: std::sync::Mutex<Option<std::collections::HashMap<String, Looked>>> =
+    std::sync::Mutex::new(None);
+
+/// How many files the workspace has and when the newest changed: enough to
+/// tell whether anything a page is built from changed since the last look.
+/// Ignored files (`node_modules`, build output) are left out.
+fn workspace_state(root: &std::path::Path) -> (usize, u128) {
+    let mut count = 0;
+    let mut newest = 0;
+    for entry in ignore::WalkBuilder::new(root)
+        .build()
+        .flatten()
+        .take(20_000)
+    {
+        if let Ok(meta) = entry.metadata() {
+            if meta.is_file() {
+                count += 1;
+                if let Ok(modified) = meta.modified() {
+                    let at = modified
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_millis())
+                        .unwrap_or(0);
+                    newest = newest.max(at);
+                }
+            }
+        }
+    }
+    (count, newest)
+}
+
 #[async_trait]
 impl Tool for PreviewTool {
     fn name(&self) -> &str {
@@ -26,8 +63,10 @@ impl Tool for PreviewTool {
          animates on load (when, how long, what moves and how far) and on scroll, loops \
          that never stop, animated layout, `transition: all`, long frames, layout shift, \
          content still hidden after scrolling through the page, scroll and wheel \
-         listeners, and the page again with reduced motion. Use it before you report on \
-         anything with an interface, with `motion` for anything that animates."
+         listeners, and the page again with reduced motion. Look once the page is built \
+         and again after fixing what it found: not after every edit. Looking again with \
+         no file changed returns the last result. Use it before you report on anything \
+         with an interface, with `motion` for anything that animates."
     }
     fn parameters(&self) -> Value {
         json!({"type":"object","properties":{
@@ -51,6 +90,30 @@ impl Tool for PreviewTool {
             (None, Some(url)) => (crate::preview::Target::Url(url.to_owned()), url.to_owned()),
             (None, None) => return Ok(ToolOutput::error("give a path or a url")),
         };
+        // The same look with nothing changed since gives the same answer:
+        // say so instead of starting a browser again.
+        let key = format!(
+            "{shown}|{}|{}",
+            args["motion"].as_bool().unwrap_or(false),
+            args["login"]["url"].as_str().unwrap_or("")
+        );
+        let state = workspace_state(&ctx.workspace);
+        if let Some(last) = LOOKED
+            .lock()
+            .ok()
+            .and_then(|looked| {
+                looked.as_ref().and_then(|l| l.get(&key)).map(|l| {
+                    (l.workspace == state).then(|| (l.report.clone(), l.at.elapsed().as_secs()))
+                })
+            })
+            .flatten()
+        {
+            let (report, ago) = last;
+            return Ok(ToolOutput::ok(format!(
+                "No file changed since the last look at {shown} ({ago}s ago), so it would show \
+                 the same. That look:\n{report}"
+            )));
+        }
         let out_dir =
             std::env::temp_dir().join(format!("enx-preview-{}", uuid::Uuid::new_v4().simple()));
         let login: Option<crate::preview::Login> = match args.get("login") {
@@ -82,6 +145,16 @@ impl Tool for PreviewTool {
                 if let Some(motion) = &motion {
                     text.push('\n');
                     text.push_str(&crate::preview::motion_report(motion));
+                }
+                if let Ok(mut looked) = LOOKED.lock() {
+                    looked.get_or_insert_with(Default::default).insert(
+                        key,
+                        Looked {
+                            workspace: state,
+                            report: text.clone(),
+                            at: std::time::Instant::now(),
+                        },
+                    );
                 }
                 Ok(ToolOutput::ok(text))
             }

@@ -74,6 +74,14 @@ details, or leave them to you.
    - constraints: the stack, where it runs, the data it works with. How
      the data is fetched, cached or deployed is the specialist's to decide;
      ask about it only when the user raised it
+   - the checks, for work large enough to delegate in waves, `"multiple":
+     true`: "Tests (recommended)" (the `test` agent writes and runs tests
+     against what was agreed), "Review (recommended)" (the `review` agent
+     reads every change), and "Security review" when there is sign-in,
+     payment, upload or anything public. What the user leaves unticked is
+     not delegated; ticking none means only the specialists' own checks run,
+     and the final answer says the work was not tested or reviewed beyond
+     them
    - which plan documents to write, as the last question, `"multiple":
      true`, when the work is large enough to delegate in waves (section
      "The plan documents"): PRD, DESIGN, ARCHITECTURE, ERD, API, PLAN, each
@@ -83,7 +91,7 @@ details, or leave them to you.
      straight into the briefs. Do not ask it for small work, or when the user
      already said to just build it
    Ask only what you could not write the brief without: three to six
-   questions is usual, never more than eight.
+   questions is usual, never more than ten.
    For a developer's portfolio, the look and the theme might be asked like
    this, each option a concept from the work, the recommended one first:
 

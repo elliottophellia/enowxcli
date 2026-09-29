@@ -1,4 +1,4 @@
-pub(crate) const COMMANDS: [(&str, &str); 20] = [
+pub(crate) const COMMANDS: [(&str, &str); 21] = [
     ("help", "Show every command"),
     ("new", "Start a fresh session"),
     ("resume", "Reopen a saved session in this workspace"),
@@ -15,6 +15,7 @@ pub(crate) const COMMANDS: [(&str, &str); 20] = [
     ("sidebar", "Toggle telemetry right sidebar"),
     ("reasoning", "Open or close every thinking row"),
     ("tools", "Expand or collapse tool output"),
+    ("preview", "Let agents look at pages in a browser, or not"),
     ("status", "Show runtime summary"),
     ("clear", "Clear the visible transcript"),
     ("stop", "Interrupt the current turn"),
@@ -72,6 +73,7 @@ const PALETTE: [(&str, &[(&str, &str)]); 5] = [
             ("sidebar", "Sidebar"),
             ("reasoning", "Thinking"),
             ("tools", "Tool output"),
+            ("preview", "Browser previews"),
         ],
     ),
     ("App", &[("help", "Help"), ("quit", "Quit")]),

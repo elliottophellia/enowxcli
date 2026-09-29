@@ -401,6 +401,22 @@ pub(super) fn status_spans(app: &App) -> Vec<Span<'static>> {
             Style::default().fg(t.muted),
         ));
     }
+    // Idle, with specialists still at work: say so, or a finished-looking
+    // status bar reads as though nothing is happening.
+    let working = app
+        .delegations
+        .iter()
+        .filter(|d| d.state == crate::app::DelegationState::Running)
+        .count();
+    if !app.busy && working > 0 {
+        left_spans.push(Span::styled(
+            format!(
+                "  {working} {} working in the background",
+                if working == 1 { "agent" } else { "agents" }
+            ),
+            Style::default().fg(t.yellow),
+        ));
+    }
     // The status line's own message, which is where a command's result lands.
     if !app.status.is_empty() && app.status != "ready" {
         left_spans.push(Span::styled(

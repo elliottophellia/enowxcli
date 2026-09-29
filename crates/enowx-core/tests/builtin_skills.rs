@@ -74,6 +74,9 @@ fn every_workspace_has_the_builtin_skills() {
         "backend-api",
         "backend-data",
         "backend-stack-next",
+        "motion",
+        "motion-reveal",
+        "motion-comfort",
     ] {
         let skill = discovery
             .skills
@@ -254,6 +257,40 @@ fn each_agent_carries_the_skills_for_its_work() {
         assert!(carried("be").iter().any(|s| s == skill), "be lacks {skill}");
     }
     assert!(!carried("be").iter().any(|s| s.starts_with("ui")));
+    assert!(!carried("be").iter().any(|s| s.starts_with("motion")));
+    // Motion: every `motion*` skill, and of `ui` only what it builds on.
+    let motion_family: Vec<&str> = enowx_core::discovery::skills::builtin_names()
+        .filter(|name| *name == "motion" || name.starts_with("motion-"))
+        .collect();
+    assert!(motion_family.len() >= 10, "{motion_family:?}");
+    for skill in &motion_family {
+        assert!(
+            carried("motion").iter().any(|s| s == skill),
+            "motion lacks {skill}"
+        );
+        // The interface agents carry them for the motion a component brings.
+        assert!(carried("fe").iter().any(|s| s == skill), "fe lacks {skill}");
+        assert!(
+            carried("mobile").iter().any(|s| s == skill),
+            "mobile lacks {skill}"
+        );
+    }
+    for skill in [
+        "ui",
+        "ui-themes",
+        "ui-stack-react",
+        "ui-stack-tailwind",
+        "code",
+    ] {
+        assert!(
+            carried("motion").iter().any(|s| s == skill),
+            "motion lacks {skill}"
+        );
+    }
+    assert!(!carried("motion")
+        .iter()
+        .any(|s| s.starts_with("ui-part-") || s.starts_with("ui-page-")));
+    assert!(!carried("motion").iter().any(|s| s == "writing"));
     for name in ["db", "devops", "systems", "test", "perf"] {
         assert_eq!(carried(name), ["code"], "{name}");
     }
@@ -294,6 +331,16 @@ fn the_builtin_skills_follow_their_own_rules() {
         "backend-api",
         "backend-data",
         "backend-stack-next",
+        "motion",
+        "motion-timing",
+        "motion-reveal",
+        "motion-interface",
+        "motion-drawings",
+        "motion-demo",
+        "motion-performance",
+        "motion-comfort",
+        "motion-audit",
+        "motion-stacks",
     ] {
         let source = builtin_source(name).expect("built in");
         assert!(!source.contains('—'), "`{name}` has an em dash");
@@ -356,6 +403,67 @@ fn the_backend_prompt_names_its_skills_and_essentials() {
         assert!(be.prompt.contains(needed), "missing {needed:?}");
     }
     assert!(!be.prompt.contains('\u{2014}'), "the prompt has an em dash");
+}
+
+/// The motion specialist is told which skill to read for which work, and
+/// carries the essentials itself: the page's content decides what moves,
+/// the final state is the base, reduced motion, cost, and how to check.
+#[test]
+fn the_motion_prompt_names_its_skills_and_essentials() {
+    let roster = enowx_core::builtin_agents();
+    let motion = roster
+        .iter()
+        .find(|agent| agent.name == "motion")
+        .expect("motion ships");
+    for needed in [
+        "`motion` skill",
+        "`motion-timing`",
+        "`motion-reveal`",
+        "`motion-interface`",
+        "`motion-drawings`",
+        "`motion-demo`",
+        "`motion-performance`",
+        "`motion-comfort`",
+        "`motion-audit`",
+        "`motion-stacks`",
+        "what each part of the page says",
+        "`Motion:` line",
+        "Only transform and opacity",
+        "one IntersectionObserver for the page",
+        "prefers-reduced-motion",
+        "pause control",
+        "invented number",
+        "`motion: true`",
+        "at most six bullets",
+    ] {
+        assert!(motion.prompt.contains(needed), "missing {needed:?}");
+    }
+    assert!(
+        !motion.prompt.contains('\u{2014}'),
+        "the prompt has an em dash"
+    );
+    assert!(motion.allows("preview") && motion.allows("edit"));
+    assert_eq!(enowx_core::agent_def::roster_group("motion"), "BUILD");
+    assert_eq!(enowx_core::agent_def::display_name("motion"), "Motion");
+    // The orchestrator knows when to send it work, and when in a build.
+    let orchestrator = roster
+        .iter()
+        .find(|agent| agent.name == "orchestrator")
+        .unwrap();
+    assert!(orchestrator.prompt.contains("Motion is `motion`'s"));
+    assert!(orchestrator
+        .prompt
+        .contains("Motion goes on markup that exists"));
+    // The frontend knows what is its and what is the motion agent's.
+    let fe = roster.iter().find(|agent| agent.name == "fe").unwrap();
+    assert!(fe.prompt.contains("`motion-interface`") && fe.prompt.contains("`motion` agent"));
+}
+
+/// A new page's design settles how much it moves.
+#[test]
+fn brainstorming_asks_how_much_motion() {
+    let source = builtin_source("brainstorming").unwrap();
+    assert!(source.contains("how much motion"));
 }
 
 /// Every directory under `skills/` is compiled in: a skill added there and

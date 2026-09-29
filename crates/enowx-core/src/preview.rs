@@ -7,6 +7,12 @@
 //! controls without a name, small touch targets, console errors) and saves a
 //! screenshot of each width. It talks to Chrome over the DevTools protocol,
 //! and starts and stops a dev server when the page needs one.
+//!
+//! Asked to, it also watches how the page moves (`MotionReport`): what
+//! animates on load and on scroll, loops that never stop, animation that
+//! costs layout, content that never appears, and the page again with reduced
+//! motion. An agent reads text, not images, so that timeline is how it sees
+//! motion.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -150,6 +156,84 @@ impl WidthReport {
     }
 }
 
+/// How the page moves, watched at 1440px: once as it is, once with reduced
+/// motion. Each list is short and already worded for the agent.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct MotionReport {
+    pub width: u32,
+    /// Animations on load in the order they start, as `at 120ms for 900ms:
+    /// h1 span.hero-line, opacity, moves 18px`.
+    pub on_load: Vec<String>,
+    /// How many played on load, and when the last of them ends, in ms from
+    /// the start of loading.
+    pub load_count: usize,
+    pub load_ends_ms: u64,
+    /// How many animations scrolling through the page started, and in how
+    /// many blocks (what one reveal starts, or one burst).
+    pub on_scroll: usize,
+    pub scroll_blocks: usize,
+    /// The block whose animations run longest, as `div.steps: 18
+    /// animations over 2.9s`.
+    pub longest_sequence: Option<String>,
+    /// CSS animations that repeat forever, as `span.caret: blink 1s`.
+    pub endless: Vec<String>,
+    /// Script loops: requestAnimationFrame and fast timers, and whether they
+    /// stop when their part of the page is scrolled away.
+    pub loops: Vec<String>,
+    /// Loops that keep running with the page scrolled away from them.
+    pub never_stops: usize,
+    /// Animated properties that cost layout or heavy paint.
+    pub layout_animated: Vec<String>,
+    /// Rules with `transition: all` (or a transition with no property).
+    pub transition_all: Vec<String>,
+    pub transition_all_count: usize,
+    /// Elements whose inline style a script rewrites many times a second.
+    pub js_animated: Vec<String>,
+    /// Frames of 100ms or more while scrolling, as `3, the longest 180ms
+    /// (main.js)`.
+    pub long_frames: Option<String>,
+    /// Layout shift while loading and revealing, when over 0.05.
+    pub layout_shift: Option<String>,
+    /// Text still invisible after scrolling through the whole page.
+    pub hidden: Vec<String>,
+    /// Scroll, wheel, touch and pointer-move listeners.
+    pub listeners: Vec<String>,
+    /// Wheel or touch listeners that can block scrolling.
+    pub blocking_listeners: usize,
+    /// IntersectionObservers the page made, and how many elements they watch.
+    pub observers: Option<String>,
+    /// With reduced motion: what still moves, what still loops, what stays
+    /// hidden, and whether smooth scrolling is left on.
+    pub reduced_moving: Vec<String>,
+    pub reduced_loops: Vec<String>,
+    pub reduced_hidden: Vec<String>,
+    pub reduced_smooth_scroll: bool,
+    /// Screenshots of the first seconds and of the first reveal, for the
+    /// user.
+    pub frames: Vec<PathBuf>,
+    /// Set when the page could not be watched (its scripts never ran).
+    pub note: Option<String>,
+}
+
+impl MotionReport {
+    /// How many problems the motion showed. Endless CSS animations, script
+    /// loops that stop off screen, listeners and observers are facts to
+    /// judge, not problems in themselves.
+    pub fn problems(&self) -> usize {
+        self.hidden.len()
+            + self.layout_animated.len()
+            + usize::from(self.transition_all_count > 0)
+            + self.never_stops
+            + usize::from(self.long_frames.is_some())
+            + usize::from(self.layout_shift.is_some())
+            + self.blocking_listeners
+            + self.reduced_moving.len()
+            + self.reduced_loops.len()
+            + self.reduced_hidden.len()
+            + usize::from(self.reduced_smooth_scroll)
+    }
+}
+
 /// Chrome, Chromium, Edge or Brave on this machine: `ENX_CHROME` first.
 pub fn find_chrome() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("ENX_CHROME").map(PathBuf::from) {
@@ -194,6 +278,22 @@ pub async fn preview_signed_in(
     login: Option<&Login>,
     out_dir: &Path,
 ) -> Result<Vec<WidthReport>> {
+    Ok(
+        preview_with(workspace, target, start, login, false, out_dir)
+            .await?
+            .0,
+    )
+}
+
+/// `preview_signed_in`, and with `motion` also how the page moves.
+pub async fn preview_with(
+    workspace: &Path,
+    target: Target,
+    start: Option<&str>,
+    login: Option<&Login>,
+    motion: bool,
+    out_dir: &Path,
+) -> Result<(Vec<WidthReport>, Option<MotionReport>)> {
     let chrome = find_chrome().context(
         "no Chrome, Chromium, Edge or Brave found; install one, or set ENX_CHROME to its path",
     )?;
@@ -227,7 +327,7 @@ pub async fn preview_signed_in(
         Some(command) => Some(Server::start(workspace, command, &url, out_dir).await?),
         None => None,
     };
-    let result = look(&chrome, &url, login, out_dir).await;
+    let result = look(&chrome, &url, login, motion, out_dir).await;
     if let Some(server) = server {
         server.stop().await;
     }
@@ -238,8 +338,9 @@ async fn look(
     chrome: &Path,
     url: &str,
     login: Option<&Login>,
+    motion: bool,
     out_dir: &Path,
-) -> Result<Vec<WidthReport>> {
+) -> Result<(Vec<WidthReport>, Option<MotionReport>)> {
     let profile = std::env::temp_dir().join(format!("enx-chrome-{}", uuid::Uuid::new_v4()));
     let mut child = tokio::process::Command::new(chrome)
         .args([
@@ -318,8 +419,13 @@ async fn look(
         if let Some(other) = cdp.look_in_other_theme(&session, url, out_dir).await? {
             reports.push(other);
         }
+        let moved = if motion {
+            Some(cdp.watch_motion(&session, url, out_dir).await?)
+        } else {
+            None
+        };
         let _ = cdp.call("Browser.close", json!({}), None).await;
-        Ok::<_, anyhow::Error>(reports)
+        Ok::<_, anyhow::Error>((reports, moved))
     }
     .await;
     let _ = child.kill().await;
@@ -484,6 +590,15 @@ impl Cdp {
 
     /// Load `url` at `width` and wait for it to settle.
     async fn open(&mut self, session: &str, url: &str, width: u32) -> Result<()> {
+        self.navigate(session, url, width).await?;
+        // Late scripts and web fonts settle before anything is measured.
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        Ok(())
+    }
+
+    /// Load `url` at `width`, returning as soon as it has loaded so its
+    /// first moments can be watched.
+    async fn navigate(&mut self, session: &str, url: &str, width: u32) -> Result<()> {
         let mobile = width < 600;
         self.call(
             "Emulation.setDeviceMetricsOverride",
@@ -503,8 +618,182 @@ impl Cdp {
         {
             bail!("{url} did not finish loading within 45 seconds at {width}px");
         }
-        // Late scripts and web fonts settle before anything is measured.
-        tokio::time::sleep(Duration::from_millis(600)).await;
+        Ok(())
+    }
+
+    /// Run `expression` in the page and return its value.
+    async fn evaluate(&mut self, session: &str, expression: &str) -> Result<Value> {
+        let result = self
+            .call(
+                "Runtime.evaluate",
+                json!({"expression": expression, "returnByValue": true, "awaitPromise": true}),
+                Some(session),
+            )
+            .await?;
+        Ok(result["result"]["value"].clone())
+    }
+
+    /// The media every look emulates: the light setting, and `motion` for
+    /// reduced motion (`reduce` or `no-preference`).
+    async fn emulate_motion(&mut self, session: &str, motion: &str) -> Result<()> {
+        self.call(
+            "Emulation.setEmulatedMedia",
+            json!({"features": [
+                {"name": "prefers-color-scheme", "value": "light"},
+                {"name": "prefers-reduced-motion", "value": motion},
+            ]}),
+            Some(session),
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Save what is on screen now as `name` in `out_dir`.
+    async fn frame(&mut self, session: &str, out_dir: &Path, name: &str) -> Result<PathBuf> {
+        let capture = self
+            .call(
+                "Page.captureScreenshot",
+                json!({"format": "png"}),
+                Some(session),
+            )
+            .await?;
+        let data = capture["data"].as_str().context("a screenshot")?;
+        use base64::Engine as _;
+        let bytes = base64::engine::general_purpose::STANDARD.decode(data)?;
+        let path = out_dir.join(name);
+        std::fs::write(&path, bytes)?;
+        Ok(path)
+    }
+
+    /// Watch how the page moves at 1440px: as it is, then with reduced
+    /// motion. Hooks installed before the page's own scripts record every
+    /// animation as it starts, the loops and the listeners.
+    async fn watch_motion(
+        &mut self,
+        session: &str,
+        url: &str,
+        out_dir: &Path,
+    ) -> Result<MotionReport> {
+        let added = self
+            .call(
+                "Page.addScriptToEvaluateOnNewDocument",
+                json!({"source": MOTION_HOOKS}),
+                Some(session),
+            )
+            .await?;
+        let hooks = added["identifier"].as_str().unwrap_or_default().to_owned();
+        let watched = self.watch_motion_twice(session, url, out_dir).await;
+        // Whatever happened, the page is left as the other looks expect it.
+        let _ = self.emulate_motion(session, "no-preference").await;
+        if !hooks.is_empty() {
+            let _ = self
+                .call(
+                    "Page.removeScriptToEvaluateOnNewDocument",
+                    json!({"identifier": hooks}),
+                    Some(session),
+                )
+                .await;
+        }
+        watched
+    }
+
+    async fn watch_motion_twice(
+        &mut self,
+        session: &str,
+        url: &str,
+        out_dir: &Path,
+    ) -> Result<MotionReport> {
+        let width = 1440;
+        let mut report = MotionReport {
+            width,
+            ..MotionReport::default()
+        };
+
+        // As it is: the first seconds photographed, a second at rest, then a
+        // visitor's scroll to the bottom and a second there.
+        self.emulate_motion(session, "no-preference").await?;
+        self.navigate(session, url, width).await?;
+        let loaded = tokio::time::Instant::now();
+        for at in [0u64, 300, 700, 1300, 2500] {
+            tokio::time::sleep_until(loaded + Duration::from_millis(at)).await;
+            if let Ok(path) = self
+                .frame(session, out_dir, &format!("motion-{at}ms.png"))
+                .await
+            {
+                report.frames.push(path);
+            }
+        }
+        let rest = self.evaluate(session, MOTION_AT_REST).await?;
+        if rest.is_null() {
+            report.note =
+                Some("the page's scripts did not run, so its motion could not be watched".into());
+            return Ok(report);
+        }
+        let mut frames = Vec::new();
+        self.scroll_through(
+            session,
+            Duration::from_millis(260),
+            Some(out_dir),
+            &mut frames,
+        )
+        .await?;
+        report.frames.extend(frames);
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let found = self.evaluate(session, MOTION_REPORT).await?;
+        read_motion(&mut report, &rest, &found);
+
+        // With reduced motion.
+        self.emulate_motion(session, "reduce").await?;
+        self.navigate(session, url, width).await?;
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let rest = self.evaluate(session, MOTION_AT_REST).await?;
+        self.scroll_through(session, Duration::from_millis(150), None, &mut Vec::new())
+            .await?;
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        let found = self.evaluate(session, MOTION_REPORT).await?;
+        read_reduced(&mut report, &rest, &found);
+        Ok(report)
+    }
+
+    /// Scroll the page to the bottom most of a screen at a time, as a
+    /// visitor does, pausing `pause` after each step. With `frames_to`, the
+    /// first step is photographed as its reveal plays.
+    async fn scroll_through(
+        &mut self,
+        session: &str,
+        pause: Duration,
+        frames_to: Option<&Path>,
+        frames: &mut Vec<PathBuf>,
+    ) -> Result<()> {
+        let scroller = self.evaluate(session, MOTION_SCROLLER).await?;
+        let max = scroller["max"].as_u64().unwrap_or(0);
+        let step = scroller["step"].as_u64().unwrap_or(600).max(200);
+        let mut y = 0;
+        let mut steps = 0;
+        while y < max && steps < 60 {
+            y = (y + step).min(max);
+            steps += 1;
+            self.evaluate(
+                session,
+                &format!("window.__enxMotion && window.__enxMotion.scrollTo({y})"),
+            )
+            .await?;
+            match (steps, frames_to) {
+                (1, Some(dir)) => {
+                    let moved = tokio::time::Instant::now();
+                    for at in [100u64, 700] {
+                        tokio::time::sleep_until(moved + Duration::from_millis(at)).await;
+                        if let Ok(path) = self
+                            .frame(session, dir, &format!("motion-scroll-{at}ms.png"))
+                            .await
+                        {
+                            frames.push(path);
+                        }
+                    }
+                }
+                _ => tokio::time::sleep(pause).await,
+            }
+        }
         Ok(())
     }
 
@@ -902,6 +1191,269 @@ pub fn report(target: &str, reports: &[WidthReport]) -> String {
         "\nThe measurements are facts about the rendered page; fix what they show. The \
          screenshots are for the user to look at, and for you if you can read images.",
     );
+    out
+}
+
+/// A length of time as the report writes it: `700ms`, `2.5s`.
+fn seconds(ms: u64) -> String {
+    if ms >= 1000 {
+        format!("{}s", (ms as f64 / 100.0).round() / 10.0)
+    } else {
+        format!("{ms}ms")
+    }
+}
+
+fn strings_of(value: &Value) -> Vec<String> {
+    value
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A requestAnimationFrame loop, from the frames counted over a second at
+/// the top of the page and over a second at the bottom: whether it stops
+/// when scrolled away.
+fn raf_loop(top: u64, bottom: u64, screens: f64, who: &str) -> Option<(String, bool)> {
+    let from = if who.is_empty() {
+        String::new()
+    } else {
+        format!(" ({who})")
+    };
+    if top >= 20 {
+        if screens < 1.5 {
+            return Some((
+                format!("requestAnimationFrame about {top} times a second{from}"),
+                false,
+            ));
+        }
+        if bottom >= 20 {
+            return Some((
+                format!(
+                    "requestAnimationFrame about {top} times a second at the top of the page and \
+                     still {bottom} with it scrolled to the bottom: it never stops{from}"
+                ),
+                true,
+            ));
+        }
+        return Some((
+            format!(
+                "requestAnimationFrame about {top} times a second at the top of the page, \
+                 stopping once it is scrolled away{from}"
+            ),
+            false,
+        ));
+    }
+    (bottom >= 20).then(|| {
+        (
+            format!("requestAnimationFrame about {bottom} times a second at the bottom of the page{from}"),
+            false,
+        )
+    })
+}
+
+/// Fill `report` from the look at the page as it is: `rest` is a second at
+/// the top after loading, `found` everything after scrolling through.
+fn read_motion(report: &mut MotionReport, rest: &Value, found: &Value) {
+    if found.is_null() {
+        report.note = Some("the page's scripts stopped answering while it was scrolled".into());
+        return;
+    }
+    report.on_load = strings_of(&found["load"]);
+    report.load_count = found["load_count"].as_u64().unwrap_or(0) as usize;
+    report.load_ends_ms = found["load_ends"].as_u64().unwrap_or(0);
+    report.on_scroll = found["scroll_count"].as_u64().unwrap_or(0) as usize;
+    report.scroll_blocks = found["blocks"].as_u64().unwrap_or(0) as usize;
+    report.longest_sequence = found["longest"].as_str().map(str::to_owned);
+    report.endless = strings_of(&found["endless"]);
+    let who = rest["who"]
+        .as_str()
+        .filter(|w| !w.is_empty())
+        .or(found["who"].as_str())
+        .unwrap_or("");
+    if let Some((line, never_stops)) = raf_loop(
+        rest["raf"].as_u64().unwrap_or(0),
+        found["raf"].as_u64().unwrap_or(0),
+        found["screens"].as_f64().unwrap_or(1.0),
+        who,
+    ) {
+        report.loops.push(line);
+        report.never_stops += usize::from(never_stops);
+    }
+    report.loops.extend(strings_of(&found["timers"]));
+    report.layout_animated = strings_of(&found["layout"]);
+    report.transition_all = strings_of(&found["all"]);
+    report.transition_all_count = found["all_count"].as_u64().unwrap_or(0) as usize;
+    let mut writers: Vec<String> = strings_of(&rest["writers"])
+        .into_iter()
+        .map(|w| format!("{w} at the top of the page"))
+        .collect();
+    writers.extend(
+        strings_of(&found["writers"])
+            .into_iter()
+            .map(|w| format!("{w} at the bottom of the page")),
+    );
+    report.js_animated = writers;
+    report.long_frames = found["long"].as_str().map(str::to_owned);
+    report.layout_shift = found["shift"].as_str().map(str::to_owned);
+    report.hidden = strings_of(&found["hidden"]);
+    if let Some(listeners) = found["listeners"].as_array() {
+        for listener in listeners {
+            if let Some(text) = listener["text"].as_str() {
+                report.listeners.push(text.to_owned());
+            }
+            report.blocking_listeners += usize::from(listener["blocking"] == true);
+        }
+    }
+    report.observers = found["observers"].as_str().map(str::to_owned);
+}
+
+/// Fill in what the page did with reduced motion.
+fn read_reduced(report: &mut MotionReport, rest: &Value, found: &Value) {
+    if found.is_null() {
+        return;
+    }
+    report.reduced_moving = strings_of(&found["moving"]);
+    report.reduced_loops = strings_of(&found["endless"]);
+    if let Some((line, _)) = raf_loop(
+        rest["raf"].as_u64().unwrap_or(0),
+        0,
+        1.0,
+        rest["who"].as_str().unwrap_or(""),
+    ) {
+        report.reduced_loops.push(line);
+    }
+    report.reduced_hidden = strings_of(&found["hidden"]);
+    report.reduced_smooth_scroll = found["smooth"] == true;
+}
+
+/// How the page moved, as the agent reads it.
+pub fn motion_report(m: &MotionReport) -> String {
+    let mut out = format!(
+        "\nMotion at {}px: {}\n",
+        m.width,
+        match m.problems() {
+            0 => "nothing wrong found".to_owned(),
+            1 => "1 problem".to_owned(),
+            n => format!("{n} problems"),
+        }
+    );
+    if let Some(note) = &m.note {
+        out.push_str(&format!("  {note}\n"));
+        return out;
+    }
+    let list = |out: &mut String, label: &str, items: &[String]| {
+        if !items.is_empty() {
+            out.push_str(&format!("  {label}:\n"));
+            for item in items {
+                out.push_str(&format!("    - {item}\n"));
+            }
+        }
+    };
+    if m.on_load.is_empty() {
+        out.push_str("  nothing animates on load\n");
+    } else {
+        out.push_str(&format!(
+            "  on load, {} animation{}, the last ending at {} (times from the start of loading):\n",
+            m.load_count,
+            if m.load_count == 1 { "" } else { "s" },
+            seconds(m.load_ends_ms)
+        ));
+        for line in &m.on_load {
+            out.push_str(&format!("    {line}\n"));
+        }
+    }
+    if m.on_scroll == 0 {
+        out.push_str("  nothing animates as the page is scrolled through\n");
+    } else {
+        out.push_str(&format!(
+            "  scrolling through the page started {} animation{} in {} block{}{}\n",
+            m.on_scroll,
+            if m.on_scroll == 1 { "" } else { "s" },
+            m.scroll_blocks,
+            if m.scroll_blocks == 1 { "" } else { "s" },
+            m.longest_sequence
+                .as_deref()
+                .map(|run| format!("; the longest, {run}"))
+                .unwrap_or_default()
+        ));
+    }
+    list(
+        &mut out,
+        "repeating forever (each needs a job, such as a caret or a spinner while waiting)",
+        &m.endless,
+    );
+    list(
+        &mut out,
+        "script loops (a loop pauses when its part of the page is off screen: motion-performance)",
+        &m.loops,
+    );
+    list(
+        &mut out,
+        "animating layout or heavy paint (move with transform and opacity instead: motion-performance)",
+        &m.layout_animated,
+    );
+    if m.transition_all_count > 0 {
+        out.push_str(&format!(
+            "  `transition: all` (or a transition with no property) in {} rule{}, such as {}: name the properties it animates\n",
+            m.transition_all_count,
+            if m.transition_all_count == 1 { "" } else { "s" },
+            m.transition_all.join(", ")
+        ));
+    }
+    list(&mut out, "animated from a script", &m.js_animated);
+    if let Some(frames) = &m.long_frames {
+        out.push_str(&format!(
+            "  long frames: {frames} (measured in headless Chrome; a hint, not a benchmark)\n"
+        ));
+    }
+    if let Some(shift) = &m.layout_shift {
+        out.push_str(&format!(
+            "  layout shift while loading and revealing: {shift}\n"
+        ));
+    }
+    list(
+        &mut out,
+        "still hidden after scrolling through the whole page, content that never appears (motion-reveal)",
+        &m.hidden,
+    );
+    list(
+        &mut out,
+        "scroll, wheel and pointer listeners",
+        &m.listeners,
+    );
+    if let Some(observers) = &m.observers {
+        out.push_str(&format!("  {observers}\n"));
+    }
+    let reduced = !m.reduced_moving.is_empty()
+        || !m.reduced_loops.is_empty()
+        || !m.reduced_hidden.is_empty()
+        || m.reduced_smooth_scroll;
+    if reduced {
+        out.push_str("  with reduced motion (motion-comfort):\n");
+        list(&mut out, "  still moves", &m.reduced_moving);
+        list(&mut out, "  still loops", &m.reduced_loops);
+        list(&mut out, "  hidden", &m.reduced_hidden);
+        if m.reduced_smooth_scroll {
+            out.push_str("    smooth scrolling is still on: keep it for no-preference only\n");
+        }
+    } else {
+        out.push_str("  with reduced motion: nothing moves, loops or stays hidden\n");
+    }
+    if let Some(first) = m.frames.first() {
+        out.push_str(&format!(
+            "  frames of the first seconds and of the first reveal, for the user: {} ({} images)\n",
+            first
+                .parent()
+                .map(|dir| dir.display().to_string())
+                .unwrap_or_default(),
+            m.frames.len()
+        ));
+    }
+    out.push_str("  `motion-audit` says what each finding means and how to fix it.\n");
     out
 }
 
@@ -1372,3 +1924,378 @@ const CHECK_SCRIPT: &str = r#"(async () => {
   }
   return out;
 })()"#;
+
+/// Installed before the page's own scripts when its motion is watched:
+/// records each CSS animation, transition and `element.animate()` as it
+/// starts (what it animates, how far, how long), counts requestAnimationFrame
+/// callbacks and inline style rewrites, notes fast timers, scroll and pointer
+/// listeners and IntersectionObservers, and keeps long frames and layout
+/// shifts. Read back by `MOTION_AT_REST` and `MOTION_REPORT`.
+const MOTION_HOOKS: &str = r##"(() => {
+  if (window.__enxMotion) return;
+  const M = window.__enxMotion = {
+    started: [], raf: 0, rafWho: '', timers: [], longFrames: [], shifts: [],
+    listeners: [], observers: 0, observed: 0, writes: new Map(), phase: 'load',
+  };
+  const add = EventTarget.prototype.addEventListener;
+  const describe = el => {
+    if (el === window) return 'window';
+    if (el === document) return 'document';
+    if (!el || el.nodeType !== 1) return '?';
+    const tag = el.tagName.toLowerCase();
+    if (el.id) return tag + '#' + el.id;
+    const classes = (el.getAttribute('class') || '').trim().split(/\s+/).filter(Boolean).slice(0, 2);
+    if (classes.length) return tag + '.' + classes.join('.');
+    const parent = el.parentElement;
+    return parent && parent !== document.body && parent !== document.documentElement ? describe(parent) + ' ' + tag : tag;
+  };
+  M.describe = describe;
+  // The page's own file and line that called into a hook.
+  const caller = () => {
+    for (const line of (new Error().stack || '').split('\n')) {
+      const m = line.match(/((?:https?|file):\/\/[^\s)]+?):(\d+):\d+/);
+      if (m) return m[1].split('/').pop().split('?')[0] + ':' + m[2];
+    }
+    return '';
+  };
+  const raf = window.requestAnimationFrame;
+  let calls = 0;
+  window.requestAnimationFrame = function (callback) {
+    if (++calls % 30 === 1) { const at = caller(); if (at) M.rafWho = at; }
+    return raf.call(window, time => { M.raf++; return callback(time); });
+  };
+  const every = window.setInterval;
+  window.setInterval = function (fn, ms, ...rest) {
+    if (typeof ms === 'number' && ms < 200) {
+      const at = caller();
+      if (!M.timers.some(t => t.at === at && t.ms === ms)) M.timers.push({ ms: Math.max(0, Math.round(ms)), at });
+    }
+    return every.call(window, fn, ms, ...rest);
+  };
+  EventTarget.prototype.addEventListener = function (type, fn, options) {
+    if (/^(scroll|wheel|touchmove|mousemove|pointermove)$/.test(type)) {
+      const target = describe(this);
+      const passive = typeof options === 'object' && options !== null ? options.passive : undefined;
+      const key = type + ' ' + target;
+      if (!M.listeners.some(l => l.key === key)) M.listeners.push({ key, type, target, passive });
+    }
+    return add.call(this, type, fn, options);
+  };
+  if (window.IntersectionObserver) {
+    const Native = window.IntersectionObserver;
+    // What an observer reports coming into view is what a reveal starts
+    // from: scroll animations are grouped by the nearest one.
+    M.revealed = new WeakSet();
+    window.IntersectionObserver = class extends Native {
+      constructor(callback, options) {
+        super((entries, observer) => {
+          for (const e of entries) if (e.isIntersecting) M.revealed.add(e.target);
+          return callback(entries, observer);
+        }, options);
+        M.observers++;
+      }
+      observe(target) { M.observed++; return super.observe(target); }
+    };
+  }
+  try {
+    new PerformanceObserver(list => {
+      for (const e of list.getEntries()) {
+        if (e.duration < 100) continue;
+        const script = [...(e.scripts || [])].sort((a, b) => b.duration - a.duration)[0];
+        const source = script ? String(script.sourceURL || script.invoker || '').split('/').pop().split('?')[0] : '';
+        M.longFrames.push({ duration: Math.round(e.duration), phase: M.phase, source });
+      }
+    }).observe({ type: 'long-animation-frame', buffered: true });
+  } catch (e) {}
+  try {
+    new PerformanceObserver(list => {
+      for (const e of list.getEntries()) {
+        if (e.hadRecentInput) continue;
+        M.shifts.push({ value: e.value, sources: [...(e.sources || [])].map(s => s.node && s.node.nodeType === 1 ? describe(s.node) : '').filter(Boolean) });
+      }
+    }).observe({ type: 'layout-shift', buffered: true });
+  } catch (e) {}
+  new MutationObserver(records => {
+    for (const r of records) M.writes.set(r.target, (M.writes.get(r.target) || 0) + 1);
+  }).observe(document, { subtree: true, attributes: true, attributeFilter: ['style'] });
+  const kebab = p => p.replace(/[A-Z]/g, c => '-' + c.toLowerCase());
+  // How far a set of keyframes moves, scales and turns its element.
+  const motionOf = frames => {
+    let px = 0, pct = 0, scale = 1, rotate = false;
+    const nums = s => [...String(s).matchAll(/(-?[\d.]+)(px|%)?/g)].map(m => ({ n: Math.abs(parseFloat(m[1])), unit: m[2] || '' }));
+    const far = list => { for (const x of list) { if (x.unit === 'px') px = Math.max(px, x.n); else if (x.unit === '%') pct = Math.max(pct, x.n); } };
+    for (const f of frames) {
+      const t = f.transform && f.transform !== 'none' ? String(f.transform) : '';
+      for (const m of t.matchAll(/translate(?:3d|X|Y|Z)?\(([^)]*)\)/g)) far(nums(m[1]));
+      for (const m of t.matchAll(/matrix\(([^)]*)\)/g)) {
+        const n = m[1].split(',').map(parseFloat);
+        px = Math.max(px, Math.abs(n[4] || 0), Math.abs(n[5] || 0));
+        if (Math.abs(n[1] || 0) > 0.001 || Math.abs(n[2] || 0) > 0.001) rotate = true;
+        else scale = Math.min(scale, n[0], n[3]);
+      }
+      for (const m of t.matchAll(/scale(?:X|Y|3d)?\(([^)]*)\)/g)) for (const x of nums(m[1])) scale = Math.min(scale, x.n);
+      if (/rotate/.test(t) && !/rotate[XYZ]?\(0(deg|turn|rad)?\)/.test(t)) rotate = true;
+      if (f.translate && f.translate !== 'none') far(nums(f.translate));
+      if (f.scale && f.scale !== 'none') for (const x of nums(f.scale)) scale = Math.min(scale, x.n);
+      if (f.rotate && f.rotate !== 'none' && !/^0(deg)?$/.test(String(f.rotate).trim())) rotate = true;
+    }
+    return { px: Math.round(px), pct: Math.round(pct), scale: Math.round(scale * 100) / 100, rotate };
+  };
+  const note = (anim, target, pseudo, kind) => {
+    if (M.started.length > 3000 || !anim || !anim.effect) return;
+    const effect = anim.effect;
+    const timing = effect.getTiming ? effect.getTiming() : {};
+    let frames = [];
+    try { frames = effect.getKeyframes(); } catch (e) {}
+    const props = new Set();
+    for (const f of frames) for (const k of Object.keys(f)) if (!/^(offset|computedOffset|easing|composite)$/.test(k)) props.add(kebab(k));
+    M.started.push({
+      at: Math.round(performance.now()) + (kind === 'js' ? Math.round(Number(timing.delay) || 0) : 0),
+      target, el: describe(target) + (pseudo || ''),
+      name: anim.animationName || anim.transitionProperty || anim.id || '',
+      props: [...props],
+      duration: Math.round(Number(timing.duration) || 0),
+      iterations: timing.iterations,
+      move: motionOf(frames), phase: M.phase,
+    });
+  };
+  const find = (target, pseudo, pick) => {
+    let list = [];
+    try { list = target.getAnimations({ subtree: !!pseudo }); } catch (e) { return null; }
+    return list.find(a => pick(a) && (!pseudo || (a.effect && a.effect.pseudoElement === pseudo))) || null;
+  };
+  add.call(document, 'animationstart', e => {
+    note(find(e.target, e.pseudoElement, a => a.animationName === e.animationName), e.target, e.pseudoElement, 'css');
+  }, true);
+  add.call(document, 'transitionstart', e => {
+    note(find(e.target, e.pseudoElement, a => a.transitionProperty === e.propertyName), e.target, e.pseudoElement, 'transition');
+  }, true);
+  const animate = Element.prototype.animate;
+  Element.prototype.animate = function (...args) {
+    const a = animate.apply(this, args);
+    try { note(a, this, '', 'js'); } catch (e) {}
+    return a;
+  };
+})()"##;
+
+/// A second at rest: requestAnimationFrame callbacks and inline style
+/// rewrites counted over it. Null when the hooks never ran.
+const MOTION_AT_REST: &str = r##"(async () => {
+  const M = window.__enxMotion;
+  if (!M) return null;
+  M.writes = new Map();
+  const before = M.raf;
+  await new Promise(done => setTimeout(done, 1000));
+  const writers = [...M.writes].filter(([, n]) => n >= 20).sort((a, b) => b[1] - a[1]).slice(0, 4)
+    .map(([el, n]) => M.describe(el) + ' rewrites its style ' + n + ' times a second');
+  return { raf: M.raf - before, who: M.rafWho, writers };
+})()"##;
+
+/// Find what scrolls the page (the window, or the largest scrolling box
+/// when the page scrolls inside one), turn smooth scrolling off for the
+/// visit, and say how far and in what steps to go.
+const MOTION_SCROLLER: &str = r##"(() => {
+  const M = window.__enxMotion;
+  if (!M) return null;
+  const root = document.scrollingElement || document.documentElement;
+  let scroller = root;
+  if (root.scrollHeight <= innerHeight + 20) {
+    let area = 0;
+    for (const el of document.querySelectorAll('body *')) {
+      if (el.scrollHeight <= el.clientHeight + 20) continue;
+      const overflow = getComputedStyle(el).overflowY;
+      if (overflow !== 'auto' && overflow !== 'scroll' && overflow !== 'overlay') continue;
+      const r = el.getBoundingClientRect();
+      if (r.width * r.height > area) { area = r.width * r.height; scroller = el; }
+    }
+  }
+  M.scroller = scroller;
+  M.smooth = [scroller, root, document.body].some(el => el && getComputedStyle(el).scrollBehavior === 'smooth');
+  for (const el of new Set([scroller, root])) el.style.scrollBehavior = 'auto';
+  M.scrollTo = y => scroller.scrollTo(0, y);
+  M.phase = 'scroll';
+  const height = scroller === root ? innerHeight : scroller.clientHeight;
+  M.screens = Math.round(scroller.scrollHeight / height * 10) / 10;
+  return { max: Math.max(0, scroller.scrollHeight - height), step: Math.max(200, Math.round(height * 0.75)) };
+})()"##;
+
+/// After scrolling through: a second at the bottom, then everything the
+/// hooks saw, summarised and worded for the report.
+const MOTION_REPORT: &str = r##"(async () => {
+  const M = window.__enxMotion;
+  if (!M) return null;
+  M.writes = new Map();
+  const before = M.raf;
+  await new Promise(done => setTimeout(done, 1000));
+  const out = { raf: M.raf - before, who: M.rafWho, screens: M.screens || 1, smooth: !!M.smooth };
+  out.writers = [...M.writes].filter(([, n]) => n >= 20).sort((a, b) => b[1] - a[1]).slice(0, 4)
+    .map(([el, n]) => M.describe(el) + ' rewrites its style ' + n + ' times a second');
+  const seconds = ms => (ms >= 1000 ? (Math.round(ms / 100) / 10) + 's' : Math.round(ms) + 'ms');
+  const what = s => {
+    const parts = [];
+    if (s.props.includes('opacity')) parts.push('opacity');
+    if (s.move.px) parts.push('moves ' + s.move.px + 'px');
+    if (s.move.pct) parts.push('moves ' + s.move.pct + '%');
+    if (s.move.scale !== 1) parts.push('scales from ' + s.move.scale);
+    if (s.move.rotate) parts.push('rotates');
+    parts.push(...s.props.filter(p => !/^(transform|translate|scale|rotate|opacity)$/.test(p)).slice(0, 3));
+    return parts.join(', ') || s.name;
+  };
+  const moves = s => s.move.px >= 2 || s.move.pct >= 2 || Math.abs(s.move.scale - 1) >= 0.02 || s.move.rotate;
+  // On load, in the order they start; the same move on the same element
+  // counted once.
+  const load = M.started.filter(s => s.phase === 'load');
+  const lines = new Map();
+  for (const s of load) {
+    const key = s.el + '|' + what(s) + '|' + s.duration;
+    const line = lines.get(key);
+    if (line) line.count++;
+    else lines.set(key, { at: s.at, count: 1, text: 'for ' + seconds(s.duration) + (s.iterations === Infinity ? ', repeating' : '') + ': ' + s.el + ', ' + what(s) });
+  }
+  out.load = [...lines.values()].sort((a, b) => a.at - b.at).slice(0, 14)
+    .map(l => 'at ' + seconds(l.at) + ' ' + l.text + (l.count > 1 ? ' (x' + l.count + ')' : ''));
+  out.load_count = load.length;
+  out.load_ends = Math.round(Math.max(0, ...load.filter(s => s.iterations !== Infinity).map(s => s.at + s.duration * (s.iterations || 1))));
+  // On scroll: animations grouped by the block whose reveal started them
+  // (the nearest element an IntersectionObserver reported), or by bursts
+  // close in time when no observer is involved. The longest group is named.
+  const scrolled = M.started.filter(s => s.phase === 'scroll').sort((a, b) => a.at - b.at);
+  out.scroll_count = scrolled.length;
+  const groups = new Map();
+  let burst = null, last = -Infinity;
+  for (const s of scrolled) {
+    let block = null;
+    if (M.revealed) for (let a = s.target; a && a.nodeType === 1; a = a.parentElement) if (M.revealed.has(a)) { block = a; break; }
+    if (!block) {
+      if (!burst || s.at - last > 400) burst = { burst: true };
+      last = s.at;
+      block = burst;
+    }
+    if (!groups.has(block)) groups.set(block, []);
+    groups.get(block).push(s);
+  }
+  out.blocks = groups.size;
+  out.longest = null;
+  let longest = 0;
+  for (const [block, list] of groups) {
+    if (list.length < 2) continue;
+    const span = Math.max(...list.map(s => s.at + s.duration)) - list[0].at;
+    if (span <= longest) continue;
+    longest = span;
+    let name = block;
+    if (block.burst) {
+      const els = list.map(s => s.target).filter(el => el && el.isConnected);
+      name = els[0];
+      while (name && !els.every(el => name.contains(el))) name = name.parentElement;
+    }
+    out.longest = (name && name.nodeType === 1 ? M.describe(name) : 'the page') + ': ' + list.length + ' animations over ' + seconds(span);
+  }
+  out.endless = [];
+  for (const a of document.getAnimations()) {
+    const effect = a.effect;
+    if (!effect || a.playState !== 'running') continue;
+    const timing = effect.getTiming();
+    if (timing.iterations !== Infinity) continue;
+    const text = (effect.target ? M.describe(effect.target) : '?') + (effect.pseudoElement || '') + ': '
+      + (a.animationName || a.id || 'an animation') + ' every ' + seconds(Number(timing.duration) || 0);
+    if (!out.endless.includes(text)) out.endless.push(text);
+    if (out.endless.length >= 6) break;
+  }
+  const LAYOUT = /^(width|height|min-width|min-height|max-width|max-height|top|left|right|bottom|inset|margin|margin-\w+|padding|padding-\w+|font-size|line-height|letter-spacing|border-width|border-\w+-width|gap|row-gap|column-gap|grid-template-rows|grid-template-columns|flex-basis)$/;
+  const HEAVY = /^(box-shadow|filter|backdrop-filter)$/;
+  out.layout = [];
+  for (const s of M.started) {
+    const costly = s.props.filter(p => LAYOUT.test(p) || HEAVY.test(p));
+    if (!costly.length || !s.target || !s.target.isConnected) continue;
+    const cs = getComputedStyle(s.target);
+    const r = s.target.getBoundingClientRect();
+    const small = r.width * r.height < 20000;
+    // A shadow or a filter on something small is cheap to repaint, and so
+    // is resizing a small element taken out of the flow.
+    if (small && costly.every(p => HEAVY.test(p))) continue;
+    if (small && /absolute|fixed/.test(cs.position)) continue;
+    const text = s.el + ': ' + costly.join(', ');
+    if (!out.layout.includes(text)) out.layout.push(text);
+    if (out.layout.length >= 6) break;
+  }
+  const all = new Set();
+  const walk = rules => {
+    for (const rule of rules) {
+      if (rule.cssRules && !rule.selectorText) { walk(rule.cssRules); continue; }
+      const style = rule.style;
+      if (!style || !rule.selectorText) continue;
+      if (!(style.transitionProperty || '').split(',').some(p => p.trim() === 'all')) continue;
+      const durations = (style.transitionDuration || '').split(',');
+      if (durations.every(d => !(parseFloat(d) > 0))) continue;
+      all.add(rule.selectorText);
+    }
+  };
+  for (const sheet of document.styleSheets) { try { walk(sheet.cssRules); } catch (e) {} }
+  out.all = [...all].slice(0, 5);
+  out.all_count = all.size;
+  const long = M.longFrames.filter(f => f.phase === 'scroll');
+  out.long = null;
+  if (long.length >= 2) {
+    const worst = long.reduce((a, b) => (b.duration > a.duration ? b : a));
+    out.long = long.length + ' frames of 100ms or more while scrolling, the longest ' + worst.duration + 'ms' + (worst.source ? ' (' + worst.source + ')' : '');
+  }
+  const shift = M.shifts.reduce((sum, s) => sum + s.value, 0);
+  out.shift = null;
+  if (shift > 0.05) {
+    const blame = new Map();
+    for (const s of M.shifts) for (const source of s.sources) blame.set(source, (blame.get(source) || 0) + s.value);
+    const top = [...blame].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([el]) => el);
+    out.shift = (Math.round(shift * 100) / 100) + (top.length ? ', mostly ' + top.join(', ') : '');
+  }
+  // Text still invisible now that the whole page has been scrolled past:
+  // content that never appears. What is hidden on purpose until asked for
+  // (menus, tooltips, closed dialogs, text for screen readers, rows that
+  // scroll sideways) is left out.
+  out.hidden = [];
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const seen = new Set();
+  let looked = 0;
+  while (walker.nextNode() && looked < 4000 && out.hidden.length < 6) {
+    const text = walker.currentNode.textContent.trim();
+    const el = walker.currentNode.parentElement;
+    if (text.length < 2 || !el || seen.has(el)) continue;
+    seen.add(el);
+    looked++;
+    if (el.closest('[aria-hidden="true"], [inert], [hidden], dialog:not([open]), [popover], [role=tooltip], [role=menu], [role=listbox], details:not([open]), noscript, template, script, style')) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1 || r.right <= 0 || r.left >= innerWidth) continue;
+    let opacity = 1, skip = false;
+    for (let a = el; a && a.nodeType === 1; a = a.parentElement) {
+      const cs = getComputedStyle(a);
+      if (cs.display === 'none' || cs.clipPath === 'inset(50%)' || (cs.position === 'absolute' && cs.clip && cs.clip !== 'auto')) { skip = true; break; }
+      const o = parseFloat(cs.opacity);
+      if (o < 0.05 && cs.pointerEvents === 'none') { skip = true; break; }
+      opacity *= o;
+    }
+    if (skip) continue;
+    let aside = false;
+    for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+      if (getComputedStyle(a).overflowX === 'visible') continue;
+      const box = a.getBoundingClientRect();
+      if (r.left >= box.right || r.right <= box.left) { aside = true; break; }
+    }
+    if (aside) continue;
+    const hiddenBy = getComputedStyle(el).visibility === 'hidden' ? 'visibility: hidden'
+      : opacity < 0.05 ? 'opacity ' + (Math.round(opacity * 100) / 100) : '';
+    if (hiddenBy) out.hidden.push(M.describe(el) + ' "' + text.slice(0, 40) + '" (' + hiddenBy + ')');
+  }
+  // A framework's event system (React's root) listens for all of these at
+  // once on one element; that is plumbing, not a scroll effect.
+  const perTarget = new Map();
+  for (const l of M.listeners) perTarget.set(l.target, (perTarget.get(l.target) || 0) + 1);
+  out.listeners = M.listeners.filter(l => perTarget.get(l.target) < 4).slice(0, 8).map(l => {
+    const blocking = (l.type === 'wheel' || l.type === 'touchmove') && l.passive === false;
+    return { text: l.type + ' on ' + l.target + (blocking ? ', not passive: it can hold up or take over scrolling' : ''), blocking };
+  });
+  out.observers = M.observers
+    ? M.observers + ' IntersectionObserver' + (M.observers === 1 ? '' : 's') + ' watching ' + M.observed + ' element' + (M.observed === 1 ? '' : 's')
+    : null;
+  out.timers = M.timers.slice(0, 4).map(t => 'setInterval every ' + t.ms + 'ms' + (t.at ? ' (' + t.at + ')' : ''));
+  out.moving = [...new Set(M.started.filter(moves).map(s => s.el + ', ' + what(s) + ' for ' + seconds(s.duration)))].slice(0, 8);
+  return out;
+})()"##;

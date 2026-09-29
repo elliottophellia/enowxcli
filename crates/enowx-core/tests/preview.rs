@@ -723,3 +723,154 @@ async fn a_drawing_loaded_as_an_image_keeps_its_own_colours() {
     );
     assert!(text.contains("keeps its own colours"), "{text}");
 }
+
+/// A page whose motion goes wrong in every way the motion pass looks for.
+const RESTLESS: &str = r##"<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Restless</title>
+<style>
+html { scroll-behavior: smooth; }
+body { margin: 0; font: 18px/1.5 system-ui; background: #fff; color: #111; }
+section { min-height: 900px; padding: 40px; }
+h1 { animation: rise 700ms ease-out both; }
+@keyframes rise { from { opacity: 0; transform: translateY(16px); } }
+.bar { height: 12px; background: #333; animation: grow 800ms ease-out both; }
+@keyframes grow { from { width: 0; } to { width: 600px; } }
+.pulse { display: inline-block; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.4; } }
+.card { padding: 12px; border: 1px solid #999; transition: all 0.3s; }
+.block p { opacity: 0; }
+.block.in p { opacity: 1; animation: rise 600ms ease-out backwards; }
+.never { opacity: 0; }
+</style></head>
+<body>
+<section><h1>Everything moves</h1><div class="bar"></div><span class="pulse">Live</span><div class="card">A card</div></section>
+<section class="block"><p>First block of text</p></section>
+<section class="block"><p>Second block of text</p></section>
+<section class="never"><h2>Pricing that never shows</h2></section>
+<section class="block"><p>Last block of text</p></section>
+<script>
+const seen = new IntersectionObserver(entries => {
+  for (const e of entries) if (e.isIntersecting) e.target.classList.add('in');
+});
+document.querySelectorAll('.block').forEach(b => seen.observe(b));
+function tick() { requestAnimationFrame(tick); }
+requestAnimationFrame(tick);
+window.addEventListener('wheel', () => {}, { passive: false });
+</script>
+</body></html>"##;
+
+/// The same content with its motion done as the motion skills say.
+const CALM: &str = r##"<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calm</title>
+<style>
+body { margin: 0; font: 18px/1.5 system-ui; background: #fff; color: #111; }
+section { min-height: 900px; padding: 40px; }
+@keyframes rise { from { opacity: 0; transform: translateY(12px); } }
+@media screen and (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+  h1 { animation: rise 700ms ease-out backwards; }
+  [data-motion] [data-reveal]:not([data-shown]) p { opacity: 0; }
+  [data-motion] [data-reveal][data-shown] p { animation: rise 600ms ease-out backwards; }
+}
+</style></head>
+<body>
+<section><h1>Things arrive once</h1></section>
+<section data-reveal><p>First block of text</p></section>
+<section data-reveal><p>Second block of text</p></section>
+<section data-reveal><p>Last block of text</p></section>
+<script>
+if (matchMedia('(prefers-reduced-motion: no-preference)').matches) {
+  document.documentElement.dataset.motion = 'on';
+  const seen = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      e.target.dataset.shown = '';
+      seen.unobserve(e.target);
+    }
+  }, { rootMargin: '0px 0px -10% 0px' });
+  document.querySelectorAll('[data-reveal]').forEach(b => seen.observe(b));
+}
+</script>
+</body></html>"##;
+
+/// The motion report, its text, and whether every frame it names was saved.
+async fn watch(page: &str) -> (preview::MotionReport, String, bool) {
+    let dir = folder(page);
+    let (_, motion) = preview::preview_with(
+        &dir,
+        Target::File(dir.join("index.html")),
+        None,
+        None,
+        true,
+        &dir.join("shots"),
+    )
+    .await
+    .unwrap();
+    let motion = motion.expect("the motion was watched");
+    let text = preview::motion_report(&motion);
+    let saved = motion.frames.len() >= 5
+        && motion
+            .frames
+            .iter()
+            .all(|frame| std::fs::read(frame).is_ok_and(|png| png.starts_with(b"\x89PNG")));
+    let _ = std::fs::remove_dir_all(&dir);
+    (motion, text, saved)
+}
+
+#[tokio::test]
+async fn motion_that_goes_wrong_is_reported() {
+    if no_chrome() {
+        return;
+    }
+    let (m, text, saved) = watch(RESTLESS).await;
+    assert!(
+        has(&m.on_load, "h1") && has(&m.on_load, "moves 16px"),
+        "{text}"
+    );
+    assert!(
+        m.on_scroll >= 3,
+        "the blocks animate as they arrive: {text}"
+    );
+    assert!(
+        has(&m.hidden, "section.never"),
+        "content that never appears: {text}"
+    );
+    assert_eq!(
+        m.hidden.len(),
+        1,
+        "the blocks that reveal are not hidden: {text}"
+    );
+    assert!(has(&m.endless, "span.pulse"), "{text}");
+    assert!(m.never_stops == 1 && has(&m.loops, "never stops"), "{text}");
+    assert!(has(&m.layout_animated, "div.bar: width"), "{text}");
+    assert!(has(&m.transition_all, ".card"), "{text}");
+    assert_eq!(m.blocking_listeners, 1, "{text}");
+    assert!(
+        has(&m.reduced_moving, "h1"),
+        "moves with reduced motion: {text}"
+    );
+    assert!(has(&m.reduced_hidden, "section.never"), "{text}");
+    assert!(m.reduced_smooth_scroll, "{text}");
+    assert!(m.problems() >= 8, "{text}");
+    assert!(saved, "the first seconds are photographed: {text}");
+    assert!(text.contains("motion-audit"), "{text}");
+}
+
+#[tokio::test]
+async fn calm_motion_reports_nothing_wrong() {
+    if no_chrome() {
+        return;
+    }
+    let (m, text, _) = watch(CALM).await;
+    assert!(has(&m.on_load, "h1"), "{text}");
+    assert!(m.on_scroll >= 3 && m.scroll_blocks >= 3, "{text}");
+    assert_eq!(m.problems(), 0, "{text}");
+    assert!(m.hidden.is_empty() && m.reduced_moving.is_empty(), "{text}");
+    assert!(!m.reduced_smooth_scroll, "{text}");
+    assert!(
+        text.contains("with reduced motion: nothing moves"),
+        "{text}"
+    );
+}

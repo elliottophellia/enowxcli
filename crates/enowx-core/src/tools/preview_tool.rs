@@ -21,14 +21,20 @@ impl Tool for PreviewTool {
          the command that serves it (such as \"npm run dev\"), which is started and \
          stopped for you. For a page behind a sign-in, give `login` (the sign-in page \
          and the fields to type, with a test account from the project's seed) and it \
-         signs in first; without it such a page shows only the sign-in form. Use it \
-         before you report on anything with an interface."
+         signs in first; without it such a page shows only the sign-in form. With \
+         `motion`, it also watches how the page moves at 1440px: a timeline of what \
+         animates on load (when, how long, what moves and how far) and on scroll, loops \
+         that never stop, animated layout, `transition: all`, long frames, layout shift, \
+         content still hidden after scrolling through the page, scroll and wheel \
+         listeners, and the page again with reduced motion. Use it before you report on \
+         anything with an interface, with `motion` for anything that animates."
     }
     fn parameters(&self) -> Value {
         json!({"type":"object","properties":{
             "path":{"type":"string","description":"An HTML file in the workspace"},
             "url":{"type":"string","description":"A page to open, such as http://localhost:3000/"},
             "start":{"type":"string","description":"With url: the command that serves it, run in the workspace and stopped afterwards"},
+            "motion":{"type":"boolean","description":"Also watch how the page moves, as it is and with reduced motion (adds about 20 seconds)"},
             "login":{"type":"object","description":"For a page behind a sign-in: signed in first, in the same browser","properties":{
                 "url":{"type":"string","description":"The sign-in page, such as http://localhost:3000/login"},
                 "fields":{"type":"object","description":"Each field by its name, id, label or placeholder, and the value to type: {\"username\": \"admin\", \"password\": \"admin123\"}","additionalProperties":{"type":"string"}},
@@ -58,19 +64,27 @@ impl Tool for PreviewTool {
             },
             _ => None,
         };
-        let preview = crate::preview::preview_signed_in(
+        let preview = crate::preview::preview_with(
             &ctx.workspace,
             target,
             args["start"].as_str(),
             login.as_ref(),
+            args["motion"].as_bool().unwrap_or(false),
             &out_dir,
         );
-        let reports = tokio::select! {
-            reports = preview => reports,
+        let looked = tokio::select! {
+            looked = preview => looked,
             _ = ctx.cancel.cancelled() => return Ok(ToolOutput::error("stopped")),
         };
-        match reports {
-            Ok(reports) => Ok(ToolOutput::ok(crate::preview::report(&shown, &reports))),
+        match looked {
+            Ok((reports, motion)) => {
+                let mut text = crate::preview::report(&shown, &reports);
+                if let Some(motion) = &motion {
+                    text.push('\n');
+                    text.push_str(&crate::preview::motion_report(motion));
+                }
+                Ok(ToolOutput::ok(text))
+            }
             Err(error) => Ok(ToolOutput::error(format!("{error:#}"))),
         }
     }

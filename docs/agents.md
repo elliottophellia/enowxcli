@@ -97,6 +97,7 @@ can actually answer from a request.
 | Agent | For |
 |---|---|
 | `fe` | Frontend: React/Vue/Svelte, CSS, components, accessibility, bundlers |
+| `motion` | Motion: entrances, scroll reveals, transitions, animated drawings, product demos, loaders |
 | `be` | Backend: APIs, services, business logic, auth |
 | `db` | Schema, migrations, queries, indexing, data modelling |
 | `devops` | CI/CD, containers, deploy, infrastructure, observability |
@@ -122,7 +123,8 @@ chosen by the orchestrator. See [Compaction](#compaction). It is not routable
 delegation target, and `/agent` will not switch to it.
 
 Each specialist's prompt says how its domain is done well and what "done"
-means there: `fe` checks every width from a 360px phone up, `db` keeps
+means there: `fe` checks every width from a 360px phone up, `motion` reads
+the page's timeline of movement and its reduced-motion pass, `db` keeps
 migrations reversible and tries them on a scratch database, `devops` runs the
 build rather than trusting a file that looks right, `test` makes a new test
 fail for the stated reason before making it pass.
@@ -159,8 +161,9 @@ with a skill to read.
 
 | Agent | Carries |
 |---|---|
-| `fe`, `review` | every `ui*` skill, `code`, `writing` |
-| `mobile` | every `ui*` skill, `code` |
+| `fe`, `review` | every `ui*` and `motion*` skill, `code`, `writing` |
+| `mobile` | every `ui*` and `motion*` skill, `code` |
+| `motion` | every `motion*` skill, `ui`, `ui-themes`, every `ui-stack-*`, `code` |
 | `general` | `code`, `writing` |
 | `docs` | `writing` |
 | `be`, `db`, `devops`, `systems`, `test`, `perf` | `code` |
@@ -190,10 +193,23 @@ so building a hero reads the hero's rules, not thirty components' worth.
 The list of built-in skills is generated from `crates/enowx-core/skills/`, and a
 test fails when a directory there is not compiled in.
 
+`motion` is built the same way. Its prompt holds the essentials: read what
+each part of the page says and let the movement act it out, set the dial
+(feedback only, entrances and transitions, or choreography) in `DESIGN.md`'s
+`Motion:` line, move only transform and opacity from one set of tokens,
+reveal once through one IntersectionObserver, keep the final state as the
+base style so no JavaScript, print and reduced motion all show the whole
+page, stop every loop off screen, and add no library for what CSS does. Its
+skills hold the depth: `motion` (principles and a worked case),
+`motion-timing`, `motion-reveal`, `motion-interface`, `motion-drawings`,
+`motion-demo`, `motion-performance`, `motion-comfort`, `motion-audit` and
+`motion-stacks`. The orchestrator gives it animation work, and in a build it
+runs after the `fe` parts whose markup it animates, on its own files.
+
 ### Tools for interfaces
 
 Reading the CSS is not looking at the page, and a rule in a prompt is not a
-check. The interface agents (`fe`, `mobile`) have four tools of their own,
+check. The interface agents (`fe`, `motion`, `mobile`) have four tools of their own,
 and `review` has the two that only look:
 
 - `ui_check` searches the interface files for the marks of generated work:
@@ -215,6 +231,19 @@ and `review` has the two that only look:
   opened by its path; an application by its dev server's url, with the
   command that starts it, which the tool runs, waits for and stops. It talks
   to Chrome over the DevTools protocol, so nothing is installed with it.
+  With `motion`, it also watches how the page moves at 1440px, since an
+  agent reads text and cannot watch frames: hooks installed before the
+  page's scripts record every animation as it starts, then the report gives
+  a timeline of what moves on load (when, how long, which element, what it
+  animates and how far), what starts as the page is scrolled through,
+  grouped by the block each reveal belongs to, loops that never stop and
+  whether they keep running scrolled away, animated layout and heavy paint,
+  `transition: all`, styles rewritten by a script many times a second, long
+  frames, layout shift, text still invisible after scrolling through the
+  whole page, scroll and wheel listeners, and the page again with reduced
+  motion: what still moves, loops or stays hidden, and smooth scrolling left
+  on. Frames of the first seconds and of the first reveal are saved for the
+  user.
 - `icon` finds icons by meaning in one Iconify set and returns their exact
   SVG, so no icon is drawn from memory.
 - `multi_edit` makes several changes to one file in one call, all or none.

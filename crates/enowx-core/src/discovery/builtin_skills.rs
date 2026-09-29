@@ -279,6 +279,43 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
         "ui-part-tooltips",
         include_str!("../../skills/ui-part-tooltips/SKILL.md"),
     ),
+    ("motion", include_str!("../../skills/motion/SKILL.md")),
+    (
+        "motion-timing",
+        include_str!("../../skills/motion-timing/SKILL.md"),
+    ),
+    (
+        "motion-reveal",
+        include_str!("../../skills/motion-reveal/SKILL.md"),
+    ),
+    (
+        "motion-interface",
+        include_str!("../../skills/motion-interface/SKILL.md"),
+    ),
+    (
+        "motion-drawings",
+        include_str!("../../skills/motion-drawings/SKILL.md"),
+    ),
+    (
+        "motion-demo",
+        include_str!("../../skills/motion-demo/SKILL.md"),
+    ),
+    (
+        "motion-performance",
+        include_str!("../../skills/motion-performance/SKILL.md"),
+    ),
+    (
+        "motion-comfort",
+        include_str!("../../skills/motion-comfort/SKILL.md"),
+    ),
+    (
+        "motion-audit",
+        include_str!("../../skills/motion-audit/SKILL.md"),
+    ),
+    (
+        "motion-stacks",
+        include_str!("../../skills/motion-stacks/SKILL.md"),
+    ),
     ("code", include_str!("../../skills/code/SKILL.md")),
     ("writing", include_str!("../../skills/writing/SKILL.md")),
     ("i18n", include_str!("../../skills/i18n/SKILL.md")),

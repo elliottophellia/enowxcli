@@ -61,6 +61,11 @@ details, or leave them to you.
      photographer's work on black); "developers like dark" is the category's
      default, not a reason. When "both" is chosen, both themes are built and
      checked, not one with the other left broken
+   - how much motion, for a page people read (a launch, a product site, a
+     portfolio): feedback only, entrances and transitions, or choreography
+     with animated drawings and a demo (the `motion` skill's dial). Recommend
+     from the product: a tool used all day moves least, a launch page may
+     move most, and every level stays calm
    - for anything with an interface and no existing component library: the
      component library and icon set, as options for the chosen stack with
      the recommendation first (for React with Tailwind: "shadcn/ui with

@@ -1,5 +1,6 @@
 //! Scratch: preview a URL (or a served folder) and print the report.
-//! `look URL OUT [SIGN_IN_URL USER PASSWORD]` signs in first.
+//! `look URL OUT [SIGN_IN_URL USER PASSWORD]` signs in first. With
+//! `ENX_LOOK_MOTION=1` it also watches how the page moves.
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
@@ -14,12 +15,14 @@ async fn main() -> anyhow::Result<()> {
         }),
         _ => None,
     };
-    let reports = if first.starts_with("http") {
-        enowx_core::preview::preview_signed_in(
+    let motion = std::env::var_os("ENX_LOOK_MOTION").is_some();
+    let (reports, moved) = if first.starts_with("http") {
+        enowx_core::preview::preview_with(
             &std::env::temp_dir(),
             enowx_core::preview::Target::Url(first.clone()),
             None,
             login.as_ref(),
+            motion,
             &out,
         )
         .await?
@@ -29,14 +32,19 @@ async fn main() -> anyhow::Result<()> {
             .local_addr()?
             .port();
         let url = format!("http://127.0.0.1:{port}/");
-        enowx_core::preview::preview(
+        enowx_core::preview::preview_with(
             &dir,
             enowx_core::preview::Target::Url(url),
             Some(&format!("python3 -m http.server {port} --bind 127.0.0.1")),
+            None,
+            motion,
             &out,
         )
         .await?
     };
     println!("{}", enowx_core::preview::report(&first, &reports));
+    if let Some(moved) = &moved {
+        println!("{}", enowx_core::preview::motion_report(moved));
+    }
     Ok(())
 }

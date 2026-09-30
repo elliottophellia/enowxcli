@@ -133,3 +133,26 @@ fn a_single_call_is_not_a_run() {
     assert!(!text.contains("calls"), "{text}");
     assert!(text.contains("a.ts") && text.contains("b.ts"), "{text}");
 }
+
+/// Skills bound one after another fold into one row, like looking around.
+#[test]
+fn skill_bindings_in_a_row_fold_into_one() {
+    let mut app = TestApp::in_conversation();
+    app.push_user("build it");
+    for skill in ["antislop", "antislop-ui", "frontend-design"] {
+        app.push_tool(
+            skill,
+            "skill_bind",
+            &format!(r#"{{"skill":"{skill}","agents":["fe"]}}"#),
+            &format!("`{skill}` is now offered only to `fe`"),
+        );
+    }
+    let rows = app.render_to_text(W, H);
+    let text = rows.join("\n");
+    assert_eq!(text.matches("skill_bind").count(), 0, "{text}");
+    let row = rows.iter().find(|r| r.contains("bound")).expect("one row");
+    assert!(
+        row.contains("antislop · antislop-ui") && row.contains("3 skills"),
+        "{row}"
+    );
+}

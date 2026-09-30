@@ -1157,6 +1157,7 @@ fn refresh_render_cache(app: &mut App, width: usize) {
             (
                 GroupRole::Head {
                     id: group,
+                    label,
                     summary,
                     calls,
                     open,
@@ -1169,9 +1170,13 @@ fn refresh_render_cache(app: &mut App, width: usize) {
                 tool_headers.push((group.clone(), lines.len()));
                 let mut row = tool_row(
                     &crate::ui::tool::RowParts::new(
-                        "explored",
+                        *label,
                         summary.clone(),
-                        format!("{calls} calls"),
+                        if *label == "bound" {
+                            format!("{calls} skills")
+                        } else {
+                            format!("{calls} calls")
+                        },
                     ),
                     Some(if *open { "▾" } else { "▸" }),
                     ("", theme.muted),
@@ -1344,6 +1349,8 @@ enum GroupRole {
     /// The run's first call, which draws the run's row.
     Head {
         id: String,
+        /// What the run did: `explored`, or `bound` for skill bindings.
+        label: &'static str,
         summary: String,
         calls: usize,
         open: bool,
@@ -1355,6 +1362,18 @@ enum GroupRole {
 /// Tools whose calls only look around, and so fold into a run. A command is
 /// not one of them: what it ran, and whether it passed, is worth its own row.
 const RUN_TOOLS: &[&str] = &["read", "glob", "grep", "fetch", "skill_read", "icon"];
+
+/// Which run a finished call can fold into: looking around, or the
+/// orchestrator binding skills to agents one after another.
+fn run_label(name: &str) -> Option<&'static str> {
+    if RUN_TOOLS.contains(&name) {
+        Some("explored")
+    } else if name == "skill_bind" {
+        Some("bound")
+    } else {
+        None
+    }
+}
 
 /// Mark the runs of two or more finished calls that only look around, with
 /// the finished thoughts between them. A failed call, a running call and a
@@ -1370,14 +1389,14 @@ fn group_roles(
     let marked = |at: usize| {
         !markers_for.get(at).is_none_or(|m| m.is_empty()) || (at == last && trailing_markers)
     };
-    let quiet_call = |at: usize| match &blocks[at].kind {
+    let run_of = |at: usize| match &blocks[at].kind {
         TranscriptKind::Tool {
             name,
             running: false,
             error: false,
             ..
-        } => RUN_TOOLS.contains(&name.as_str()),
-        _ => false,
+        } => run_label(name),
+        _ => None,
     };
     let done_thought = |at: usize| {
         matches!(
@@ -1389,10 +1408,11 @@ fn group_roles(
     let mut roles = vec![GroupRole::Alone; blocks.len()];
     let mut at = 0;
     while at < blocks.len() {
-        if !quiet_call(at) {
+        let Some(label) = run_of(at) else {
             at += 1;
             continue;
-        }
+        };
+        let quiet_call = |i: usize| run_of(i) == Some(label);
         let start = at;
         let mut end = at;
         let mut next = at + 1;
@@ -1413,6 +1433,18 @@ fn group_roles(
             let TranscriptKind::Tool { id, .. } = &blocks[start].kind else {
                 unreachable!("a run starts at a call")
             };
+            // Bindings name the skills they bound, in the order bound.
+            let bound: Vec<String> = (start..=end)
+                .filter(|&i| quiet_call(i))
+                .filter_map(|i| match &blocks[i].kind {
+                    TranscriptKind::Tool { args, .. } => {
+                        serde_json::from_str::<serde_json::Value>(args)
+                            .ok()
+                            .and_then(|v| v["skill"].as_str().map(str::to_owned))
+                    }
+                    _ => None,
+                })
+                .collect();
             let group = format!("group:{id}");
             let open = expanded.get(&group).copied().unwrap_or(false);
             // Each tool once, in the order first used, with its count.
@@ -1428,19 +1460,24 @@ fn group_roles(
                     None => kinds.push((name, 1)),
                 }
             }
-            let summary = kinds
-                .iter()
-                .map(|(kind, count)| {
-                    if *count > 1 {
-                        format!("{kind} ×{count}")
-                    } else {
-                        (*kind).to_owned()
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(" · ");
+            let summary = if label == "bound" {
+                bound.join(" · ")
+            } else {
+                kinds
+                    .iter()
+                    .map(|(kind, count)| {
+                        if *count > 1 {
+                            format!("{kind} ×{count}")
+                        } else {
+                            (*kind).to_owned()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" · ")
+            };
             roles[start] = GroupRole::Head {
                 id: group,
+                label,
                 summary,
                 calls: calls.len(),
                 open,

@@ -95,6 +95,34 @@ async fn orchestrator_binds_a_local_skill_to_the_agents_that_need_it() {
         .unwrap();
     assert!(!allowed.is_error, "{}", allowed.content);
 
+    // Several at once, in one call.
+    let both = bind
+        .execute(
+            &ctx(Vec::new()),
+            serde_json::json!({ "bindings": [
+                { "skill": "stripe-billing", "agents": ["be", "db"] },
+            ] }),
+        )
+        .await
+        .unwrap();
+    assert!(!both.is_error, "{}", both.content);
+    assert!(offered(&discovery, "db").contains(&"stripe-billing".to_owned()));
+    let refused_all = bind
+        .execute(
+            &ctx(Vec::new()),
+            serde_json::json!({ "bindings": [
+                { "skill": "stripe-billing", "agents": ["be"] },
+                { "skill": "ui", "agents": ["be"] },
+            ] }),
+        )
+        .await
+        .unwrap();
+    assert!(refused_all.is_error, "one bad binding refuses the call");
+    assert!(
+        offered(&discovery, "db").contains(&"stripe-billing".to_owned()),
+        "and changes nothing"
+    );
+
     // Unknown agents and built-in skills are refused; an empty list unbinds.
     let unknown = bind
         .execute(

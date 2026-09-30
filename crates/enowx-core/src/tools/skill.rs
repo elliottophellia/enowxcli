@@ -106,74 +106,105 @@ impl Tool for SkillBindTool {
         "skill_bind"
     }
     fn description(&self) -> &str {
-        "Bind a skill installed in the project or the user's home to the agents whose work \
-         it serves; from then on only they are offered it. An empty `agents` list unbinds it, \
-         so every agent is offered it again. Built-in skills come with their agents and \
-         cannot be bound."
+        "Bind skills installed in the project or the user's home to the agents whose work \
+         they serve; from then on only those agents are offered them. Bind every skill in one \
+         call with `bindings`, not one call each. An empty `agents` list unbinds a skill, so \
+         every agent is offered it again. Built-in skills come with their agents and cannot \
+         be bound."
     }
     fn parameters(&self) -> Value {
         json!({
             "type":"object",
             "properties":{
-                "skill":{"type":"string","description":"Skill name as listed under the skills installed on this machine"},
-                "agents":{"type":"array","items":{"type":"string"},"description":"Agent names from the roster, for example [\"be\"] or [\"fe\",\"motion\"]"}
+                "bindings":{"type":"array","description":"Each skill and the agents it goes to","items":{
+                    "type":"object",
+                    "properties":{
+                        "skill":{"type":"string","description":"Skill name as listed under the skills installed on this machine"},
+                        "agents":{"type":"array","items":{"type":"string"},"description":"Agent names from the roster, for example [\"be\"] or [\"fe\",\"motion\"]"}
+                    },
+                    "required":["skill","agents"]
+                }},
+                "skill":{"type":"string","description":"One skill, when binding only one"},
+                "agents":{"type":"array","items":{"type":"string"},"description":"Its agents, with `skill`"}
             },
-            "required":["skill","agents"],
             "additionalProperties":false
         })
     }
     async fn execute(&self, _ctx: &ToolCtx, args: Value) -> Result<ToolOutput> {
-        let name = string_arg(&args, "skill")?.to_ascii_lowercase();
-        let Some(entry) = self.discovery.skills.iter().find(|s| s.name == name) else {
-            return Ok(ToolOutput::error(format!(
-                "no skill named `{name}` was discovered"
-            )));
+        let asked: Vec<Value> = match args["bindings"].as_array() {
+            Some(list) if !list.is_empty() => list.clone(),
+            _ if args["skill"].is_string() => vec![args.clone()],
+            _ => {
+                return Ok(ToolOutput::error(
+                    "give `bindings`: each skill with its agents",
+                ))
+            }
         };
-        if entry.scope == SkillScope::Builtin {
-            return Ok(ToolOutput::error(format!(
-                "`{name}` is built in: it comes with the agents that carry it"
-            )));
-        }
-        let requested: Vec<String> = args["agents"]
-            .as_array()
-            .map(|list| {
-                list.iter()
-                    .filter_map(Value::as_str)
-                    .map(|a| crate::agent_def::canonical_name(a).to_owned())
-                    .collect()
-            })
-            .unwrap_or_default();
-        let unknown: Vec<&str> = requested
-            .iter()
-            .filter(|a| !self.discovery.agents.iter().any(|d| &d.name == *a))
-            .map(String::as_str)
-            .collect();
-        if !unknown.is_empty() {
-            return Ok(ToolOutput::error(format!(
-                "no agent named {} in the roster",
-                unknown
-                    .iter()
-                    .map(|a| format!("`{a}`"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )));
+        // Everything is checked before anything changes, so a mistake in one
+        // binding leaves them all as they were.
+        let mut plan: Vec<(String, Vec<String>)> = Vec::new();
+        for binding in &asked {
+            let Some(name) = binding["skill"].as_str().map(str::to_ascii_lowercase) else {
+                return Ok(ToolOutput::error("each binding needs a `skill`"));
+            };
+            let Some(entry) = self.discovery.skills.iter().find(|s| s.name == name) else {
+                return Ok(ToolOutput::error(format!(
+                    "no skill named `{name}` was discovered"
+                )));
+            };
+            if entry.scope == SkillScope::Builtin {
+                return Ok(ToolOutput::error(format!(
+                    "`{name}` is built in: it comes with the agents that carry it"
+                )));
+            }
+            let requested: Vec<String> = binding["agents"]
+                .as_array()
+                .map(|list| {
+                    list.iter()
+                        .filter_map(Value::as_str)
+                        .map(|a| crate::agent_def::canonical_name(a).to_owned())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let unknown: Vec<&str> = requested
+                .iter()
+                .filter(|a| !self.discovery.agents.iter().any(|d| &d.name == *a))
+                .map(String::as_str)
+                .collect();
+            if !unknown.is_empty() {
+                return Ok(ToolOutput::error(format!(
+                    "no agent named {} in the roster",
+                    unknown
+                        .iter()
+                        .map(|a| format!("`{a}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )));
+            }
+            plan.push((name, requested));
         }
         let Ok(mut bindings) = self.discovery.bindings.write() else {
             return Ok(ToolOutput::error("skill bindings are unavailable"));
         };
-        bindings.set(&name, requested);
+        for (name, agents) in &plan {
+            bindings.set(name, agents.clone());
+        }
         bindings.save()?;
-        let summary = match bindings.agents_for(&name) {
-            Some(agents) => format!(
-                "`{name}` is now offered only to {}",
-                agents
-                    .iter()
-                    .map(|a| format!("`{a}`"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            None => format!("`{name}` is offered to every agent again"),
-        };
+        let summary = plan
+            .iter()
+            .map(|(name, _)| match bindings.agents_for(name) {
+                Some(agents) => format!(
+                    "`{name}` is now offered only to {}",
+                    agents
+                        .iter()
+                        .map(|a| format!("`{a}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                None => format!("`{name}` is offered to every agent again"),
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
         Ok(ToolOutput::ok(summary))
     }
 }

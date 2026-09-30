@@ -232,7 +232,7 @@ impl Discovery {
              bound yet goes to every agent: bind it with `skill_bind` to the agents whose work \
              it serves (a Stripe skill to `be`, a design-system skill to `fe` and `motion`) \
              before you delegate work it applies to. Bind from what its name and description \
-             say; leave one unbound when it serves every agent.\n",
+             say; leave one unbound when it serves every agent. Bind them all in one call.\n",
         );
         for skill in local {
             let one_liner = skill.description.split('\n').next().unwrap_or("");

@@ -3,7 +3,7 @@ name = "enowx-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "enowx-cli coding agent with the enowx terminal interface"
+description = "enowxcli coding agent with the enowx terminal interface"
 
 # Keep the shipped binary named `enx` so `enx` on PATH still runs the same
 # command after the crate rename.

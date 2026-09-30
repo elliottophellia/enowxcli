@@ -11,7 +11,7 @@ mod dev;
 #[command(
     name = "enx",
     version,
-    about = "Rust coding agent with the enowx-cli terminal interface"
+    about = "Rust coding agent with the enowxcli terminal interface"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -20,7 +20,7 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Open the enowx-cli terminal interface.
+    /// Open the enowxcli terminal interface.
     Tui {
         #[arg(long)]
         workspace: Option<PathBuf>,

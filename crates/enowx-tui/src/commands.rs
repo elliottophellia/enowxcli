@@ -20,7 +20,7 @@ pub(crate) const COMMANDS: [(&str, &str); 22] = [
     ("clear", "Clear the visible transcript"),
     ("stop", "Interrupt the current turn"),
     ("retry", "Continue from where a failed turn stopped"),
-    ("quit", "Leave enowx-cli"),
+    ("quit", "Leave enowxcli"),
 ];
 
 /// One command as the Ctrl+P palette shows it.

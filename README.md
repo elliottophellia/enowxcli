@@ -1,4 +1,4 @@
-# enowx-cli
+# enowxcli
 
 A Rust coding agent with a terminal interface.
 
@@ -11,7 +11,16 @@ enx config set model.default deepseek/deepseek-flash   # pin the model to start 
 enx config path
 ```
 
-enowx-cli opens on a home screen: the enowX wordmark with the composer under
+## Install
+
+```sh
+cargo install --git https://github.com/enowdev/enowxcli
+```
+
+Or build it yourself (see [Build](#build)). The binary is `enx`.
+
+enowxcli opens on a home screen: the wordmark, `enow` in pixel letters with the
+mark (an X of lit cells, its centre in orange) as the X, and the composer under
 it. Until a provider and a model are set, the line under the composer says
 which one is missing. Open `/provider`, choose a provider, then enter only its
 API key. Built-in providers: **enxapi**, OpenAI, OpenRouter, Groq, and DeepSeek;
@@ -41,12 +50,26 @@ and a call that arrives anyway is refused before dispatch.
 
 ## Terminal commands
 
-`/help` `/new` `/sessions` `/resume <id>` `/role` `/model` `/provider`
-`/reasoning` `/tools` `/theme` `/sidebar` `/tab 1..5` `/clear` `/stop`
-`/retry` `/status` `/skills` `/mcp` `/compact` `/quit`
+`/help` `/new` `/resume` `/agent` `/model` `/effort` `/provider` `/attach`
+`/theme` `/typesafe` `/skills` `/mcp` `/compact` `/sidebar` `/reasoning`
+`/tools` `/preview` `/status` `/clear` `/stop` `/retry` `/quit`
+
+`/effort` chooses how hard the model thinks, from the levels models.dev lists
+for it (`/effort high` picks one directly). The level shows beside the model,
+under the composer and in the status bar, or `effort default` while the model
+runs on its provider's default.
+
+The transcript hangs each step's tool calls on a `├─ / └─` rail under the
+request. Calls that only look around (read, grep, glob, fetch, skill reads)
+fold into one `explored` row, and skill bindings into one `bound` row; click a
+row to open it. While a turn runs, a line under the composer shows the mark's
+middle row turning, what the turn is doing, and how long it has taken.
 
 When the provider is down (502, 503, 429, a dropped connection), each call is
-retried for about three and a half minutes. A turn that still fails continues
+retried for about three and a half minutes. A reply the provider breaks off
+mid-stream, or a stream that comes back empty, is asked for again up to three
+times; one that still breaks tells the agent to send less at once (one file
+per step, long files in parts), and the turn carries on. A turn that still fails continues
 from where it stopped by itself, up to three times a minute apart; `/retry`
 continues at once and `Esc` cancels the wait.
 
@@ -145,8 +168,8 @@ plan documents the user chooses: PRD, DESIGN, ARCHITECTURE, ERD, API, PLAN,
 written by the orchestrator with `plan_write`), each carried by the agents
 whose work needs it and read only when the work does. A project or user skill of the same
 name replaces one. A skill installed in the project or `~/` goes to every
-agent until the orchestrator binds it, with `skill_bind`, to the agents whose
-work it serves; bindings are kept in `~/.enx/skill-bindings.json`, and the
+agent until the orchestrator binds it, with `skill_bind` (every binding in one
+call), to the agents whose work it serves; bindings are kept in `~/.enx/skill-bindings.json`, and the
 Skills tab shows who has each one. `/skills` and `/mcp` open popups to toggle
 or add entries; `/compact` folds older turns into a summary; auto-compact fires
 when the context window nears its cap.

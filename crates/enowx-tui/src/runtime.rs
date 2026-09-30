@@ -53,7 +53,7 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
     use std::io::IsTerminal;
     anyhow::ensure!(
         io::stdin().is_terminal() && io::stdout().is_terminal(),
-        "enowx-cli requires an interactive terminal"
+        "enowxcli requires an interactive terminal"
     );
     let mut app = App::new(config);
     // Refresh the models.dev catalog in the background. Fire-and-forget so a

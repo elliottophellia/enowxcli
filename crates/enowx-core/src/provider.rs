@@ -301,8 +301,26 @@ impl Provider {
         // a mutable cap rather than a fixed `1..=MAX_RETRIES` range.
         let mut budget = MAX_RETRIES;
         let mut attempt = 1;
+        let mut breaks = 0;
         loop {
             match self.complete_once(messages, tools, sink).await {
+                // A reply the provider broke off mid-stream is asked for again:
+                // an upstream that went quiet and was cut off by the gateway
+                // (it logs such a call as 0 tokens in and out) usually answers
+                // the next time. One that keeps breaking goes back as it is,
+                // and the agent is told to send less at once.
+                Ok(c) if c.finish_reason == "error" && breaks < MAX_BREAK_RETRIES => {
+                    breaks += 1;
+                    if let Some(cb) = notice {
+                        cb(
+                            "the provider broke off the reply".into(),
+                            attempt + 1,
+                            budget,
+                        );
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(backoff_ms(attempt))).await;
+                    attempt += 1;
+                }
                 Ok(c) => return Ok(c),
                 Err(e) => {
                     // Re-read the budget every time and only ever narrow it: a
@@ -437,7 +455,7 @@ impl Provider {
             // wrong endpoint, the second a genuine upstream fault.
             if result.text.is_empty() && calls.is_empty() {
                 bail!(
-                    "provider sent no data. Check the provider's base URL (`{}`) and its API key in /provider.",
+                    "provider sent no data. If it keeps happening, check the provider's base URL (`{}`) and its API key in /provider.",
                     self.base_url
                 );
             }
@@ -473,6 +491,11 @@ impl Provider {
 /// This is the budget for `Capacity` and `Transport` only. The other kinds
 /// get their own number — see `FailureKind::retry_budget`.
 const MAX_RETRIES: u32 = 20;
+
+/// Times a reply the provider broke off (`finish_reason: "error"`) is asked
+/// for again, and attempts at a stream that brought nothing at all.
+const MAX_BREAK_RETRIES: u32 = 2;
+const MAX_EMPTY_ATTEMPTS: u32 = 3;
 
 /// Attempts allowed when a stream dies *after* the response started.
 ///
@@ -576,10 +599,14 @@ fn classify_message(raw: &str) -> FailureKind {
 
     // Misconfiguration never fixes itself, so retrying it just delays the
     // report by the whole backoff schedule while repeating the same line.
-    if msg.contains("not a stream")
-        || msg.contains("provider sent no data")
-        || msg.contains("check the provider's base url")
-    {
+    // A stream that ended with nothing in it: a misconfigured endpoint does
+    // this, and so does an upstream that went quiet until the gateway cut it
+    // off. Worth a few tries (see `retry_budget_for_error`), not the full
+    // budget, so a wrong endpoint is still reported soon.
+    if msg.contains("provider sent no data") {
+        return FailureKind::Transport;
+    }
+    if msg.contains("not a stream") || msg.contains("check the provider's base url") {
         return FailureKind::Permanent;
     }
 
@@ -658,7 +685,10 @@ fn classify_message(raw: &str) -> FailureKind {
 /// different amounts.
 pub fn retry_budget_for_error(err: &anyhow::Error) -> u32 {
     let kind = classify(err);
-    let budget = kind.retry_budget();
+    let mut budget = kind.retry_budget();
+    if format!("{err:#}").contains("provider sent no data") {
+        budget = budget.min(MAX_EMPTY_ATTEMPTS);
+    }
     if started_streaming(err) {
         // The work was processed and billed; cap it regardless of kind. Never
         // raise a kind's budget — a capability failure that got halfway is
@@ -878,15 +908,22 @@ mod diagnosis_tests {
     /// report and repeats the same line while the user waits out the backoff.
     #[test]
     fn configuration_errors_are_not_retried() {
-        for message in [
-            "provider returned an HTML page, not a stream. `https://ai.example.id` does not look like an API endpoint",
-            "provider sent no data. Check the provider's base URL (`https://ai.example.id`) and its API key in /provider.",
-        ] {
-            assert!(
-                !is_transient(&anyhow::anyhow!(message.to_string())),
-                "must not retry: {message}"
-            );
-        }
+        let message = "provider returned an HTML page, not a stream. `https://ai.example.id` does not look like an API endpoint";
+        assert!(
+            !is_transient(&anyhow::anyhow!(message.to_string())),
+            "must not retry: {message}"
+        );
+    }
+
+    /// An empty stream is what a wrong endpoint sends, and also what a gateway
+    /// sends when its upstream went quiet: a few tries, not the full budget.
+    #[test]
+    fn an_empty_stream_gets_a_few_tries() {
+        let empty = anyhow::anyhow!(
+            "provider sent no data. Check the provider's base URL (`https://x`) and its API key in /provider."
+        );
+        assert!(is_transient(&empty));
+        assert_eq!(retry_budget_for_error(&empty), MAX_EMPTY_ATTEMPTS);
     }
 
     /// Genuine upstream faults still retry.
@@ -970,7 +1007,6 @@ mod diagnosis_tests {
             "provider returned 404: model not found",
             "unknown model vendor/nope",
             "malformed request body",
-            "provider sent no data. Check the provider's base URL (`https://x`) and its API key in /provider.",
             "provider returned an HTML page, not a stream. `https://x` does not look like an API endpoint",
         ] {
             assert_eq!(

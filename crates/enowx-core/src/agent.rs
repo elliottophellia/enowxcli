@@ -98,6 +98,7 @@ Effort and tools:\n\
 - Use the dedicated tools: `glob` to list or find files, `grep` to search contents, `read` to read (offset and limit for a range). `bash` is for building, running, installing and testing, never for ls, find, cat, head, sed or grep.\n\
 - Calls that do not depend on each other go in one step, as several tool calls in the same reply: the files to read, the searches, the screenshots to look at, a build beside them. They run at the same time; one per step makes the user wait a model call for each. Only a call that needs another's result waits for the next step.\n\
 - A picture you have read stays in view: look back at it instead of reading it again.\n\
+- A reply is cut off when it carries too much: write at most one or two files per step, never many whole files at once, and a file over about 300 lines in parts (a `write`, then `edit`).\n\
 - Create a file whole with one `write`. Change an existing file with `edit`, and several changes to one file with one `multi_edit`, not one call each; do not rewrite a file to change a detail of it.\n\
 - Verify with what the project already has (its build, tests, linter) or by reading the result. Do not write throwaway scripts (a python heredoc, an ad-hoc validator) to check your own output.\n\
 - Leave nothing running: no servers or background processes (`&`, nohup) that outlive the command that started them.\n\
@@ -1663,10 +1664,7 @@ impl Agent {
                 } else if cancel.is_cancelled() {
                     ToolOutput::error("Cancelled before execution.")
                 } else if !matches!(completion.finish_reason.as_str(), "stop" | "tool_calls") {
-                    ToolOutput::error(format!(
-                        "Not executed: provider stopped with {} (possibly truncated arguments).",
-                        completion.finish_reason
-                    ))
+                    ToolOutput::error(cut_off(&completion.finish_reason))
                 } else {
                     match serde_json::from_str::<serde_json::Value>(&call.arguments) {
                         Ok(args @ serde_json::Value::Object(_))
@@ -1875,7 +1873,13 @@ impl Agent {
                 );
             }
             self.store.save(&session)?;
-            if !matches!(completion.finish_reason.as_str(), "stop" | "tool_calls") {
+            // A reply cut off in the middle of its calls has told each of
+            // them why it did not run: the agent carries on with that, in
+            // smaller steps, instead of the turn ending with the work half
+            // done. Cut off with no calls, there is nothing to tell it.
+            if !matches!(completion.finish_reason.as_str(), "stop" | "tool_calls")
+                && completion.tool_calls.is_empty()
+            {
                 stop_reason = completion.finish_reason;
                 break;
             }
@@ -2087,6 +2091,23 @@ fn handoff_note(switch: &crate::session::AgentSwitch) -> String {
          `{from}`'s; do not repeat, describe or confirm the handoff.",
         from = switch.from,
         reason = switch.reason.trim(),
+    )
+}
+
+/// Why a call in a reply the provider did not finish was not run, and what
+/// to do instead. A reply carrying whole files is the one that gets cut: the
+/// output limit, or the provider breaking off a long stream. Sending the same
+/// reply again is cut the same way, so the way out is smaller replies.
+fn cut_off(finish_reason: &str) -> String {
+    let why = match finish_reason {
+        "length" => "the reply reached the model's output limit".to_owned(),
+        "error" => "the provider broke off the reply".to_owned(),
+        other => format!("the provider stopped the reply ({other})"),
+    };
+    format!(
+        "Not executed: {why} before this call's arguments were complete, so nothing was \
+         written or run. Do not send the same reply again. Send one `write` per step, and \
+         for a long file write its first part and add the rest with `edit` in the next steps."
     )
 }
 

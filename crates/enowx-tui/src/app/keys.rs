@@ -120,6 +120,7 @@ impl App {
                     KeyCode::PageDown => self.move_picker(10),
                     KeyCode::F(5) => self.refresh_models(),
                     KeyCode::F(2) => self.open_manual_model(),
+                    KeyCode::F(3) => self.open_edit_model(),
                     KeyCode::Enter => {
                         if let Some(model) = self.selected_model() {
                             self.choose_model(&model)?;

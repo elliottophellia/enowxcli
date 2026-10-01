@@ -31,6 +31,11 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
             "For a model its list lacks. An empty window uses 128k.".into(),
             format!("ADD A MODEL TO {}", provider.to_uppercase()),
         ),
+        Modal::ModelEdit => (
+            "Tab field · ←→ choose · Enter save · Esc back",
+            "Overrides the detected values. Empty uses the catalogue or the id.".into(),
+            format!("EDIT {}", app.settings.model.to_uppercase()),
+        ),
         _ => (
             if width < 44 {
                 "Tab field · Enter save · Esc back"
@@ -62,8 +67,11 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
     for (index, field) in fields.iter().copied().enumerate().skip(start).take(visible) {
         let active = index == app.modal_cursor;
         let raw = app.settings.value(field);
+        let choice = field.is_choice();
         let shown = if field == SettingsField::ApiKey {
             "•".repeat(raw.chars().count())
+        } else if choice {
+            format!("◂ {} ▸", app.settings.choice_shown(field))
         } else {
             raw.to_owned()
         };
@@ -95,7 +103,7 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
             Rect::new(area.x, y, area.width, 1),
         );
         let field_area = Rect::new(area.x + 2, y + 1, area.width.saturating_sub(2), 1);
-        let cursor_column = if !active {
+        let cursor_column = if !active || choice {
             0
         } else if field == SettingsField::ApiKey {
             raw[..app.field_cursor].chars().count()
@@ -165,5 +173,7 @@ fn placeholder(app: &App, field: SettingsField) -> &'static str {
         SettingsField::ModelsUrl => "https://host/v1/models",
         SettingsField::Model => "the id the provider uses",
         SettingsField::ContextWindow => "e.g. 200000",
+        SettingsField::Effort | SettingsField::Vision => "←→ to choose",
+        SettingsField::PriceInput | SettingsField::PriceOutput => "e.g. 3.0 (blank = unknown)",
     }
 }

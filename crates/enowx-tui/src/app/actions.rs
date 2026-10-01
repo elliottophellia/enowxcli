@@ -526,6 +526,7 @@ impl App {
             Modal::ProviderKey => return self.connect_key(),
             Modal::ProviderForm => return self.save_provider_form(),
             Modal::ModelManual => return self.save_manual_model(),
+            Modal::ModelEdit => return self.save_edit_model(),
             Modal::Sessions => {
                 if let Some((id, _)) = self.modal_items.get(self.modal_cursor).cloned() {
                     self.resume(&id)?;

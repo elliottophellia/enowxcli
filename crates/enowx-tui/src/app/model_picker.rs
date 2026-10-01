@@ -483,6 +483,135 @@ impl App {
         self.open_form(Modal::ModelManual);
     }
 
+    /// F3: edit the selected model's properties. Prefills from what is set
+    /// now (an explicit override, else the detected or catalogue value) so
+    /// the form shows the real figures and a save keeps the ones untouched.
+    pub(crate) fn open_edit_model(&mut self) {
+        let Some(id) = self.selected_model() else {
+            self.status = "Select a model row to edit.".into();
+            return;
+        };
+        let Some(model) = ModelRef::parse(&id) else {
+            return;
+        };
+        let facts = self.config.facts(&model);
+        let efforts = self.config.efforts(&model);
+        let own = self
+            .config
+            .provider
+            .get(&model.provider)
+            .and_then(|entry| entry.models.get(&model.model))
+            .cloned()
+            .unwrap_or_default();
+        let effort = ModelState::load()
+            .effort
+            .get(&id)
+            .cloned()
+            .filter(|level| efforts.contains(level))
+            .unwrap_or_default();
+        let num = |value: f64| if value > 0.0 { format!("{value}") } else { String::new() };
+        self.settings = SettingsDraft {
+            provider_id: model.provider.clone(),
+            model: model.model.clone(),
+            context_window: own
+                .context_window
+                .map(|w| w.to_string())
+                .unwrap_or_else(|| facts.context_window.to_string()),
+            effort,
+            vision: match own.vision {
+                Some(true) => "yes".into(),
+                Some(false) => "no".into(),
+                None => String::new(),
+            },
+            price_input: own.price_input.map(num).unwrap_or_default(),
+            price_output: own.price_output.map(num).unwrap_or_default(),
+            efforts,
+            ..SettingsDraft::default()
+        };
+        self.open_form(Modal::ModelEdit);
+    }
+
+    /// Save the edited model's properties to its `ModelEntry`, apply the
+    /// effort, and keep using the model. An empty field clears that override
+    /// and lets the detected or catalogue value take over again.
+    pub(crate) fn save_edit_model(&mut self) -> Result<()> {
+        let id = self.settings.provider_id.clone();
+        let model = self.settings.model.clone();
+        anyhow::ensure!(!model.is_empty(), "No model to edit.");
+        let full = format!("{id}/{model}");
+
+        let parse_u32 = |raw: &str| -> Result<Option<u32>> {
+            let raw = raw.trim().replace(['_', ',', '.'], "");
+            if raw.is_empty() {
+                return Ok(None);
+            }
+            Ok(Some(raw.parse::<u32>().map_err(|_| {
+                anyhow::anyhow!("The context window is a whole number of tokens.")
+            })?))
+        };
+        let parse_price = |raw: &str, what: &str| -> Result<Option<f64>> {
+            let raw = raw.trim().replace([',', '_'], "");
+            if raw.is_empty() {
+                return Ok(None);
+            }
+            let value = raw
+                .parse::<f64>()
+                .map_err(|_| anyhow::anyhow!("The {what} is a number of dollars per 1M tokens."))?;
+            anyhow::ensure!(value >= 0.0, "The {what} cannot be negative.");
+            Ok(Some(value))
+        };
+
+        let context_window = parse_u32(&self.settings.context_window)?;
+        let price_input = parse_price(&self.settings.price_input, "input price")?;
+        let price_output = parse_price(&self.settings.price_output, "output price")?;
+        let vision = match self.settings.vision.as_str() {
+            "yes" => Some(true),
+            "no" => Some(false),
+            _ => None,
+        };
+        let effort = self.settings.effort.clone();
+
+        let mut next = self.config.clone();
+        let entry = next.provider.entry(id.clone()).or_default();
+        if context_window.is_none()
+            && vision.is_none()
+            && price_input.is_none()
+            && price_output.is_none()
+        {
+            // Everything cleared: drop the override row rather than leave an
+            // empty one behind.
+            let kept_cache = entry.models.get(&model).and_then(|m| m.price_cache_read);
+            if kept_cache.is_some() {
+                entry.models.insert(
+                    model.clone(),
+                    ModelEntry { price_cache_read: kept_cache, ..ModelEntry::default() },
+                );
+            } else {
+                entry.models.remove(&model);
+            }
+        } else {
+            let cache = entry.models.get(&model).and_then(|m| m.price_cache_read);
+            entry.models.insert(
+                model.clone(),
+                ModelEntry {
+                    context_window,
+                    vision,
+                    price_input,
+                    price_output,
+                    price_cache_read: cache,
+                },
+            );
+        }
+        next.save()?;
+        self.adopt(next);
+        self.choose_model(&full)?;
+        // Effort lives in model state, applied against the now-active model.
+        self.config.set_effort(&effort)?;
+        self.status = format!("edited {full}");
+        self.modal = Modal::None;
+        Ok(())
+    }
+
     /// Add the model in the form to its provider's entry, and use it.
     pub(crate) fn save_manual_model(&mut self) -> Result<()> {
         let model = self.settings.model.trim().to_owned();

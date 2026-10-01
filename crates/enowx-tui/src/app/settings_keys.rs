@@ -112,7 +112,7 @@ impl App {
                             .position(|p| *p == id)
                             .unwrap_or(self.provider_ids.len());
                     }
-                    Modal::ModelManual => {
+                    Modal::ModelManual | Modal::ModelEdit => {
                         self.modal = Modal::Models;
                         self.modal_cursor = 0;
                         self.move_picker(0);
@@ -139,15 +139,28 @@ impl App {
                 Modal::ProviderKey => self.connect_key()?,
                 Modal::ProviderForm => self.save_provider_form()?,
                 Modal::ModelManual => self.save_manual_model()?,
+                Modal::ModelEdit => self.save_edit_model()?,
                 Modal::TypeSafeKey => self.save_typesafe_key()?,
                 _ => {}
             },
+            // A cycled choice (effort, vision) steps with Left/Right or
+            // Space; it has no text to type into.
+            KeyCode::Left if field.is_choice() => {
+                self.settings_changed();
+                self.settings.cycle_choice(field, -1);
+            }
+            KeyCode::Right | KeyCode::Char(' ') if field.is_choice() => {
+                self.settings_changed();
+                self.settings.cycle_choice(field, 1);
+            }
+            KeyCode::Char(_) if field.is_choice() => {}
             KeyCode::Char(character) => {
                 self.settings_changed();
                 let value = self.settings.value_mut(field);
                 value.insert(self.field_cursor, character);
                 self.field_cursor += character.len_utf8();
             }
+            KeyCode::Backspace if field.is_choice() => {}
             KeyCode::Backspace if self.field_cursor > 0 => {
                 self.settings_changed();
                 let value = self.settings.value_mut(field);

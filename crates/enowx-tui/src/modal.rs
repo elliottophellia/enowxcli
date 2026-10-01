@@ -30,6 +30,9 @@ pub enum Modal {
     Models,
     /// A model entered by hand, for a provider whose list lacks it.
     ModelManual,
+    /// Editing a known model's properties: context window, thinking effort,
+    /// vision and prices, over what the catalogue or the id says.
+    ModelEdit,
     Themes,
     /// The thinking efforts the model in use offers.
     Effort,
@@ -66,7 +69,11 @@ impl Modal {
             Modal::McpForm => " ADD MCP SERVER ",
             Modal::QuitConfirm => " QUIT ENX ",
             // Forms draw their own heading, so the generic title is empty.
-            Modal::None | Modal::ProviderForm | Modal::ModelManual | Modal::ProviderKey => "",
+            Modal::None
+            | Modal::ProviderForm
+            | Modal::ModelManual
+            | Modal::ModelEdit
+            | Modal::ProviderKey => "",
         }
     }
 
@@ -76,6 +83,7 @@ impl Modal {
             self,
             Modal::ProviderForm
                 | Modal::ModelManual
+                | Modal::ModelEdit
                 | Modal::ProviderKey
                 | Modal::TypeSafeKey
                 | Modal::McpForm
@@ -91,6 +99,10 @@ pub enum SettingsField {
     ModelsUrl,
     Model,
     ContextWindow,
+    Effort,
+    Vision,
+    PriceInput,
+    PriceOutput,
 }
 
 impl SettingsField {
@@ -102,7 +114,17 @@ impl SettingsField {
             SettingsField::ModelsUrl => "Model-list URL",
             SettingsField::Model => "Model ID",
             SettingsField::ContextWindow => "Context window (tokens)",
+            SettingsField::Effort => "Thinking effort",
+            SettingsField::Vision => "Vision (sees images)",
+            SettingsField::PriceInput => "Price in ($/1M tokens)",
+            SettingsField::PriceOutput => "Price out ($/1M tokens)",
         }
+    }
+
+    /// A cycled choice (Left/Right picks a value) rather than a text field.
+    /// Its draft string holds the chosen value or is empty for the default.
+    pub fn is_choice(self) -> bool {
+        matches!(self, SettingsField::Effort | SettingsField::Vision)
     }
 }
 
@@ -116,6 +138,13 @@ pub fn form_fields(modal: Modal) -> &'static [SettingsField] {
             SettingsField::ModelsUrl,
         ],
         Modal::ModelManual => &[SettingsField::Model, SettingsField::ContextWindow],
+        Modal::ModelEdit => &[
+            SettingsField::ContextWindow,
+            SettingsField::Effort,
+            SettingsField::Vision,
+            SettingsField::PriceInput,
+            SettingsField::PriceOutput,
+        ],
         Modal::ProviderKey | Modal::TypeSafeKey => &[SettingsField::ApiKey],
         _ => &[],
     }
@@ -133,6 +162,14 @@ pub struct SettingsDraft {
     pub models_url: String,
     pub model: String,
     pub context_window: String,
+    /// The chosen thinking effort, or empty for the provider default.
+    pub effort: String,
+    /// "yes" / "no", or empty to leave it to the catalogue.
+    pub vision: String,
+    pub price_input: String,
+    pub price_output: String,
+    /// The efforts this model offers, to cycle through on the Effort field.
+    pub efforts: Vec<String>,
 }
 
 impl SettingsDraft {
@@ -147,6 +184,7 @@ impl SettingsDraft {
             models_url: connection.models_url.clone(),
             model: String::new(),
             context_window: String::new(),
+            ..Self::default()
         }
     }
 
@@ -158,6 +196,10 @@ impl SettingsDraft {
             SettingsField::ModelsUrl => &self.models_url,
             SettingsField::Model => &self.model,
             SettingsField::ContextWindow => &self.context_window,
+            SettingsField::Effort => &self.effort,
+            SettingsField::Vision => &self.vision,
+            SettingsField::PriceInput => &self.price_input,
+            SettingsField::PriceOutput => &self.price_output,
         }
     }
 
@@ -169,6 +211,49 @@ impl SettingsDraft {
             SettingsField::ModelsUrl => &mut self.models_url,
             SettingsField::Model => &mut self.model,
             SettingsField::ContextWindow => &mut self.context_window,
+            SettingsField::Effort => &mut self.effort,
+            SettingsField::Vision => &mut self.vision,
+            SettingsField::PriceInput => &mut self.price_input,
+            SettingsField::PriceOutput => &mut self.price_output,
+        }
+    }
+
+    /// What a cycled choice field shows, and how to step it. `Effort` cycles
+    /// through the model's efforts plus a leading "default"; `Vision` toggles
+    /// default / yes / no.
+    pub fn choice_shown(&self, field: SettingsField) -> String {
+        match field {
+            SettingsField::Effort => {
+                if self.effort.is_empty() { "default".into() } else { self.effort.clone() }
+            }
+            SettingsField::Vision => match self.vision.as_str() {
+                "yes" => "yes".into(),
+                "no" => "no".into(),
+                _ => "default".into(),
+            },
+            _ => self.value(field).to_owned(),
+        }
+    }
+
+    /// Step a cycled choice by `delta` (+1 / -1).
+    pub fn cycle_choice(&mut self, field: SettingsField, delta: i32) {
+        match field {
+            SettingsField::Effort => {
+                let mut options = vec![String::new()];
+                options.extend(self.efforts.iter().cloned());
+                let here = options.iter().position(|o| *o == self.effort).unwrap_or(0);
+                let len = options.len() as i32;
+                let next = (((here as i32 + delta) % len) + len) % len;
+                self.effort = options[next as usize].clone();
+            }
+            SettingsField::Vision => {
+                let options = ["", "yes", "no"];
+                let here = options.iter().position(|o| *o == self.vision).unwrap_or(0);
+                let len = options.len() as i32;
+                let next = (((here as i32 + delta) % len) + len) % len;
+                self.vision = options[next as usize].to_owned();
+            }
+            _ => {}
         }
     }
 }

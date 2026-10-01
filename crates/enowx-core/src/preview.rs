@@ -1219,10 +1219,8 @@ impl Server {
         // Its output goes to a log, so a server that fails says why.
         let log_path = out_dir.join("server.log");
         let log = std::fs::File::create(&log_path)?;
-        let mut process = tokio::process::Command::new("sh");
+        let mut process = crate::tools::shell::shell_command(command, false);
         process
-            .arg("-c")
-            .arg(command)
             .current_dir(workspace)
             .stdin(std::process::Stdio::null())
             .stdout(log.try_clone()?)

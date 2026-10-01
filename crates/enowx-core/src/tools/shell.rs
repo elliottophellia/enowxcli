@@ -6,6 +6,31 @@ use tokio::process::Command;
 
 pub(super) struct BashTool;
 
+/// `command` run by the platform's shell: `/bin/sh` on Unix (a login shell
+/// when `login`); on Windows the `sh` Git for Windows puts on PATH, or
+/// PowerShell when there is none.
+pub(crate) fn shell_command(command: &str, login: bool) -> Command {
+    #[cfg(unix)]
+    {
+        let mut shell = Command::new("/bin/sh");
+        shell.arg(if login { "-lc" } else { "-c" }).arg(command);
+        shell
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = login;
+        if which::which("sh").is_ok() {
+            let mut shell = Command::new("sh");
+            shell.arg("-c").arg(command);
+            shell
+        } else {
+            let mut shell = Command::new("powershell");
+            shell.args(["-NoProfile", "-Command", command]);
+            shell
+        }
+    }
+}
+
 #[async_trait]
 impl Tool for BashTool {
     fn name(&self) -> &str {
@@ -21,10 +46,8 @@ impl Tool for BashTool {
     }
     async fn execute(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput> {
         let command = string_arg(&args, "command")?;
-        let mut spawner = Command::new("/bin/sh");
+        let mut spawner = shell_command(command, true);
         spawner
-            .arg("-lc")
-            .arg(command)
             .current_dir(&ctx.workspace)
             .kill_on_drop(true)
             .stdin(std::process::Stdio::null())

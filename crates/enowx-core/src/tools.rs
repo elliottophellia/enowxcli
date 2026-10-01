@@ -18,7 +18,7 @@ mod icon;
 pub mod mcp_proxy;
 mod preview_tool;
 mod search;
-mod shell;
+pub(crate) mod shell;
 mod shell_guard;
 pub mod skill;
 mod todo;

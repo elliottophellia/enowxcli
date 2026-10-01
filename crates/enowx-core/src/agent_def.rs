@@ -81,6 +81,7 @@ pub const SECURITY_TEAM: &[&str] = &[
     "sec-reverse",
     "sec-threat-model",
     "sec-ir",
+    "sec-vibecoder",
     "sec-report",
 ];
 
@@ -116,6 +117,7 @@ pub fn display_name(name: &str) -> String {
         "sec-reverse" => "Reverse",
         "sec-threat-model" => "Threat Model",
         "sec-ir" => "Incident",
+        "sec-vibecoder" => "Vibecoder",
         "sec-report" => "Sec Report",
         "perf" => "Performance",
         "research" => "Research",
@@ -436,34 +438,43 @@ pub fn builtin_agents() -> Vec<AgentDef> {
     // pentest root.
     let pentest = family("pentest");
     let p_root: &[&str] = &["pentest"];
-    let sec_lead = join(&[&pentest, &security]);
-    let sec_recon = join(&[p_root, &["pentest-recon", "pentest-osint"]]);
+    // The OWASP detail the web and API testers work from, and the safe-shell
+    // skill every role that runs tools against a target carries.
+    let owasp: &[&str] = &[
+        "pentest-access-control",
+        "pentest-authn",
+        "pentest-injection",
+        "pentest-ssrf",
+    ];
+    let safe: &[&str] = &["shell-safely"];
+    let sec_lead = join(&[&pentest, owasp, &security, safe]);
+    let sec_recon = join(&[p_root, &["pentest-recon", "pentest-osint"], safe]);
     let sec_osint = join(&[p_root, &["pentest-osint"]]);
     let sec_webapp = join(&[
         p_root,
-        &[
-            "pentest-web",
-            "frontend-security",
-            "backend-security",
-            "backend-auth",
-        ],
+        &["pentest-web"],
+        owasp,
+        &["frontend-security", "backend-security", "backend-auth"],
+        safe,
     ]);
     let sec_api = join(&[
         p_root,
-        &[
-            "pentest-api",
-            "pentest-web",
-            "backend-security",
-            "backend-auth",
-        ],
+        &["pentest-api"],
+        owasp,
+        &["backend-security", "backend-auth"],
+        safe,
     ]);
-    let sec_cloud = join(&[p_root, &["pentest-cloud", "devops-security"]]);
-    let sec_internal = join(&[p_root, &["pentest-internal", "devops-security"]]);
-    let sec_mobile = join(&[p_root, &["pentest-mobile", "pentest-api"]]);
-    let sec_intercept = join(&[p_root, &["pentest-web", "pentest-api"]]);
-    let sec_reverse = join(&[p_root, &["security-crypto"]]);
+    let sec_cloud = join(&[p_root, &["pentest-cloud", "devops-security"], safe]);
+    let sec_internal = join(&[p_root, &["pentest-internal", "devops-security"], safe]);
+    let sec_mobile = join(&[p_root, &["pentest-mobile", "pentest-api"], safe]);
+    let sec_intercept = join(&[p_root, &["pentest-web", "pentest-api"], owasp, safe]);
+    let sec_reverse = join(&[p_root, &["security-crypto"], safe]);
     let sec_threat = join(&[p_root, &security_family]);
-    let sec_ir = join(&[p_root, &security_family]);
+    let sec_ir = join(&[p_root, &security_family, safe]);
+    let sec_vibecoder = join(&[
+        p_root,
+        &["pentest-vibecoder", "frontend-security", "backend-security"],
+    ]);
     let sec_report = join(&[p_root, &["pentest-reporting", "writing"]]);
     let perf = join(&[
         &performance,
@@ -771,6 +782,15 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             Delegation::Librarian,
             &sec_ir,
             SEC_IR_PROMPT,
+        ),
+        make(
+            "sec-vibecoder",
+            "assesses whether an authorized site was AI or boilerplate generated, as a scored likelihood with evidence, and reports the real security gaps it finds",
+            &["read", "glob", "grep", "bash", "fetch", "todo", "report_finding"],
+            Tier::Balanced,
+            Delegation::Librarian,
+            &sec_vibecoder,
+            SEC_VIBECODER_PROMPT,
         ),
         make(
             "sec-report",
@@ -1491,6 +1511,10 @@ Establish scope and a timeline first: what happened, when, which systems and acc
 const SEC_REPORT_PROMPT: &str = "You write the report for a security engagement. Your reader is often a developer or manager who was not in the room, so clarity outranks everything.
 Read `pentest-reporting`, and `writing` for the prose.
 Lead with an executive summary a busy reader can act on: what was tested, the overall risk, and the few things that matter most. Then the findings, each in one shape — title, severity with the reasoning, where, exactly how to reproduce, what an attacker gains, and a specific fix. Make the chains explicit: a set of mediums that reaches account takeover is a critical. Rank by real risk, not scanner score, and keep confirmed findings apart from suspicions. Describe the class of problem and the fix, never a weaponised exploit or a real secret's value. Say what was not reviewed. Write the report to a file with `write`.";
+
+const SEC_VIBECODER_PROMPT: &str = "You assess whether an authorized website was likely \"vibecoded\", mostly AI or boilerplate generated, and you report the real security gaps that assessment turns up. Origin can only be inferred, so you give a confidence score with evidence, never a yes/no verdict.
+Read `pentest-vibecoder`.
+Keep two axes apart: the vibecoded likelihood (a score from 0 to 100 with a band and the evidence), and the risk findings (exposed secrets, tables without access control, missing validation) that matter whoever built it. Be passive: fetch only what the target serves in public, never attack or exploit, and frame the origin as likelihood, never an accusation about a named person or company. Record every real security gap with `report_finding`. End with the score and band, the signals behind it, the security findings on their own axis, and the caveat that the same stack does not prove generated origin.";
 
 /// The performance specialist's prompt.
 const PERF_PROMPT: &str = "\

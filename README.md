@@ -65,7 +65,7 @@ The orchestrator hands work to a roster of specialists, grouped in the sidebar:
 `security` is the single security role a user selects. It leads an authorized
 penetration test: it confirms the scope and written authorization first, then
 delegates recon and each testing area to a specialist, consolidates the
-findings, and finds the chains an individual surface cannot see. Its twelve
+findings, and finds the chains an individual surface cannot see. Its thirteen
 specialists are reachable only through it (a `Lead` delegation, so an ordinary
 request never lands one directly):
 
@@ -82,6 +82,7 @@ request never lands one directly):
 | `sec-reverse` | Binary and firmware analysis |
 | `sec-threat-model` | Attack surface and trust boundaries |
 | `sec-ir` | Incident triage and response |
+| `sec-vibecoder` | Scores how likely a site was AI/boilerplate generated, and reports the gaps it left |
 | `sec-report` | The write-up |
 
 Every role tests only authorized targets, reads over writes, proves a finding

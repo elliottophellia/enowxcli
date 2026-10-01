@@ -697,6 +697,30 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
         include_str!("../../skills/pentest-web/SKILL.md"),
     ),
     (
+        "pentest-access-control",
+        include_str!("../../skills/pentest-access-control/SKILL.md"),
+    ),
+    (
+        "pentest-authn",
+        include_str!("../../skills/pentest-authn/SKILL.md"),
+    ),
+    (
+        "pentest-injection",
+        include_str!("../../skills/pentest-injection/SKILL.md"),
+    ),
+    (
+        "pentest-ssrf",
+        include_str!("../../skills/pentest-ssrf/SKILL.md"),
+    ),
+    (
+        "pentest-vibecoder",
+        include_str!("../../skills/pentest-vibecoder/SKILL.md"),
+    ),
+    (
+        "shell-safely",
+        include_str!("../../skills/shell-safely/SKILL.md"),
+    ),
+    (
         "performance",
         include_str!("../../skills/performance/SKILL.md"),
     ),

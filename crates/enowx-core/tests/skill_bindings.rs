@@ -17,6 +17,7 @@ fn ctx(skills: Vec<String>) -> ToolCtx {
         lsp: None,
         repair: None,
         vision: false,
+        cloudflare_token: None,
     }
 }
 

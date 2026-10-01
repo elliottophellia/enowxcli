@@ -85,6 +85,15 @@ request never lands one directly):
 | `sec-vibecoder` | Scores how likely a site was AI/boilerplate generated, and reports the gaps it left |
 | `sec-report` | The write-up |
 
+Active testing of a domain requires verifiable authorization, not a claim in
+the chat. `authorize_target` checks that a connected Cloudflare account controls
+the domain's DNS zone, which proves control of the domain, and records the
+domain, its subdomains and the addresses it resolves to as the scope the team
+may test. A domain the account does not control is refused. Connect the account
+with `enx auth login cloudflare` (a token with at least `Zone:Read`; it prints
+the minimal, medium and full scope options). The token is read from `auth.json`
+or `CLOUDFLARE_API_TOKEN`.
+
 Every role tests only authorized targets, reads over writes, proves a finding
 with a benign payload (never a destructive one), and never prints a real
 secret. Each confirmed issue is recorded with the `report_finding` tool, which
@@ -157,6 +166,7 @@ Three files under `~/.enx` (or `ENX_HOME`), each with one job:
 |---|---|
 | `config.toml` | Custom providers, a pinned start model, and every other setting. No keys |
 | `auth.json` | One API key per provider, readable by the user alone. `enx auth login/logout` edits it |
+| Cloudflare token | In `auth.json` under `cloudflare` (or `CLOUDFLARE_API_TOKEN`); proves domain control for a security assessment |
 | `model.json` | The recent and favourite models picked in `/model` |
 
 At start the model in use is the first that can run of: `ENX_MODEL`, a pinned

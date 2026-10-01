@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 use tokio_util::sync::CancellationToken;
+pub mod authorize;
 mod fetch;
 pub mod files;
 mod finding;
@@ -52,6 +53,9 @@ pub struct ToolCtx {
     pub repair: Option<std::sync::Arc<dyn crate::syntax::Repair>>,
     /// Whether the model in use can see images, so `read` may return one.
     pub vision: bool,
+    /// A Cloudflare API token, when one is connected, so a security agent can
+    /// verify it controls a domain before any authorized testing of it.
+    pub cloudflare_token: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -132,6 +136,7 @@ impl Default for ToolRegistry {
         registry.register(BashTool);
         registry.register(FetchTool::default());
         registry.register(finding::ReportFindingTool);
+        registry.register(authorize::AuthorizeTargetTool);
         registry.register(TodoTool::default());
         registry
     }
@@ -717,6 +722,7 @@ mod tests {
                 lsp: None,
                 repair: None,
                 vision: false,
+                cloudflare_token: None,
             },
             root,
         )

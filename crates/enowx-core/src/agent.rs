@@ -1373,6 +1373,11 @@ impl Agent {
             skills: self.discovery.carried_by(&active),
             lsp: self.config.agent.lsp.then(|| self.lsp.clone()),
             vision: agent_config.model.vision,
+            cloudflare_token: self
+                .config
+                .auth
+                .key("cloudflare", &["CLOUDFLARE_API_TOKEN"])
+                .map(|(key, _)| key),
             repair: Some(Arc::new(ModelRepair {
                 config: self.config.clone(),
             })),

@@ -143,6 +143,7 @@ async fn a_builtin_skill_reads_from_the_binary() {
         lsp: None,
         repair: None,
         vision: false,
+        cloudflare_token: None,
     };
     let tool = SkillReadTool::new(discovery.clone());
     let out = tool
@@ -183,6 +184,7 @@ async fn an_agent_cannot_read_a_builtin_it_does_not_carry() {
         lsp: None,
         repair: None,
         vision: false,
+        cloudflare_token: None,
     };
     let tool = SkillReadTool::new(discovery);
     let ui = tool

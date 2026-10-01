@@ -141,6 +141,7 @@ mod tests {
             lsp: None,
             repair: None,
             vision: false,
+            cloudflare_token: None,
         }
     }
 

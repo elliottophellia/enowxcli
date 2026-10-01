@@ -22,8 +22,33 @@ pub fn list(config: &Config) {
     println!("keys: {}", enowx_core::auth::auth_path().display());
 }
 
-/// Ask for `provider`'s key and store it.
+/// Where to create a Cloudflare token, and the scope levels to pick from. Only
+/// Zone:Read is needed to verify control of a domain for an assessment.
+const CLOUDFLARE_TOKEN_HELP: &str = "\
+Create a token at https://dash.cloudflare.com/profile/api-tokens with one of:\n\
+  - minimal (recommended): Zone / Zone / Read, for the zones you want to test. \
+Enough to prove control of a domain.\n\
+  - medium: add Zone / DNS / Read, so records resolve without a separate lookup.\n\
+  - full: an account-wide token. More than an assessment needs; avoid unless you \
+have a reason.\n\
+Scope the token to the specific zones, not all of them, when you can.";
+
+/// Ask for `provider`'s key and store it. `cloudflare` is not a model provider
+/// but a connected account enx uses to verify control of a domain before a
+/// security assessment, so it is stored the same way under its own id.
 pub fn login(config: &mut Config, provider: &str) -> Result<()> {
+    if provider.eq_ignore_ascii_case("cloudflare") {
+        eprintln!("{CLOUDFLARE_TOKEN_HELP}");
+        let key = read_key("Cloudflare API token: ")?;
+        anyhow::ensure!(!key.trim().is_empty(), "no token entered; nothing saved");
+        config.auth.store("cloudflare", &key)?;
+        println!(
+            "Saved the Cloudflare token to {}. The security team can now verify control of a \
+             domain before testing it.",
+            enowx_core::auth::auth_path().display()
+        );
+        return Ok(());
+    }
     let connection = config.connection(provider).ok_or_else(|| {
         let built_in: Vec<&str> = enowx_core::PROVIDER_PRESETS.iter().map(|p| p.id).collect();
         anyhow::anyhow!(
@@ -52,6 +77,14 @@ pub fn login(config: &mut Config, provider: &str) -> Result<()> {
 
 /// Remove `provider`'s stored key.
 pub fn logout(config: &mut Config, provider: &str) -> Result<()> {
+    if provider.eq_ignore_ascii_case("cloudflare") {
+        if config.auth.forget("cloudflare")? {
+            println!("Removed the Cloudflare token from auth.json");
+        } else {
+            println!("auth.json holds no Cloudflare token");
+        }
+        return Ok(());
+    }
     if config.auth.forget(provider)? {
         println!("Removed the {provider} key from auth.json");
     } else {

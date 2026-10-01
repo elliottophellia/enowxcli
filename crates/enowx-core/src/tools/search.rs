@@ -223,6 +223,7 @@ mod excerpt_tests {
             lsp: None,
             repair: None,
             vision: false,
+            cloudflare_token: None,
         };
         let out = GrepTool
             .execute(&ctx, serde_json::json!({ "pattern": "Shell" }))

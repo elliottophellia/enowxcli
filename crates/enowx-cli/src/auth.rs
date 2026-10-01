@@ -23,13 +23,16 @@ pub fn list(config: &Config) {
 }
 
 /// A Cloudflare API token scope the login flow can pre-fill on the token page.
-/// Every level is read-only: verifying control of a domain never needs to
-/// write, so the connected token cannot change anything in the account.
+/// `minimal` and `medium` are read-only: verifying control of a domain never
+/// needs to write. `full` grants edit across every service and is far more
+/// than an assessment needs, so it is offered with a warning.
 struct CfScope {
     name: &'static str,
     summary: &'static str,
     /// The permission groups, as the token page's deep link expects them.
     groups: &'static str,
+    /// Whether choosing it grants write access to the whole account.
+    dangerous: bool,
 }
 
 const CF_SCOPES: [CfScope; 3] = [
@@ -37,16 +40,22 @@ const CF_SCOPES: [CfScope; 3] = [
         name: "minimal",
         summary: "Zone:Read. Enough to prove control of a domain. Recommended.",
         groups: r#"[{"key":"zone","type":"read"}]"#,
+        dangerous: false,
     },
     CfScope {
         name: "medium",
         summary: "Zone:Read + DNS:Read, so records resolve without a separate lookup.",
         groups: r#"[{"key":"zone","type":"read"},{"key":"dns_records","type":"read"}]"#,
+        dangerous: false,
     },
     CfScope {
         name: "full",
-        summary: "Broad read across zones (zone, DNS, settings, SSL, firewall). Still read-only.",
-        groups: r#"[{"key":"zone","type":"read"},{"key":"dns_records","type":"read"},{"key":"zone_settings","type":"read"},{"key":"ssl_and_certificates","type":"read"},{"key":"firewall_services","type":"read"}]"#,
+        summary: "EDIT across every Cloudflare service. Full control of the account. Only if you need it.",
+        // Every service enx can name, at edit. The deep link ignores a key it
+        // does not know, so a service missing here is just not pre-ticked; add
+        // it on the page. This is a powerful token, hence the warning.
+        groups: r#"[{"key":"zone","type":"edit"},{"key":"dns_records","type":"edit"},{"key":"zone_settings","type":"edit"},{"key":"ssl_and_certificates","type":"edit"},{"key":"firewall_services","type":"edit"},{"key":"cache_purge","type":"edit"},{"key":"page_rules","type":"edit"},{"key":"load_balancing","type":"edit"},{"key":"waf","type":"edit"},{"key":"logs","type":"edit"},{"key":"analytics","type":"read"},{"key":"transform_rules","type":"edit"},{"key":"rate_limit","type":"edit"},{"key":"health_checks","type":"edit"},{"key":"dns_firewall","type":"edit"},{"key":"spectrum","type":"edit"},{"key":"workers_scripts","type":"edit"},{"key":"workers_routes","type":"edit"},{"key":"workers_kv_storage","type":"edit"},{"key":"pages","type":"edit"},{"key":"stream","type":"edit"},{"key":"images","type":"edit"},{"key":"access_apps","type":"edit"},{"key":"access_service_tokens","type":"edit"}]"#,
+        dangerous: true,
     },
 ];
 
@@ -102,7 +111,7 @@ fn open_url(url: &str) -> bool {
 /// provider, so it is stored under its own id.
 fn login_cloudflare(config: &mut Config) -> Result<()> {
     eprintln!("Connect a Cloudflare account so enx can prove you control a domain before");
-    eprintln!("testing it. Pick the token scope (all are read-only):\n");
+    eprintln!("testing it. Pick the token scope (minimal and medium are read-only):\n");
     for (i, scope) in CF_SCOPES.iter().enumerate() {
         eprintln!("  {}. {} - {}", i + 1, scope.name, scope.summary);
     }
@@ -119,6 +128,24 @@ fn login_cloudflare(config: &mut Config) -> Result<()> {
     } else {
         &CF_SCOPES[0]
     };
+
+    if scope.dangerous {
+        eprintln!("\n  WARNING: the full scope creates a token with EDIT access to every");
+        eprintln!("  Cloudflare service, full control of the account. enx only needs to READ");
+        eprintln!("  zones to verify you control a domain; it never writes. A leaked full");
+        eprintln!("  token lets anyone change DNS, WAF, Workers, Pages and more. Prefer");
+        eprintln!("  minimal unless you have a reason, and give it no expiry only knowingly.");
+        if std::io::stdin().is_terminal() {
+            eprint!("  Create a full-access token anyway? [y/N]: ");
+            std::io::stderr().flush()?;
+            let mut line = String::new();
+            std::io::stdin().lock().read_line(&mut line)?;
+            anyhow::ensure!(
+                matches!(line.trim(), "y" | "Y" | "yes"),
+                "cancelled; run again and pick minimal"
+            );
+        }
+    }
 
     let url = cf_template_url(scope);
     eprintln!(
@@ -281,13 +308,19 @@ mod tests {
         // The minimal scope is Zone:Read, url-encoded.
         assert!(url.contains("permissionGroupKeys=%5B%7B%22key%22%3A%22zone%22"));
         assert!(url.contains("zoneId=all"));
-        // Every shipped scope is read-only: never an edit permission.
+        // minimal and medium are read-only; only full grants edit, and it is
+        // the only one marked dangerous.
         for scope in CF_SCOPES {
-            assert!(
-                !scope.groups.contains("\"edit\""),
-                "{} is read-only",
-                scope.name
-            );
+            if scope.dangerous {
+                assert!(scope.groups.contains("\"edit\""), "full grants edit");
+            } else {
+                assert!(
+                    !scope.groups.contains("\"edit\""),
+                    "{} is read-only",
+                    scope.name
+                );
+            }
         }
+        assert_eq!(CF_SCOPES.iter().filter(|s| s.dangerous).count(), 1);
     }
 }

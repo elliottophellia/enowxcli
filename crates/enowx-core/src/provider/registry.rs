@@ -355,6 +355,7 @@ impl Config {
                 .and_then(|m| m.context_window)
                 .or(detected)
                 .or_else(|| listed.map(|m| m.limit.context).filter(|c| *c > 0))
+                .or_else(|| window_from_id(&model.model))
                 .unwrap_or(DEFAULT_CONTEXT_WINDOW),
             price_input: price(
                 own.and_then(|m| m.price_input),
@@ -377,9 +378,77 @@ impl Config {
     }
 }
 
+/// A context window read from the model id itself, when the provider and the
+/// catalogue give none. A model names its window in its id often enough to
+/// trust it: a `-1m` suffix is a million tokens, `-200k` is two hundred
+/// thousand. Without this a `claude-opus-4.7-1m` whose provider omits the
+/// window falls back to 128k and the whole budget is wrong.
+///
+/// Read only a size *token* (a number right before `k` or `m`, bounded by the
+/// id's edges or a separator), never a bare number, so `gpt-4` is not read as
+/// 4 tokens and `claude-4.7` is not read as 7. The largest plausible token
+/// wins, so `...-1m` beats a `4` elsewhere in the id.
+fn window_from_id(model: &str) -> Option<u32> {
+    let id = model.to_ascii_lowercase();
+    let bytes = id.as_bytes();
+    let mut best: Option<u32> = None;
+    let sep = |b: u8| !b.is_ascii_alphanumeric() && b != b'.';
+    let mut i = 0;
+    while i < bytes.len() {
+        // A size token starts at a word boundary with a digit.
+        let boundary = i == 0 || sep(bytes[i - 1]);
+        if !(boundary && bytes[i].is_ascii_digit()) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'.') {
+            i += 1;
+        }
+        // The unit must be k or m, and the token must end right after it.
+        let unit = bytes.get(i).copied();
+        let ends = bytes.get(i + 1).map(|b| sep(*b)).unwrap_or(true);
+        let scale = match unit {
+            Some(b'k') if ends => 1_000u64,
+            Some(b'm') if ends => 1_000_000u64,
+            _ => continue,
+        };
+        if let Ok(value) = id[start..i].parse::<f64>() {
+            let window = (value * scale as f64).round();
+            // Only a plausible window: 8k and up, 2M and down.
+            if (8_000.0..=2_000_000.0).contains(&window) {
+                let window = window as u32;
+                best = Some(best.map_or(window, |b| b.max(window)));
+            }
+        }
+        i += 1;
+    }
+    best
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_window_is_read_from_a_size_suffix_in_the_id() {
+        assert_eq!(window_from_id("enowx/cb/claude-opus-4.7-1m"), Some(1_000_000));
+        assert_eq!(window_from_id("claude-sonnet-4.5-200k"), Some(200_000));
+        assert_eq!(window_from_id("some-model-128k"), Some(128_000));
+        assert_eq!(window_from_id("qwen-2.5-1m-instruct"), Some(1_000_000));
+        // No size token: a bare version number is not a window.
+        assert_eq!(window_from_id("gpt-4"), None);
+        assert_eq!(window_from_id("claude-opus-4.7"), None);
+        assert_eq!(window_from_id("deepseek-v4.1-flash"), None);
+        // A digit glued to a word is not a size token.
+        assert_eq!(window_from_id("model-4ktest"), None);
+        assert_eq!(window_from_id("gpt4000-turbo"), None);
+        // Out of range is ignored.
+        assert_eq!(window_from_id("weird-5m"), None);
+        assert_eq!(window_from_id("tiny-2k"), None);
+        // The largest plausible token wins.
+        assert_eq!(window_from_id("a-32k-b-1m"), Some(1_000_000));
+    }
 
     #[test]
     fn a_ref_splits_at_the_first_slash() {

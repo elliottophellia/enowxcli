@@ -12,6 +12,7 @@ use std::{
 use tokio_util::sync::CancellationToken;
 mod fetch;
 pub mod files;
+mod finding;
 mod icon;
 pub mod mcp_proxy;
 mod preview_tool;
@@ -130,6 +131,7 @@ impl Default for ToolRegistry {
         registry.register(GrepTool);
         registry.register(BashTool);
         registry.register(FetchTool::default());
+        registry.register(finding::ReportFindingTool);
         registry.register(TodoTool::default());
         registry
     }

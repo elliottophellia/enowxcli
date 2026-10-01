@@ -66,6 +66,24 @@ impl Tier {
 /// under it keep working.
 pub const ORCHESTRATOR: &str = "orchestrator";
 
+/// The specialists an authorized security assessment delegates to. The
+/// `security` lead may call these (and the librarian); they cannot be reached
+/// from anywhere else, so an ordinary session never wanders into live testing.
+pub const SECURITY_TEAM: &[&str] = &[
+    "sec-recon",
+    "sec-osint",
+    "sec-webapp",
+    "sec-api",
+    "sec-cloud",
+    "sec-internal",
+    "sec-mobile",
+    "sec-intercept",
+    "sec-reverse",
+    "sec-threat-model",
+    "sec-ir",
+    "sec-report",
+];
+
 /// Agents the loop runs itself. They are never offered as a place to send a
 /// request: not in the roster, not as a delegation target, not in `/agent`.
 const LOOP_ONLY: &[&str] = &["compactor"];
@@ -87,6 +105,18 @@ pub fn display_name(name: &str) -> String {
         "test" => "Testing",
         "docs" => "Docs",
         "security" => "Security",
+        "sec-recon" => "Recon",
+        "sec-osint" => "OSINT",
+        "sec-webapp" => "Web App",
+        "sec-api" => "API",
+        "sec-cloud" => "Cloud",
+        "sec-internal" => "Internal",
+        "sec-mobile" => "Mobile Sec",
+        "sec-intercept" => "Intercept",
+        "sec-reverse" => "Reverse",
+        "sec-threat-model" => "Threat Model",
+        "sec-ir" => "Incident",
+        "sec-report" => "Sec Report",
         "perf" => "Performance",
         "research" => "Research",
         "librarian" => "Librarian",
@@ -106,7 +136,11 @@ pub fn display_name(name: &str) -> String {
 /// The group an agent is listed under: the one you talk to, the ones that
 /// own a part of the stack, and the ones that work across it.
 pub fn roster_group(name: &str) -> &'static str {
-    match canonical_name(name) {
+    let name = canonical_name(name);
+    if name == "security" || SECURITY_TEAM.contains(&name) {
+        return "SECURITY";
+    }
+    match name {
         "orchestrator" => "LEAD",
         "fe" | "motion" | "be" | "db" | "devops" | "mobile" | "systems" => "BUILD",
         _ => "SUPPORT",
@@ -165,6 +199,9 @@ pub enum Delegation {
     /// orchestrator when it holds it.
     #[default]
     Librarian,
+    /// May call its own specialists (the security team) and the librarian,
+    /// and hand back to the orchestrator. The `security` lead alone.
+    Lead,
     /// May not delegate at all. `librarian` itself, and the compactor.
     None,
 }
@@ -173,7 +210,10 @@ impl Delegation {
     /// Whether this agent may delegate to `target`.
     pub fn may_call(self, target: &str) -> bool {
         match self {
-            Self::Orchestrator => true,
+            // The security team is reached only through its lead, so an
+            // ordinary request never lands a pentest specialist directly.
+            Self::Orchestrator => !SECURITY_TEAM.contains(&target),
+            Self::Lead => target == "librarian" || SECURITY_TEAM.contains(&target),
             Self::Librarian => target == "librarian",
             Self::None => false,
         }
@@ -187,7 +227,7 @@ impl Delegation {
     pub fn may_hand_off_to(self, target: &str) -> bool {
         match self {
             Self::Orchestrator => true,
-            Self::Librarian => target == ORCHESTRATOR,
+            Self::Lead | Self::Librarian => target == ORCHESTRATOR,
             Self::None => false,
         }
     }
@@ -241,6 +281,7 @@ impl AgentDef {
                 .get("delegation")
                 .and_then(|d| match d.trim().to_ascii_lowercase().as_str() {
                     "orchestrator" | "router" => Some(Delegation::Orchestrator),
+                    "lead" => Some(Delegation::Lead),
                     "librarian" => Some(Delegation::Librarian),
                     "none" => Some(Delegation::None),
                     _ => None,
@@ -390,6 +431,40 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             "devops-security",
         ],
     ]);
+    // The authorized-assessment family: the lead carries the audit skills too,
+    // so it can judge a fix; each specialist carries its own area and the
+    // pentest root.
+    let pentest = family("pentest");
+    let p_root: &[&str] = &["pentest"];
+    let sec_lead = join(&[&pentest, &security]);
+    let sec_recon = join(&[p_root, &["pentest-recon", "pentest-osint"]]);
+    let sec_osint = join(&[p_root, &["pentest-osint"]]);
+    let sec_webapp = join(&[
+        p_root,
+        &[
+            "pentest-web",
+            "frontend-security",
+            "backend-security",
+            "backend-auth",
+        ],
+    ]);
+    let sec_api = join(&[
+        p_root,
+        &[
+            "pentest-api",
+            "pentest-web",
+            "backend-security",
+            "backend-auth",
+        ],
+    ]);
+    let sec_cloud = join(&[p_root, &["pentest-cloud", "devops-security"]]);
+    let sec_internal = join(&[p_root, &["pentest-internal", "devops-security"]]);
+    let sec_mobile = join(&[p_root, &["pentest-mobile", "pentest-api"]]);
+    let sec_intercept = join(&[p_root, &["pentest-web", "pentest-api"]]);
+    let sec_reverse = join(&[p_root, &["security-crypto"]]);
+    let sec_threat = join(&[p_root, &security_family]);
+    let sec_ir = join(&[p_root, &security_family]);
+    let sec_report = join(&[p_root, &["pentest-reporting", "writing"]]);
     let perf = join(&[
         &performance,
         &[
@@ -585,14 +660,126 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             &docs,
             DOCS_PROMPT,
         ),
+        // The authorized-assessment lead and its specialists. The lead is the
+        // only security role a user selects; it delegates each testing area
+        // and consolidates the findings. Its team is reachable only through
+        // it, so an ordinary session never wanders into live testing.
         make(
             "security",
-            "auth, secrets, injection, dependency risk, infrastructure and privacy audits",
-            &["read", "glob", "grep", "bash", "fetch", "todo"],
+            "lead of an authorized security assessment: scopes it, delegates recon and each testing area to specialists, consolidates findings and chains, then the report",
+            &["read", "glob", "grep", "bash", "fetch", "todo", "report_finding"],
+            Tier::Strong,
+            Delegation::Lead,
+            &sec_lead,
+            SECURITY_PROMPT,
+        ),
+        make(
+            "sec-recon",
+            "recon and enumeration on an authorized target: hosts, services, versions, stack, input surface",
+            &["read", "glob", "grep", "bash", "fetch", "todo", "report_finding"],
+            Tier::Balanced,
+            Delegation::Librarian,
+            &sec_recon,
+            SEC_RECON_PROMPT,
+        ),
+        make(
+            "sec-osint",
+            "passive open-source intelligence: exposed infrastructure, leaked secrets, people and email, no active touch on the target",
+            &["read", "glob", "grep", "bash", "fetch", "todo", "report_finding"],
+            Tier::Balanced,
+            Delegation::Librarian,
+            &sec_osint,
+            SEC_OSINT_PROMPT,
+        ),
+        make(
+            "sec-webapp",
+            "authorized web application testing against the OWASP categories: access control, injection, auth, SSRF, misconfiguration",
+            &["read", "glob", "grep", "bash", "fetch", "todo", "report_finding"],
             Tier::Strong,
             Delegation::Librarian,
-            &security,
-            SECURITY_PROMPT,
+            &sec_webapp,
+            SEC_WEBAPP_PROMPT,
+        ),
+        make(
+            "sec-api",
+            "authorized REST/GraphQL/gRPC API testing: object- and function-level authorization, injection, mass assignment, rate limits, tokens",
+            &["read", "glob", "grep", "bash", "fetch", "todo", "report_finding"],
+            Tier::Strong,
+            Delegation::Librarian,
+            &sec_api,
+            SEC_API_PROMPT,
+        ),
+        make(
+            "sec-cloud",
+            "authorized cloud posture review: IAM, public storage, exposed metadata and secrets, network exposure, logging, across AWS/Azure/GCP/Kubernetes",
+            &["read", "glob", "grep", "bash", "fetch", "todo", "report_finding"],
+            Tier::Strong,
+            Delegation::Librarian,
+            &sec_cloud,
+            SEC_CLOUD_PROMPT,
+        ),
+        make(
+            "sec-internal",
+            "post-authorization testing on authorized internal hosts: enumeration, credential and privilege paths, lateral-movement reasoning; no disruption",
+            &["read", "glob", "grep", "bash", "fetch", "todo", "report_finding"],
+            Tier::Strong,
+            Delegation::Librarian,
+            &sec_internal,
+            SEC_INTERNAL_PROMPT,
+        ),
+        make(
+            "sec-mobile",
+            "authorized Android/iOS application testing: static review, local storage, transport security, and the backend API",
+            &["read", "glob", "grep", "bash", "fetch", "todo", "report_finding"],
+            Tier::Strong,
+            Delegation::Librarian,
+            &sec_mobile,
+            SEC_MOBILE_PROMPT,
+        ),
+        make(
+            "sec-intercept",
+            "proxy-driven request tampering and traffic analysis on an authorized target",
+            &["read", "glob", "grep", "bash", "fetch", "todo", "report_finding"],
+            Tier::Strong,
+            Delegation::Librarian,
+            &sec_intercept,
+            SEC_INTERCEPT_PROMPT,
+        ),
+        make(
+            "sec-reverse",
+            "binary and firmware analysis for an authorized engagement: decompilation, strings, protocol and crypto review",
+            &["read", "glob", "grep", "bash", "fetch", "todo", "report_finding"],
+            Tier::Strong,
+            Delegation::Librarian,
+            &sec_reverse,
+            SEC_REVERSE_PROMPT,
+        ),
+        make(
+            "sec-threat-model",
+            "architecture threat modelling and attack-surface reasoning for an authorized system",
+            &["read", "glob", "grep", "bash", "fetch", "todo", "report_finding"],
+            Tier::Strong,
+            Delegation::Librarian,
+            &sec_threat,
+            SEC_THREAT_PROMPT,
+        ),
+        make(
+            "sec-ir",
+            "triage and response for an authorized incident: scope, timeline, containment and evidence",
+            &["read", "glob", "grep", "bash", "fetch", "todo", "report_finding"],
+            Tier::Strong,
+            Delegation::Librarian,
+            &sec_ir,
+            SEC_IR_PROMPT,
+        ),
+        make(
+            "sec-report",
+            "writes up the assessment from the consolidated findings: summary, findings, chains, scope",
+            &["read", "glob", "grep", "write", "todo"],
+            Tier::Balanced,
+            Delegation::Librarian,
+            &sec_report,
+            SEC_REPORT_PROMPT,
         ),
         make(
             "perf",
@@ -1248,27 +1435,62 @@ line each: what you wrote or changed, for which reader, what you ran to \
 verify it, and what is left.";
 
 /// The security auditor's prompt.
-const SECURITY_PROMPT: &str = "\
-You audit for security problems: authentication, authorisation, secrets, \
-injection, dependency risk, infrastructure and privacy. You read and run \
-checks; you do not edit.
-Read the `security` skill before an audit, then the one for the area: \
-`security-web`, `security-auth`, `security-secrets`, \
-`security-supply-chain`, `security-infra`, `security-crypto`, \
-`security-privacy`; `backend-security`, `backend-auth`, \
-`frontend-security` and `devops-security` hold the fixes to recommend.
-- Describe the class of problem and where it is (path and line), not a working \
-exploit.
-- Trace untrusted input to the sink and confirm the path is reachable before \
-calling it a finding.
-- Rank by what an attacker actually gains and how reachable the path is, and \
-keep confirmed issues apart from suspicions.
-- A secret you find is reported by its place and kind, never printed, with \
-the advice to rotate it.
-- Run only checks that read: dependency audits, secret scanners, linters. \
-Never test against production systems or other people's services.
-End with the findings in order of severity, each with its place, impact, \
-reachability, fix and confidence, then what you did not review.";
+const SECURITY_PROMPT: &str = "You lead an authorized security assessment. You are the only security role the user selects; every specialist works through you. You scope the engagement, drive the methodology, delegate each area to the right specialist, and bring the results together. Never test anything yourself beyond light checks — your job is coordination and the whole picture.
+Read the `pentest` skill for the method, and `security` for judging a fix.
+Scope first, always. Before anything active runs, confirm the engagement authorizes the exact targets and record them. Nothing happens outside that scope; if it is unclear, stop and ask. Authorization is the line between a penetration test and a crime, so it is never assumed.
+Your specialists, reached with `delegate` (pass the name as the agent): `sec-recon` (map the target first), `sec-osint` (passive intel), `sec-webapp` (web/OWASP), `sec-api` (API authz and injection), `sec-cloud` (cloud posture), `sec-internal` (authorized internal hosts), `sec-mobile` (Android/iOS), `sec-intercept` (proxy tampering), `sec-reverse` (binaries/firmware), `sec-threat-model` (attack surface), `sec-ir` (incident response), and `sec-report` (the write-up).
+Work the method in order: 1) map with `sec-recon` and `sec-osint`; 2) for each open testing area hand a self-contained brief to the right specialist with `delegate` and `background` set, giving the exact scope and targets, then end your turn — do not poll; each resumes you when it finishes; 3) as findings come back, consolidate and look for chains (a set of mediums that reaches account takeover is a critical, and only you see the whole picture); 4) only when coverage is real, delegate the write-up to `sec-report`.
+Keep every specialist inside scope and the rules of engagement. Do no harm: read over write, benign proofs over destructive ones, never degrade a service or touch data to make a point. End with the consolidated findings in order of severity and the chains you found.";
+
+const SEC_RECON_PROMPT: &str = "You map the attack surface of an authorized target: hosts, services, versions, the stack, and every input surface. You enumerate, you do not exploit.
+Read `pentest-recon`, and `pentest-osint` for the passive sources.
+Scope first: work only against hosts, domains and addresses the brief authorizes. A target not on the list is out of bounds — stop and ask.
+Passive before active, and the quietest technique that answers the question. Record every finding with where and how you found it, so the testing stages can rely on it. Note anything sensitive or accidentally exposed but do not exploit it. Stay within the rate limits. Run tools only through `bash`, only those installed and in scope, and write the exact commands down. End with the map: hosts, services and versions, the stack, and the input surface, plus anything that looked exposed.";
+
+const SEC_OSINT_PROMPT: &str = "You gather passive open-source intelligence on an authorized target: you do not touch the target, everything comes from third-party and public sources.
+Read `pentest-osint`.
+Stay within scope even here. Gather exposed infrastructure (certificate transparency, passive DNS), leaked secrets (reported by place and kind, never reused), people and email format, and accidental exposure. Record each with its source so the active stages can verify it. End with what you found and where it came from; hand anything that needs a probe to `sec-recon`.";
+
+const SEC_WEBAPP_PROMPT: &str = "You test an authorized web application against the OWASP categories: broken access control, injection, authentication and sessions, SSRF, misconfiguration, and sensitive-data exposure.
+Read `pentest-web`; `frontend-security`, `backend-security` and `backend-auth` hold the fixes to recommend.
+Scope first: test only the applications, endpoints and accounts the brief authorizes, at the permitted times. If unsure, stop and ask.
+Use the browser to understand the app as a user, then probe its assumptions. Confirm a finding before reporting it — a suspicion is not a vulnerability. Prove each issue with a benign, demonstrable payload; never run a destructive one, never destroy or exfiltrate data. Record each confirmed issue with `report_finding`. End with your findings in order of severity, each with its place, reproduction, impact and fix, and what you did not reach.";
+
+const SEC_API_PROMPT: &str = "You test an authorized API (REST, GraphQL or gRPC). APIs fail most at authorization, because the client is no longer the gatekeeper.
+Read `pentest-api`, and `pentest-web` for the shared injection classes; `backend-security` and `backend-auth` hold the fixes.
+Scope first: only authorized endpoints and accounts. Work from the schema or observed traffic, enumerate every operation, then test object- and function-level authorization (BOLA/BFLA), mass assignment, injection, rate limiting and resource abuse, and token handling. Prove gaps without degrading the service. Confirm before reporting. Record each issue with `report_finding`, with the exact request. End with findings in order of severity.";
+
+const SEC_CLOUD_PROMPT: &str = "You review the posture of an authorized cloud account or Kubernetes cluster.
+Read `pentest-cloud`; `devops-security` holds the fixes.
+Scope first: only accounts and projects you are authorized to assess, read-only where allowed. Check IAM over-permission, public storage, exposed metadata and secrets, network exposure, Kubernetes workload and RBAC misconfiguration, and logging gaps. Prefer the provider's read APIs and config exports to anything active. A cloud problem chains, so note where several findings combine. Record each with `report_finding`: the resource, the misconfiguration, the impact and the specific fix. End with findings in order of severity and the chains.";
+
+const SEC_INTERNAL_PROMPT: &str = "You test authorized internal hosts after a foothold: you show what an attacker who is already inside could reach, without actually taking over the network.
+Read `pentest-internal`; `devops-security` holds the fixes.
+Scope first: run only on the hosts the brief explicitly lists, and never spread beyond them. Enumerate services, look for credential and privilege-escalation paths, and reason about lateral movement — describe the path, do not carve a trail of compromised machines. Cause no disruption: read over write, no persistence, no out-of-scope pivot, no data destroyed. Record each confirmed path with `report_finding`, and hand the chained picture to the lead.";
+
+const SEC_MOBILE_PROMPT: &str = "You test an authorized Android or iOS application.
+Read `pentest-mobile`, and `pentest-api` for its backend.
+Scope first: only an application you are authorized to assess. Review the package statically (hardcoded secrets, manifest/entitlements, risky SDKs), the local storage (sensitive data at rest), and the transport (TLS, pinning, no cleartext). The backend API is usually the bigger surface — test it too. Use your own test device for any traffic capture. Record confirmed issues with `report_finding`. End with findings in order of severity.";
+
+const SEC_INTERCEPT_PROMPT: &str = "You drive proxy-based request tampering and traffic analysis on an authorized target: you see what the client actually sends and change it to test the server's assumptions.
+Read `pentest-web` and `pentest-api`.
+Scope first: only authorized targets and accounts, and only your own test traffic through the proxy. Tamper with parameters, headers, cookies and bodies to test authorization, validation and business logic server-side. Benign proofs only; never replay another user's captured session or touch data you should not. Record confirmed issues with `report_finding`, with the exact request.";
+
+const SEC_REVERSE_PROMPT: &str = "You analyse binaries and firmware for an authorized engagement: decompilation, strings, protocol and crypto review.
+Read `pentest`, and `security-crypto` for the cryptographic checks.
+Scope first: only artefacts you are authorized to analyse. Pull out hardcoded secrets and keys (reported by place and kind), weak or home-rolled crypto, unsafe parsing, and the protocol a device speaks. Work statically where you can. Record confirmed issues with `report_finding`. End with what you found and what it means for the system's security.";
+
+const SEC_THREAT_PROMPT: &str = "You model the threats to an authorized system: the attack surface, the trust boundaries, and where it is most likely to fail, from its architecture.
+Read `pentest`, and `security` for the audit lens.
+Work from the design and the code. Map the assets, the entry points, the trust boundaries and the data flows, then reason about what an attacker would target and how — STRIDE or a similar frame keeps it systematic. You point the active testing at the surfaces that matter, so be concrete about which. Record the significant risks with `report_finding` where they are confirmable, and hand the prioritised surface to the lead.";
+
+const SEC_IR_PROMPT: &str = "You triage and respond to an authorized incident, real or suspected.
+Read `pentest`, and `security`.
+Establish scope and a timeline first: what happened, when, which systems and accounts, and whether it is ongoing. Preserve evidence before you change anything. Recommend containment proportionate to the risk, then eradication and recovery, and record the indicators of compromise. Read over write; do not destroy the evidence you are there to understand. End with the timeline, the scope, the containment steps and what to watch for.";
+
+const SEC_REPORT_PROMPT: &str = "You write the report for a security engagement. Your reader is often a developer or manager who was not in the room, so clarity outranks everything.
+Read `pentest-reporting`, and `writing` for the prose.
+Lead with an executive summary a busy reader can act on: what was tested, the overall risk, and the few things that matter most. Then the findings, each in one shape — title, severity with the reasoning, where, exactly how to reproduce, what an attacker gains, and a specific fix. Make the chains explicit: a set of mediums that reaches account takeover is a critical. Rank by real risk, not scanner score, and keep confirmed findings apart from suspicions. Describe the class of problem and the fix, never a weaponised exploit or a real secret's value. Say what was not reviewed. Write the report to a file with `write`.";
 
 /// The performance specialist's prompt.
 const PERF_PROMPT: &str = "\
@@ -1573,6 +1795,8 @@ mod tests {
         for agent in roster() {
             match agent.name.as_str() {
                 ORCHESTRATOR => assert_eq!(agent.delegation, Delegation::Orchestrator),
+                // The security lead reaches its own team and nothing else.
+                "security" => assert_eq!(agent.delegation, Delegation::Lead),
                 // Read-only gatherers and the compactor are leaves.
                 "librarian" | "compactor" => assert_eq!(agent.delegation, Delegation::None),
                 _ => assert_eq!(
@@ -1582,6 +1806,27 @@ mod tests {
                     agent.name
                 ),
             }
+        }
+    }
+
+    /// The security lead reaches its team and the librarian, and nothing
+    /// else; the orchestrator reaches the lead but not the team directly.
+    #[test]
+    fn the_security_team_is_reached_only_through_its_lead() {
+        assert!(Delegation::Lead.may_call("sec-webapp"));
+        assert!(Delegation::Lead.may_call("sec-report"));
+        assert!(Delegation::Lead.may_call("librarian"));
+        assert!(!Delegation::Lead.may_call("fe"));
+        assert!(!Delegation::Lead.may_call("security"));
+        assert!(Delegation::Lead.may_hand_off_to(ORCHESTRATOR));
+
+        assert!(Delegation::Orchestrator.may_call("security"));
+        assert!(!Delegation::Orchestrator.may_call("sec-webapp"));
+        for name in SECURITY_TEAM {
+            assert!(
+                !Delegation::Orchestrator.may_call(name),
+                "{name} must go through the lead"
+            );
         }
     }
 

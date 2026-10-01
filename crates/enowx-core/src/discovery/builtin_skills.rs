@@ -663,6 +663,39 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
         "security-web",
         include_str!("../../skills/security-web/SKILL.md"),
     ),
+    ("pentest", include_str!("../../skills/pentest/SKILL.md")),
+    (
+        "pentest-api",
+        include_str!("../../skills/pentest-api/SKILL.md"),
+    ),
+    (
+        "pentest-cloud",
+        include_str!("../../skills/pentest-cloud/SKILL.md"),
+    ),
+    (
+        "pentest-internal",
+        include_str!("../../skills/pentest-internal/SKILL.md"),
+    ),
+    (
+        "pentest-mobile",
+        include_str!("../../skills/pentest-mobile/SKILL.md"),
+    ),
+    (
+        "pentest-osint",
+        include_str!("../../skills/pentest-osint/SKILL.md"),
+    ),
+    (
+        "pentest-recon",
+        include_str!("../../skills/pentest-recon/SKILL.md"),
+    ),
+    (
+        "pentest-reporting",
+        include_str!("../../skills/pentest-reporting/SKILL.md"),
+    ),
+    (
+        "pentest-web",
+        include_str!("../../skills/pentest-web/SKILL.md"),
+    ),
     (
         "performance",
         include_str!("../../skills/performance/SKILL.md"),

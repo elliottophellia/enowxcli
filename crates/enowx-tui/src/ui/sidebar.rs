@@ -515,7 +515,7 @@ fn detail_lines(app: &App, width: usize) -> Detail {
             let active = app.active_agent();
             // Full names, grouped by what the agents do; the short id is
             // what `/agent` takes, and the picker shows it beside the name.
-            for group in ["LEAD", "BUILD", "SUPPORT"] {
+            for group in ["LEAD", "BUILD", "SECURITY", "SUPPORT"] {
                 let names: Vec<(String, bool)> = roster
                     .iter()
                     .filter(|agent| enowx_core::agent_def::roster_group(&agent.name) == group)

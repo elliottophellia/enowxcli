@@ -1,8 +1,9 @@
 #!/bin/sh
 # Install enx from the latest GitHub release (macOS and Linux).
-#   curl -fsSL https://raw.githubusercontent.com/enowdev/enowxcli/main/scripts/install.sh | sh
+#   curl -fsSL https://enowx.ai/install.sh | sh
 # ENX_VERSION=v0.1.0 picks a release; ENX_INSTALL_DIR sets where enx goes
-# (default ~/.local/bin).
+# (default ~/.local/bin), and it is added to PATH in your shell's rc file
+# unless ENX_NO_MODIFY_PATH=1.
 set -eu
 
 repo="enowdev/enowxcli"
@@ -50,7 +51,27 @@ if [ "$os" = apple-darwin ]; then
 fi
 
 echo "Installed $("$dir/enx" --version) to $dir/enx"
+
+# Put $dir on PATH for new shells, once, in the rc file of the user's shell.
+# ENX_NO_MODIFY_PATH=1 leaves the shell config alone.
 case ":$PATH:" in
-  *":$dir:"*) ;;
-  *) echo "Add $dir to your PATH, e.g. echo 'export PATH=\"$dir:\$PATH\"' >> ~/.zshrc" ;;
+  *":$dir:"*) exit 0 ;;
 esac
+if [ -n "${ENX_NO_MODIFY_PATH:-}" ]; then
+  echo "Add $dir to your PATH to run enx."
+  exit 0
+fi
+case "$(basename "${SHELL:-sh}")" in
+  zsh) rc="${ZDOTDIR:-$HOME}/.zshrc"; line="export PATH=\"$dir:\$PATH\"" ;;
+  bash)
+    if [ "$os" = apple-darwin ]; then rc="$HOME/.bash_profile"; else rc="$HOME/.bashrc"; fi
+    line="export PATH=\"$dir:\$PATH\""
+    ;;
+  fish) rc="$HOME/.config/fish/config.fish"; line="fish_add_path \"$dir\"" ;;
+  *) rc="$HOME/.profile"; line="export PATH=\"$dir:\$PATH\"" ;;
+esac
+mkdir -p "$(dirname "$rc")"
+if ! grep -qsF "$line" "$rc"; then
+  printf '\n# enx\n%s\n' "$line" >> "$rc"
+fi
+echo "Added $dir to PATH in $rc. Open a new terminal, or run: . \"$rc\""

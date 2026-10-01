@@ -13,23 +13,24 @@ enx config path
 
 ## Install
 
+**Early release.** v0.1.0 is the first public build; expect bugs and please
+[report them](https://github.com/enowdev/enowxcli/issues).
+
 Prebuilt binaries are published on the [releases page](https://github.com/enowdev/enowxcli/releases)
 for macOS, Linux and Windows, on Intel/AMD (x86_64) and ARM (aarch64). The
-binary is `enx`.
+installers are served from [enowx.ai](https://enowx.ai) and download the
+binary from those releases. The binary is `enx`.
 
 ### macOS (Apple Silicon and Intel)
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/enowdev/enowxcli/main/scripts/install.sh | sh
+curl -fsSL https://enowx.ai/install.sh | sh
 ```
 
 The script picks the right build, checks its SHA-256, installs to
-`~/.local/bin/enx`, and signs it ad hoc so Gatekeeper lets it run. If
-`~/.local/bin` is not on your `PATH`, add it:
-
-```sh
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && exec zsh
-```
+`~/.local/bin/enx`, signs it ad hoc so Gatekeeper lets it run, and adds
+`~/.local/bin` to `PATH` in your shell's rc file (`.zshrc`, `.bash_profile`,
+fish's `config.fish`, or `.profile`). Open a new terminal and run `enx`.
 
 ### Linux (x86_64 and ARM64)
 
@@ -37,17 +38,15 @@ The same script. The Linux builds are static (musl), so they run on any
 distribution, including Alpine, without extra libraries.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/enowdev/enowxcli/main/scripts/install.sh | sh
+curl -fsSL https://enowx.ai/install.sh | sh
 ```
-
-For bash, add `~/.local/bin` to `PATH` in `~/.bashrc` the same way.
 
 ### Windows (x64 and ARM64)
 
 In PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/enowdev/enowxcli/main/scripts/install.ps1 | iex
+irm https://enowx.ai/install.ps1 | iex
 ```
 
 It installs to `%LOCALAPPDATA%\Programs\enx\enx.exe` and adds that folder to
@@ -59,10 +58,11 @@ interface best.
 ### Options and manual install
 
 Both scripts read `ENX_VERSION` (a release tag such as `v0.1.0`; default the
-latest) and `ENX_INSTALL_DIR`:
+latest) and `ENX_INSTALL_DIR`. `ENX_NO_MODIFY_PATH=1` stops `install.sh` from
+touching your shell config:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/enowdev/enowxcli/main/scripts/install.sh | ENX_VERSION=v0.1.0 ENX_INSTALL_DIR=/usr/local/bin sh
+curl -fsSL https://enowx.ai/install.sh | ENX_VERSION=v0.1.0 ENX_INSTALL_DIR=/usr/local/bin sh
 ```
 
 To install by hand, download the archive for your platform from the releases

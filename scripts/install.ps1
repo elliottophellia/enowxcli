@@ -1,5 +1,5 @@
 # Install enx from the latest GitHub release (Windows).
-#   irm https://raw.githubusercontent.com/enowdev/enowxcli/main/scripts/install.ps1 | iex
+#   irm https://enowx.ai/install.ps1 | iex
 # $env:ENX_VERSION = "v0.1.0" picks a release; $env:ENX_INSTALL_DIR sets where
 # enx goes (default %LOCALAPPDATA%\Programs\enx).
 $ErrorActionPreference = "Stop"

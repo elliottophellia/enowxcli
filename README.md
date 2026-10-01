@@ -34,6 +34,7 @@ providers stay connected side by side, each with its own key.
 | Agent loop, tools, sessions | Streaming model calls, paired tool results, JSONL sessions |
 | Terminal interface | Framed layout, thought/tool cards, paged right sidebar, theme picker |
 | Roles | Three shipped: Orchestrator, Writer, Researcher |
+| Specialists | A roster the orchestrator delegates to, including an authorized-assessment security team |
 
 The binary opens the terminal interface, with five selectable palettes.
 
@@ -47,6 +48,49 @@ The binary opens the terminal interface, with five selectable palettes.
 
 Role filtering runs twice: unavailable tools are never advertised to the model,
 and a call that arrives anyway is refused before dispatch.
+
+## Specialists
+
+The orchestrator hands work to a roster of specialists, grouped in the sidebar:
+
+- **BUILD** — `fe` (frontend/interface), `motion`, `be` (backend), `db`,
+  `devops`, `mobile`, `systems`.
+- **SECURITY** — `security`, the lead of an authorized security assessment, and
+  its team.
+- **SUPPORT** — `research`, `review`, `test`, `docs`, `perf`, `librarian`,
+  `general`.
+
+### The security assessment team
+
+`security` is the single security role a user selects. It leads an authorized
+penetration test: it confirms the scope and written authorization first, then
+delegates recon and each testing area to a specialist, consolidates the
+findings, and finds the chains an individual surface cannot see. Its twelve
+specialists are reachable only through it (a `Lead` delegation, so an ordinary
+request never lands one directly):
+
+| Agent | Tests |
+|---|---|
+| `sec-recon` | Maps the target: hosts, services, versions, stack, input surface |
+| `sec-osint` | Passive intelligence, no active touch on the target |
+| `sec-webapp` | Web application against the OWASP categories |
+| `sec-api` | REST/GraphQL/gRPC: authorization, injection, mass assignment, tokens |
+| `sec-cloud` | AWS/Azure/GCP/Kubernetes posture |
+| `sec-internal` | Authorized internal hosts, post-foothold |
+| `sec-mobile` | Android/iOS applications and their backend |
+| `sec-intercept` | Proxy-driven request tampering |
+| `sec-reverse` | Binary and firmware analysis |
+| `sec-threat-model` | Attack surface and trust boundaries |
+| `sec-ir` | Incident triage and response |
+| `sec-report` | The write-up |
+
+Every role tests only authorized targets, reads over writes, proves a finding
+with a benign payload (never a destructive one), and never prints a real
+secret. Each confirmed issue is recorded with the `report_finding` tool, which
+shapes it the same way every time: severity, location, reproduction, impact and
+fix. The distinct `security` audit remains as the `security` skill family, which
+reads code rather than testing a running target. This is for assessing systems
+you are authorized to test, such as your own project before release.
 
 ## Terminal commands
 
@@ -161,7 +205,7 @@ interface (`frontend*`: state, data, forms, accessibility, performance,
 testing, SEO, security, errors), databases (`database*`), infrastructure
 (`devops*`), mobile apps (`mobile*`), low-level work (`systems*`), tests
 (`testing*`), documentation (`docs*`), security audits (`security*`),
-performance (`performance*`), reviewing (`review*`), research (`research*`),
+authorized assessment (`pentest*`), performance (`performance*`), reviewing (`review*`), research (`research*`),
 gathering (`librarian`) and running large tasks (`orchestration`), plus
 `code`, `writing`, `i18n` and `brainstorm` (agreeing a design, then the
 plan documents the user chooses: PRD, DESIGN, ARCHITECTURE, ERD, API, PLAN,

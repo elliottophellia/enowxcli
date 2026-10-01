@@ -415,13 +415,21 @@ async fn launch(chrome: &Path) -> Result<Browser> {
     // however it ended, the shell stops Chrome. A browser kept for the whole
     // process would otherwise outlive a crash or a test run. The shell leads
     // its own process group, so closing it stops Chrome and its helpers.
+    #[cfg(unix)]
     const WATCH: &str = "\"$0\" \"$@\" & c=$!; p=$PPID; \
         while kill -0 $p 2>/dev/null && kill -0 $c 2>/dev/null; do sleep 2; done; \
         kill $c 2>/dev/null; wait $c 2>/dev/null";
-    let mut child = tokio::process::Command::new("sh")
-        .arg("-c")
-        .arg(WATCH)
-        .arg(chrome)
+    // Windows has no such shell; Chrome runs directly there and is stopped
+    // when enx drops it.
+    #[cfg(unix)]
+    let mut command = {
+        let mut command = tokio::process::Command::new("sh");
+        command.arg("-c").arg(WATCH).arg(chrome).process_group(0);
+        command
+    };
+    #[cfg(not(unix))]
+    let mut command = tokio::process::Command::new(chrome);
+    let mut child = command
         .args([
             "--headless=new",
             "--disable-gpu",
@@ -437,7 +445,6 @@ async fn launch(chrome: &Path) -> Result<Browser> {
         .arg("about:blank")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
-        .process_group(0)
         .kill_on_drop(true)
         .spawn()
         .context("starting Chrome")?;

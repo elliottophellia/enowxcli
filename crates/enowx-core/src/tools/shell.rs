@@ -58,6 +58,7 @@ impl Tool for BashTool {
         #[cfg(unix)]
         spawner.process_group(0);
         let mut child = spawner.spawn().context("starting shell")?;
+        #[cfg(unix)]
         let group = child.id().map(|pid| pid as i32);
         let kill_group = move || {
             #[cfg(unix)]

@@ -61,9 +61,7 @@ interface best.
 
 Both scripts read `ENX_VERSION` (a release tag such as `v0.1.0`; default the
 latest) and `ENX_INSTALL_DIR`. `ENX_NO_MODIFY_PATH=1` stops `install.sh` from
-touching your shell config. A finished install sends enowx.ai one count with
-the build and version (nothing about you or the machine); `ENX_NO_STATS=1`
-turns that off:
+touching your shell config:
 
 ```sh
 curl -fsSL https://enowx.ai/install.sh | ENX_VERSION=v0.1.0 ENX_INSTALL_DIR=/usr/local/bin sh

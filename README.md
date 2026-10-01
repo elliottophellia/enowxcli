@@ -13,11 +13,81 @@ enx config path
 
 ## Install
 
+Prebuilt binaries are published on the [releases page](https://github.com/enowdev/enowxcli/releases)
+for macOS, Linux and Windows, on Intel/AMD (x86_64) and ARM (aarch64). The
+binary is `enx`.
+
+### macOS (Apple Silicon and Intel)
+
 ```sh
-cargo install --git https://github.com/enowdev/enowxcli
+curl -fsSL https://raw.githubusercontent.com/enowdev/enowxcli/main/scripts/install.sh | sh
 ```
 
-Or build it yourself (see [Build](#build)). The binary is `enx`.
+The script picks the right build, checks its SHA-256, installs to
+`~/.local/bin/enx`, and signs it ad hoc so Gatekeeper lets it run. If
+`~/.local/bin` is not on your `PATH`, add it:
+
+```sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && exec zsh
+```
+
+### Linux (x86_64 and ARM64)
+
+The same script. The Linux builds are static (musl), so they run on any
+distribution, including Alpine, without extra libraries.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/enowdev/enowxcli/main/scripts/install.sh | sh
+```
+
+For bash, add `~/.local/bin` to `PATH` in `~/.bashrc` the same way.
+
+### Windows (x64 and ARM64)
+
+In PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/enowdev/enowxcli/main/scripts/install.ps1 | iex
+```
+
+It installs to `%LOCALAPPDATA%\Programs\enx\enx.exe` and adds that folder to
+your user `PATH`; open a new terminal afterwards. The `bash` tool runs commands
+with the `sh` from [Git for Windows](https://git-scm.com/download/win) when it
+is installed, and with PowerShell otherwise. Windows Terminal renders the
+interface best.
+
+### Options and manual install
+
+Both scripts read `ENX_VERSION` (a release tag such as `v0.1.0`; default the
+latest) and `ENX_INSTALL_DIR`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/enowdev/enowxcli/main/scripts/install.sh | ENX_VERSION=v0.1.0 ENX_INSTALL_DIR=/usr/local/bin sh
+```
+
+To install by hand, download the archive for your platform from the releases
+page, check it against its `.sha256` file, and put `enx` (`enx.exe`) on your
+`PATH`:
+
+| Platform | Archive |
+|---|---|
+| macOS, Apple Silicon | `enx-aarch64-apple-darwin.tar.gz` |
+| macOS, Intel | `enx-x86_64-apple-darwin.tar.gz` |
+| Linux, x86_64 | `enx-x86_64-unknown-linux-musl.tar.gz` |
+| Linux, ARM64 | `enx-aarch64-unknown-linux-musl.tar.gz` |
+| Windows, x64 | `enx-x86_64-pc-windows-msvc.zip` |
+| Windows, ARM64 | `enx-aarch64-pc-windows-msvc.zip` |
+
+### From source
+
+With a Rust toolchain:
+
+```sh
+cargo install --git https://github.com/enowdev/enowxcli enowx-cli
+```
+
+Or build it yourself (see [Build](#build)). Check the install with
+`enx --version`.
 
 enowxcli opens on a home screen: the wordmark, `enow` in pixel letters with the
 mark (an X of lit cells, its centre in orange) as the X, and the composer under
@@ -53,11 +123,12 @@ and a call that arrives anyway is refused before dispatch.
 
 The orchestrator hands work to a roster of specialists, grouped in the sidebar:
 
-- **BUILD** — `fe` (frontend/interface), `motion`, `be` (backend), `db`,
+- **BUILD**: `fe` (frontend/interface), `motion`, `canvas` (standalone
+  single-file HTML pages and tools), `be` (backend), `db`,
   `devops`, `mobile`, `systems`.
-- **SECURITY** — `security`, the lead of an authorized security assessment, and
+- **SECURITY**: `security`, the lead of an authorized security assessment, and
   its team.
-- **SUPPORT** — `research`, `review`, `test`, `docs`, `perf`, `librarian`,
+- **SUPPORT**: `research`, `review`, `test`, `docs`, `perf`, `librarian`,
   `general`.
 
 ### The security assessment team
@@ -293,6 +364,16 @@ Install the binary (cargo emits it as `enx`, per `[[bin]]` in
 ```sh
 which -a enx                                     # expect no output before installing
 install -m 755 target/release/enx ~/.local/bin/enx
+```
+
+### Releasing
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`: it builds `enx` for
+the six platforms above and publishes the archives and their checksums as a
+GitHub release. Running the workflow by hand builds without publishing.
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
 ```
 
 ## Live reload while developing

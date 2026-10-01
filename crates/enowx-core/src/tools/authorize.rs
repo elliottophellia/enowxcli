@@ -181,6 +181,13 @@ impl Tool for AuthorizeTargetTool {
     }
 }
 
+/// Confirm a token reads zones, returning how many. Used by the connect flow
+/// to reject a bad token before it is saved.
+pub async fn verify_token(token: &str) -> anyhow::Result<usize> {
+    let cancel = tokio_util::sync::CancellationToken::new();
+    Ok(fetch_zones(token, &cancel).await?.len())
+}
+
 /// Zone names the token can read, each with its id, across every page.
 async fn fetch_zones(
     token: &str,

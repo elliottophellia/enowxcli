@@ -89,10 +89,11 @@ Active testing of a domain requires verifiable authorization, not a claim in
 the chat. `authorize_target` checks that a connected Cloudflare account controls
 the domain's DNS zone, which proves control of the domain, and records the
 domain, its subdomains and the addresses it resolves to as the scope the team
-may test. A domain the account does not control is refused. Connect the account
-with `enx auth login cloudflare` (a token with at least `Zone:Read`; it prints
-the minimal, medium and full scope options). The token is read from `auth.json`
-or `CLOUDFLARE_API_TOKEN`.
+may test. A domain the account does not control is refused. Connect the account with `enx auth login cloudflare`: it asks which scope
+(minimal `Zone:Read`, medium, or full, all read-only), opens the Cloudflare
+token page with that template pre-filled, verifies the token you paste reads
+zones, and saves it. For the longest-lived token leave its validity
+as no expiry (the default, and longer than any end date). The token is read from `auth.json` or `CLOUDFLARE_API_TOKEN`.
 
 Every role tests only authorized targets, reads over writes, proves a finding
 with a benign payload (never a destructive one), and never prints a real

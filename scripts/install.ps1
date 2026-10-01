@@ -1,7 +1,8 @@
 # Install enx from the latest GitHub release (Windows).
 #   irm https://enowx.ai/install.ps1 | iex
 # $env:ENX_VERSION = "v0.1.0" picks a release; $env:ENX_INSTALL_DIR sets where
-# enx goes (default %LOCALAPPDATA%\Programs\enx).
+# enx goes (default %LOCALAPPDATA%\Programs\enx). A finished install is
+# counted on enowx.ai (build and version only) unless $env:ENX_NO_STATS = "1".
 $ErrorActionPreference = "Stop"
 
 $repo = "enowdev/enowxcli"
@@ -37,4 +38,15 @@ if (($userPath -split ";") -notcontains $dir) {
   [Environment]::SetEnvironmentVariable("Path", "$userPath;$dir", "User")
   Write-Host "Added $dir to your PATH; open a new terminal to use enx."
 }
-& (Join-Path $dir "enx.exe") --version
+$version = ((& (Join-Path $dir "enx.exe") --version) -split " ")[1]
+Write-Host "Installed enx $version to $dir\enx.exe"
+
+# Count the install on enowx.ai: the build and version, nothing else. It
+# never holds up or fails the install. $env:ENX_NO_STATS = "1" skips it.
+if (-not $env:ENX_NO_STATS) {
+  try {
+    $body = @{ target = $target; version = $version } | ConvertTo-Json -Compress
+    Invoke-RestMethod -Method Post -Uri "https://enowx.ai/api/installs" `
+      -ContentType "application/json" -Body $body -TimeoutSec 5 | Out-Null
+  } catch {}
+}

@@ -2,6 +2,8 @@
 
 A Rust coding agent with a terminal interface.
 
+Website: [enowx.ai](https://enowx.ai)
+
 ```
 enx                          # open the terminal interface (default)
 enx auth login deepseek      # store a provider's API key (typed, not echoed)
@@ -59,7 +61,9 @@ interface best.
 
 Both scripts read `ENX_VERSION` (a release tag such as `v0.1.0`; default the
 latest) and `ENX_INSTALL_DIR`. `ENX_NO_MODIFY_PATH=1` stops `install.sh` from
-touching your shell config:
+touching your shell config. A finished install sends enowx.ai one count with
+the build and version (nothing about you or the machine); `ENX_NO_STATS=1`
+turns that off:
 
 ```sh
 curl -fsSL https://enowx.ai/install.sh | ENX_VERSION=v0.1.0 ENX_INSTALL_DIR=/usr/local/bin sh
@@ -390,4 +394,4 @@ it while resuming the newest session in this workspace.
 
 ## Licence
 
-MIT. See `LICENSE`.
+Apache License 2.0. See `LICENSE` and `NOTICE`.

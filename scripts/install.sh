@@ -3,7 +3,8 @@
 #   curl -fsSL https://enowx.ai/install.sh | sh
 # ENX_VERSION=v0.1.0 picks a release; ENX_INSTALL_DIR sets where enx goes
 # (default ~/.local/bin), and it is added to PATH in your shell's rc file
-# unless ENX_NO_MODIFY_PATH=1.
+# unless ENX_NO_MODIFY_PATH=1. A finished install is counted on enowx.ai
+# (build and version only) unless ENX_NO_STATS=1.
 set -eu
 
 repo="enowdev/enowxcli"
@@ -50,7 +51,16 @@ if [ "$os" = apple-darwin ]; then
   codesign -f -s - "$dir/enx" 2>/dev/null || true
 fi
 
-echo "Installed $("$dir/enx" --version) to $dir/enx"
+version="$("$dir/enx" --version | awk '{print $2}')"
+echo "Installed enx $version to $dir/enx"
+
+# Count the install on enowx.ai: the build and version, nothing else. It
+# never holds up or fails the install. ENX_NO_STATS=1 skips it.
+if [ -z "${ENX_NO_STATS:-}" ]; then
+  curl -fsS -m 5 -X POST -H "Content-Type: application/json" \
+    -d "{\"target\":\"$target\",\"version\":\"$version\"}" \
+    https://enowx.ai/api/installs >/dev/null 2>&1 || true
+fi
 
 # Put $dir on PATH for new shells, once, in the rc file of the user's shell.
 # ENX_NO_MODIFY_PATH=1 leaves the shell config alone.

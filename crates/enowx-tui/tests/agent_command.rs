@@ -39,7 +39,7 @@ fn switching_to_the_current_agent_is_harmless() {
 fn the_bare_command_shows_the_roster() {
     let mut app = TestApp::new();
     app.run_command("/agent").expect("list");
-    let rows = app.render_to_text(100, 40);
+    let rows = app.render_to_text(100, 60);
     let text = rows.join("\n");
     // By full name, with the id `/agent` takes where it differs.
     for name in ["Frontend  fe", "Backend  be", "Librarian"] {

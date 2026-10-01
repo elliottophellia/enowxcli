@@ -42,7 +42,11 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
         draw_model_picker(frame, app, width);
         return;
     }
-    let body = (app.modal_items.len() as u16 * per_row).min(20);
+    // The roster (agents, grouped) can run long; let a tall terminal show
+    // more of it. Shorter lists keep their own height; `overlay` clamps to
+    // the area so this never overflows a small screen.
+    let cap = if app.modal == Modal::Agents { 34 } else { 20 };
+    let body = (app.modal_items.len() as u16 * per_row).min(cap);
     let hint = if app.modal == Modal::Providers {
         "Enter connect · d disconnect · Esc close"
     } else {

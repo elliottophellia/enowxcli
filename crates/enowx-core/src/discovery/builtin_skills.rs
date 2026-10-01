@@ -367,6 +367,19 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
         "ui-stack-astro",
         include_str!("../../skills/ui-stack-astro/SKILL.md"),
     ),
+    ("canvas", include_str!("../../skills/canvas/SKILL.md")),
+    (
+        "canvas-interactive",
+        include_str!("../../skills/canvas-interactive/SKILL.md"),
+    ),
+    (
+        "canvas-data",
+        include_str!("../../skills/canvas-data/SKILL.md"),
+    ),
+    (
+        "canvas-ship",
+        include_str!("../../skills/canvas-ship/SKILL.md"),
+    ),
     ("motion", include_str!("../../skills/motion/SKILL.md")),
     (
         "motion-timing",

@@ -3,6 +3,7 @@ mod ansi;
 mod app;
 mod attachments;
 mod commands;
+pub mod keymap;
 mod logs;
 mod modal;
 mod pricing;

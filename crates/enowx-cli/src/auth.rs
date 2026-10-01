@@ -272,6 +272,7 @@ fn read_key(prompt: &str) -> Result<String> {
             let Event::Key(event) = read()? else {
                 continue;
             };
+            let event = enowx_tui::keymap::normalize(event);
             if event.kind == KeyEventKind::Release {
                 continue;
             }

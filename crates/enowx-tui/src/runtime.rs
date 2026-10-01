@@ -91,7 +91,7 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
             loop {
                 match event::read()? {
                     TerminalEvent::Key(key) if key.kind != KeyEventKind::Release => {
-                        if let Err(error) = app.key(key) {
+                        if let Err(error) = app.key(crate::keymap::normalize(key)) {
                             if app.modal != Modal::None {
                                 app.modal_error = format!("{error:#}");
                             } else {

@@ -200,7 +200,11 @@ fn draw_settings_nav(frame: &mut Frame, app: &mut App) {
     box_hint(
         frame,
         nav,
-        if focused { "↑↓ · → open" } else { "← here" },
+        if focused {
+            "↑↓ · → open"
+        } else {
+            "← here"
+        },
         t.muted,
         t.panel,
     );
@@ -227,7 +231,11 @@ fn draw_settings_nav(frame: &mut Frame, app: &mut App) {
         };
         let marker = if selected { "›" } else { " " };
         let width = row.width as usize;
-        let text = format!(" {marker} {:<w$}", page.label(), w = width.saturating_sub(3));
+        let text = format!(
+            " {marker} {:<w$}",
+            page.label(),
+            w = width.saturating_sub(3)
+        );
         frame.render_widget(Paragraph::new(Span::styled(text, style)), row);
         app.settings_sections.push((row, *page));
     }

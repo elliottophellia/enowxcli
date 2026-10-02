@@ -8,7 +8,7 @@
 //! all fall back to whatever is on disk (or nothing). Never blocks startup.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     fs,
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
@@ -159,6 +159,18 @@ pub struct Catalog {
     /// was read lacks it, so it counts as stale and is fetched again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<u32>,
+    /// Every listed model under each of its [`names`], built on first use.
+    #[serde(skip)]
+    index: std::sync::OnceLock<HashMap<String, Vec<Listed>>>,
+}
+
+/// A catalogue entry reachable under a name: who lists it, its id there, and
+/// how many decorations came off its id to reach the name (0: the id itself).
+#[derive(Debug, Clone)]
+struct Listed {
+    rank: usize,
+    provider: String,
+    id: String,
 }
 
 /// Bumped whenever `CatalogModel` reads a new field from models.dev.
@@ -310,56 +322,113 @@ impl Catalog {
     }
 
     /// The entry for `model_id` as `provider` serves it: that provider's own
-    /// listing first, then the whole catalogue.
+    /// listing first, then the model's maker's, then anyone's.
     ///
     /// `lookup` alone takes the first provider in alphabetical order that
     /// lists the id, and many resellers list the same ids at their own
     /// prices: `deepseek-chat` resolved to helicone's before DeepSeek's.
     pub fn lookup_for(&self, provider: &str, model_id: &str) -> Option<&CatalogModel> {
-        if let Some(listing) = self.providers.get(provider.trim()) {
-            if let Some(model) = listing.models.get(model_id) {
-                return Some(model);
-            }
-            let bare = model_id.split('/').next_back().unwrap_or(model_id);
-            if let Some(model) = listing
-                .models
-                .iter()
-                .find(|(id, _)| id.split('/').next_back().unwrap_or(id) == bare)
-                .map(|(_, model)| model)
-            {
-                return Some(model);
-            }
+        let provider = provider.trim();
+        if let Some(model) = self
+            .providers
+            .get(provider)
+            .and_then(|listing| listing.models.get(model_id))
+        {
+            return Some(model);
         }
-        self.lookup(model_id)
+        self.resolve(Some(provider), model_id)
+            .or_else(|| self.fuzzy(model_id))
     }
 
-    /// Best-effort lookup: exact match first, then fuzzy across the whole
-    /// catalog. Returns `None` when no candidate scores well enough.
+    /// The entry for `model_id` from whoever lists it, the model's maker
+    /// first. Returns `None` when no name matches closely enough.
     pub fn lookup(&self, model_id: &str) -> Option<&CatalogModel> {
-        // Exact match under any provider.
-        for prov in self.providers.values() {
-            if let Some(m) = prov.models.get(model_id) {
-                return Some(m);
+        self.resolve(None, model_id)
+            .or_else(|| self.fuzzy(model_id))
+    }
+
+    /// The listing for `model_id` by name, however the upstream spells it.
+    /// Its [`names`] are tried most specific first, so `claude-opus-4.7-1m`
+    /// is `claude-opus-4-7-1m` if anyone lists that, and `claude-opus-4-7`
+    /// otherwise. A listing counts under its own names too, so the maker's
+    /// `gemini-3.1-pro-preview` answers for `gemini-3.1-pro`.
+    ///
+    /// Among the listings under a name, `provider` (the one serving the
+    /// model) wins, then the model's maker, whose figures are the reference
+    /// a reseller's may differ from; each with its closest listing. Failing
+    /// both, the closest listing that states a price, since a gateway listing
+    /// a model at $0 says nothing of what it costs.
+    fn resolve(&self, provider: Option<&str>, model_id: &str) -> Option<&CatalogModel> {
+        let index = self.index();
+        for name in names(model_id) {
+            let Some(hits) = index.get(&name) else {
+                continue;
+            };
+            let maker = maker_of(&name);
+            let closest = |from: Option<&str>| {
+                hits.iter()
+                    .filter(|hit| from.is_none_or(|from| hit.provider == from))
+                    .min_by_key(|hit| hit.rank)
+            };
+            let model = |hit: &Listed| self.providers.get(&hit.provider)?.models.get(&hit.id);
+            let chosen = provider
+                .and_then(|p| closest(Some(p)))
+                .or_else(|| maker.and_then(|m| closest(Some(m))));
+            if let Some(hit) = chosen {
+                return model(hit);
             }
+            let best_rank = hits.iter().map(|hit| hit.rank).min()?;
+            let nearest = || hits.iter().filter(|hit| hit.rank == best_rank);
+            return nearest()
+                .filter_map(model)
+                .find(|m| m.cost.input > 0.0)
+                .or_else(|| nearest().find_map(model));
         }
-        // Also try the "provider/model" form: strip provider prefix.
-        let bare = model_id.split('/').next_back().unwrap_or(model_id);
-        for prov in self.providers.values() {
-            for (id, m) in &prov.models {
-                let cand = id.split('/').next_back().unwrap_or(id);
-                if cand == bare {
-                    return Some(m);
+        None
+    }
+
+    /// Every listed model under each of its names, in provider order.
+    fn index(&self) -> &HashMap<String, Vec<Listed>> {
+        self.index.get_or_init(|| {
+            let mut index: HashMap<String, Vec<Listed>> = HashMap::new();
+            for (prov, listing) in &self.providers {
+                for id in listing.models.keys() {
+                    for (rank, name) in names(id).into_iter().enumerate() {
+                        index.entry(name).or_default().push(Listed {
+                            rank,
+                            provider: prov.clone(),
+                            id: id.clone(),
+                        });
+                    }
                 }
             }
-        }
-        // Fuzzy: pick the best candidate by lowercase substring / edit
-        // distance. We only trust close matches so we do not silently attach
-        // pricing from a wildly different model.
+            index
+        })
+    }
+
+    /// The closest id by spelling, for a name [`names`] cannot reach. Only
+    /// close matches with the same version numbers count: `claude-opus-9`
+    /// is a model the catalogue does not list yet, not `claude-opus-4-7`, and
+    /// is better on the defaults than on another model's figures.
+    fn fuzzy(&self, model_id: &str) -> Option<&CatalogModel> {
         let mut best: Option<(&CatalogModel, usize)> = None;
         let needle = model_id.to_ascii_lowercase();
+        let version = names(model_id)
+            .last()
+            .map(|name| numbers(name))
+            .unwrap_or_default();
+        let version_of = |id: &str| {
+            names(id)
+                .last()
+                .map(|name| numbers(name))
+                .unwrap_or_default()
+        };
         for prov in self.providers.values() {
             for (id, m) in &prov.models {
                 let hay = id.to_ascii_lowercase();
+                if version_of(&hay) != version {
+                    continue;
+                }
                 let score = fuzzy_score(&needle, &hay);
                 if score > 0 && best.is_none_or(|(_, s)| score > s) {
                     best = Some((m, score));
@@ -368,6 +437,156 @@ impl Catalog {
         }
         best.filter(|(_, s)| *s >= 70).map(|(m, _)| m)
     }
+}
+
+/// A model id reduced to the name of the model: lowercase, without the
+/// provider path (`anthropic/`) or a `:variant` (`:thinking`, `:free`), every
+/// separator a `-`. `anthropic/claude-opus-4.7:thinking` and
+/// `claude-opus-4-7` are both `claude-opus-4-7`.
+pub fn canonical(id: &str) -> String {
+    let id = id.trim().to_ascii_lowercase();
+    let id = id.rsplit('/').next().unwrap_or(&id);
+    let id = id.split(':').next().unwrap_or(id);
+    let mut out = String::with_capacity(id.len());
+    for c in id.chars() {
+        let c = if matches!(c, '.' | '_' | ' ') { '-' } else { c };
+        if c == '-' && (out.is_empty() || out.ends_with('-')) {
+            continue;
+        }
+        out.push(c);
+    }
+    out.trim_end_matches('-').to_owned()
+}
+
+/// The canonical names `model_id` may be listed under, most specific first.
+/// Upstreams decorate a model's name: a region or vendor in front
+/// (`us.anthropic.`, `databricks-`), and a size, date, version or mode
+/// behind (`-1m`, `-20251101`, `-v1`, `-thinking`, `-high`). Each name drops
+/// one more decoration from the end, and each is also tried without up to
+/// three leading words.
+pub fn names(model_id: &str) -> Vec<String> {
+    let canon = canonical(model_id);
+    let mut tokens: Vec<&str> = canon.split('-').filter(|t| !t.is_empty()).collect();
+    let mut out: Vec<String> = Vec::new();
+    loop {
+        for skip in 0..=3.min(tokens.len().saturating_sub(2)) {
+            let rest = &tokens[skip..];
+            if rest
+                .first()
+                .is_some_and(|t| t.starts_with(|c: char| c.is_ascii_alphabetic()))
+            {
+                let name = rest.join("-");
+                if !out.contains(&name) {
+                    out.push(name);
+                }
+            }
+        }
+        let n = tokens.len();
+        if n >= 4 && is_date(&tokens[n - 3..]) {
+            tokens.truncate(n - 3);
+        } else if n >= 2 && is_decoration(tokens[n - 1]) {
+            tokens.truncate(n - 1);
+        } else {
+            break;
+        }
+    }
+    out
+}
+
+/// The numbers in a name, in order: a model's version.
+fn numbers(name: &str) -> Vec<String> {
+    name.split(|c: char| !c.is_ascii_digit())
+        .filter(|run| !run.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// `2024-11-20` split into its three words.
+fn is_date(words: &[&str]) -> bool {
+    let digits = |w: &str, len: usize| w.len() == len && w.bytes().all(|b| b.is_ascii_digit());
+    words.len() == 3
+        && digits(words[0], 4)
+        && words[0].starts_with("20")
+        && digits(words[1], 2)
+        && digits(words[2], 2)
+}
+
+/// A trailing word that dresses a model's name rather than naming another
+/// model: a date stamp, a version, a context size, a thinking mode or level,
+/// a release channel.
+fn is_decoration(word: &str) -> bool {
+    let digits = |w: &str| !w.is_empty() && w.bytes().all(|b| b.is_ascii_digit());
+    if (word.len() == 8 || word.len() == 4) && digits(word) {
+        return true;
+    }
+    if word.strip_prefix('v').is_some_and(digits) {
+        return true;
+    }
+    if word.strip_suffix(['k', 'm']).is_some_and(digits) {
+        return true;
+    }
+    matches!(
+        word,
+        "latest"
+            | "thinking"
+            | "think"
+            | "reasoning"
+            | "nothink"
+            | "minimal"
+            | "low"
+            | "medium"
+            | "high"
+            | "xhigh"
+            | "max"
+            | "fast"
+            | "preview"
+            | "exp"
+            | "experimental"
+            | "beta"
+            | "free"
+    )
+}
+
+/// The provider whose catalogue entry is the reference for a model family:
+/// the maker's own listing.
+fn maker_of(name: &str) -> Option<&'static str> {
+    let first = name.split('-').next().unwrap_or(name);
+    let starts = |prefixes: &[&str]| prefixes.iter().any(|p| first.starts_with(p));
+    let openai_o = first.len() >= 2
+        && first.starts_with('o')
+        && first[1..].starts_with(|c: char| c.is_ascii_digit());
+    Some(if starts(&["claude"]) {
+        "anthropic"
+    } else if starts(&["gpt", "chatgpt", "codex"]) || openai_o {
+        "openai"
+    } else if starts(&["gemini", "gemma"]) {
+        "google"
+    } else if starts(&["deepseek"]) {
+        "deepseek"
+    } else if starts(&["grok"]) {
+        "xai"
+    } else if starts(&["kimi"]) {
+        "moonshotai"
+    } else if starts(&["glm"]) {
+        "zhipuai"
+    } else if starts(&["qwen", "qwq"]) {
+        "alibaba"
+    } else if starts(&[
+        "mistral",
+        "codestral",
+        "devstral",
+        "magistral",
+        "ministral",
+        "pixtral",
+    ]) {
+        "mistral"
+    } else if starts(&["minimax"]) {
+        "minimax"
+    } else if starts(&["llama"]) {
+        "meta"
+    } else {
+        return None;
+    })
 }
 
 /// Limits and prices from a provider's own documentation, for models where
@@ -585,7 +804,8 @@ mod tests {
                 },
             );
         }
-        assert_eq!(catalog.lookup("deepseek-flash").unwrap().cost.input, 9.0);
+        // Asked without a provider, the maker's own listing is the reference.
+        assert_eq!(catalog.lookup("deepseek-flash").unwrap().cost.input, 0.15);
         assert_eq!(
             catalog
                 .lookup_for("deepseek", "deepseek-flash")
@@ -594,15 +814,175 @@ mod tests {
                 .input,
             0.15
         );
-        // Unknown to that provider: the whole catalogue still answers.
+        // Unknown to that provider: the maker's listing answers.
         assert_eq!(
             catalog
                 .lookup_for("openai", "deepseek-flash")
                 .unwrap()
                 .cost
                 .input,
-            9.0
+            0.15
         );
+    }
+
+    /// A catalogue with `models` under each provider, each model's context
+    /// set so a test can tell which entry was found.
+    fn listing(entries: &[(&str, &str, u32)]) -> Catalog {
+        let mut catalog = Catalog::default();
+        for (provider, id, context) in entries {
+            catalog
+                .providers
+                .entry((*provider).to_owned())
+                .or_default()
+                .models
+                .insert(
+                    (*id).to_owned(),
+                    CatalogModel {
+                        id: (*id).to_owned(),
+                        limit: CatalogLimit {
+                            context: *context,
+                            output: 0,
+                        },
+                        ..CatalogModel::default()
+                    },
+                );
+        }
+        catalog
+    }
+
+    #[test]
+    fn a_name_is_reduced_to_the_model_it_names() {
+        for (sent, want) in [
+            ("claude-opus-4.7", "claude-opus-4-7"),
+            ("anthropic/claude-opus-4.7:thinking", "claude-opus-4-7"),
+            ("Claude_Opus 4.7", "claude-opus-4-7"),
+            ("gpt-5.1", "gpt-5-1"),
+        ] {
+            assert_eq!(canonical(sent), want, "{sent}");
+        }
+    }
+
+    #[test]
+    fn decorations_come_off_one_at_a_time() {
+        let tried = names("us.anthropic.claude-opus-4.7-20251101-v1:0");
+        let at = |name: &str| tried.iter().position(|n| n == name);
+        assert_eq!(tried[0], "us-anthropic-claude-opus-4-7-20251101-v1");
+        assert!(at("claude-opus-4-7-20251101").is_some(), "{tried:?}");
+        assert!(at("claude-opus-4-7").is_some(), "{tried:?}");
+        // The most specific name is tried before the bare model.
+        assert!(at("claude-opus-4-7-20251101") < at("claude-opus-4-7"));
+        assert!(names("claude-opus-4.7-1m").contains(&"claude-opus-4-7".to_owned()));
+        assert!(names("gpt-5.5-xhigh").contains(&"gpt-5-5".to_owned()));
+        assert!(names("gemini-2.5-pro-2025-06-17").contains(&"gemini-2-5-pro".to_owned()));
+        // A number that is part of the model's name stays.
+        assert!(!names("claude-opus-4-1").contains(&"claude-opus-4".to_owned()));
+        assert!(!names("gpt-4o").contains(&"gpt".to_owned()));
+    }
+
+    /// Upstreams spell a model their own way; each finds the maker's entry.
+    #[test]
+    fn an_upstreams_spelling_finds_the_catalogue_entry() {
+        let catalog = listing(&[
+            ("anthropic", "claude-opus-4-7", 1_000_000),
+            (
+                "aaa-reseller",
+                "anthropic/claude-opus-4.7:thinking",
+                200_000,
+            ),
+            ("openai", "gpt-5.5", 1_050_000),
+        ]);
+        for sent in [
+            "claude-opus-4.7",
+            "claude-opus-4.7-1m",
+            "Claude-Opus-4.7",
+            "claude-opus-4-7-thinking",
+            "claude-opus-4.7-high",
+            "us.anthropic.claude-opus-4-7",
+            "claude-opus-4-7-20260101",
+        ] {
+            let found = catalog.lookup(sent).unwrap_or_else(|| panic!("{sent}"));
+            assert_eq!(found.limit.context, 1_000_000, "{sent} found {}", found.id);
+        }
+        assert_eq!(catalog.lookup("gpt-5.5-xhigh").unwrap().id, "gpt-5.5");
+        // The provider serving the model still answers for itself.
+        assert_eq!(
+            catalog
+                .lookup_for("aaa-reseller", "claude-opus-4.7")
+                .unwrap()
+                .limit
+                .context,
+            200_000
+        );
+    }
+
+    #[test]
+    fn a_dated_or_sized_listing_wins_over_the_bare_one() {
+        let catalog = listing(&[
+            ("anthropic", "claude-sonnet-4-5", 200_000),
+            ("anthropic", "claude-sonnet-4-5-20250929", 1_000_000),
+        ]);
+        assert_eq!(
+            catalog
+                .lookup("claude-sonnet-4.5-20250929")
+                .unwrap()
+                .limit
+                .context,
+            1_000_000
+        );
+        assert_eq!(
+            catalog.lookup("claude-sonnet-4.5").unwrap().limit.context,
+            200_000
+        );
+    }
+
+    /// The maker lists only a decorated id; a gateway lists the bare name
+    /// at $0. The maker's figures still answer.
+    #[test]
+    fn the_makers_decorated_listing_answers_for_the_bare_name() {
+        let mut catalog = listing(&[
+            ("aaa-gateway", "gemini-3-1-pro", 1_048_576),
+            ("google", "gemini-3.1-pro-preview", 1_048_576),
+        ]);
+        catalog
+            .providers
+            .get_mut("google")
+            .unwrap()
+            .models
+            .get_mut("gemini-3.1-pro-preview")
+            .unwrap()
+            .cost
+            .input = 2.0;
+        let found = catalog.lookup("gemini-3.1-pro").unwrap();
+        assert_eq!(
+            (found.id.as_str(), found.cost.input),
+            ("gemini-3.1-pro-preview", 2.0)
+        );
+    }
+
+    /// With no maker listing, a priced entry beats a gateway's $0.
+    #[test]
+    fn a_stated_price_beats_a_free_listing() {
+        let mut catalog = listing(&[
+            ("aaa-gateway", "acme-coder-2", 128_000),
+            ("bbb-reseller", "acme-coder-2", 128_000),
+        ]);
+        catalog
+            .providers
+            .get_mut("bbb-reseller")
+            .unwrap()
+            .models
+            .get_mut("acme-coder-2")
+            .unwrap()
+            .cost
+            .input = 1.5;
+        assert_eq!(catalog.lookup("acme-coder-2").unwrap().cost.input, 1.5);
+    }
+
+    #[test]
+    fn an_unknown_model_is_not_given_anothers_figures() {
+        let catalog = listing(&[("anthropic", "claude-opus-4-7", 1_000_000)]);
+        assert!(catalog.lookup("totally-unknown-model").is_none());
+        assert!(catalog.lookup("claude-opus-9").is_none());
     }
 
     #[test]

@@ -354,8 +354,10 @@ impl Config {
             context_window: own
                 .and_then(|m| m.context_window)
                 .or(detected)
-                .or_else(|| listed.map(|m| m.limit.context).filter(|c| *c > 0))
+                // A size in the id (`-1m`) names the variant being served,
+                // which the catalogue may list only at its base window.
                 .or_else(|| window_from_id(&model.model))
+                .or_else(|| listed.map(|m| m.limit.context).filter(|c| *c > 0))
                 .unwrap_or(DEFAULT_CONTEXT_WINDOW),
             price_input: price(
                 own.and_then(|m| m.price_input),
@@ -432,7 +434,10 @@ mod tests {
 
     #[test]
     fn a_window_is_read_from_a_size_suffix_in_the_id() {
-        assert_eq!(window_from_id("enowx/cb/claude-opus-4.7-1m"), Some(1_000_000));
+        assert_eq!(
+            window_from_id("enowx/cb/claude-opus-4.7-1m"),
+            Some(1_000_000)
+        );
         assert_eq!(window_from_id("claude-sonnet-4.5-200k"), Some(200_000));
         assert_eq!(window_from_id("some-model-128k"), Some(128_000));
         assert_eq!(window_from_id("qwen-2.5-1m-instruct"), Some(1_000_000));

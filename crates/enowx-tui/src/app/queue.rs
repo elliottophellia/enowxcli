@@ -21,7 +21,7 @@ impl App {
         self.input.clear();
         self.cursor = 0;
         self.status = format!(
-            "queued ({}) · sent when this turn ends · Ctrl+Enter sends now",
+            "queued ({}) · sent when this turn ends · Ctrl+S sends now",
             self.queued.len()
         );
     }

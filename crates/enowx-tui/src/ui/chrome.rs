@@ -73,12 +73,20 @@ pub(super) fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
     app.sidebar_tabs.clear();
     app.sidebar_pages_area = None;
     if app.is_home() {
+        // A settings page covers the whole window here: there is no chat yet.
+        app.main_area = Some(Rect::new(
+            area.x,
+            area.y,
+            area.width,
+            area.height.saturating_sub(1),
+        ));
         draw_home(frame, app, area);
         return;
     }
     // The next home screen plays its opening again.
     app.home_started = None;
     let grid = Grid::new(area, app.show_sidebar);
+    app.main_area = Some(grid.main);
     draw_main_column(frame, app, grid.main);
     if let Some(side) = grid.side {
         draw_sidebar(frame, app, side, grid.session_card);
@@ -204,14 +212,22 @@ pub(super) fn overlay(
 ) -> (Rect, Rect) {
     let t = app.theme;
     let area = frame.area();
-    let width = width.min(area.width.saturating_sub(4));
-    let height = (content_rows + 2 + 2 * PAD_Y).min(area.height.saturating_sub(2));
-    let rect = Rect::new(
-        area.x + area.width.saturating_sub(width) / 2,
-        area.y + area.height.saturating_sub(height) / 2,
-        width,
-        height,
-    );
+    // A settings page fills the main column, in place of the chat; anything
+    // else floats in the middle of the window.
+    let page = crate::app::pages::Page::of(app.modal) != crate::app::pages::Page::Chat;
+    let rect = match app.main_area {
+        Some(main) if page && main.width >= 30 && main.height >= 8 => main,
+        _ => {
+            let width = width.min(area.width.saturating_sub(4));
+            let height = (content_rows + 2 + 2 * PAD_Y).min(area.height.saturating_sub(2));
+            Rect::new(
+                area.x + area.width.saturating_sub(width) / 2,
+                area.y + area.height.saturating_sub(height) / 2,
+                width,
+                height,
+            )
+        }
+    };
     frame.render_widget(Clear, rect);
     panel_box(frame, rect, t.accent, t.panel);
     let title = title.trim();

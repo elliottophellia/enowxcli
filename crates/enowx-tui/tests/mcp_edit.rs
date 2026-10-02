@@ -89,7 +89,8 @@ fn editing_our_own_entry_is_plain() {
 #[test]
 fn the_add_row_still_opens_a_blank_form() {
     let mut app = seeded();
-    let last = 1; // one server plus the add row
+    // One seeded server, then the built-in ones, then the add row.
+    let last = 1 + enowx_core::builtin_mcp::NAMES.len();
     app.select_mcp_row(last);
     app.accept_mcp_row().expect("accept");
     assert!(app.in_mcp_form());

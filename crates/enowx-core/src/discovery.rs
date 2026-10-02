@@ -143,6 +143,19 @@ pub struct McpServer {
     /// user-level server with the same name stays disabled, mirroring how
     /// Claude Code and Codex resolve the same situation.
     pub enabled: bool,
+    /// A server enx serves itself (coolify, dokploy, vps). Always listed, off
+    /// until configured and turned on.
+    #[serde(default)]
+    pub builtin: bool,
+    /// Whether a built-in server has the credentials it needs. A built-in one
+    /// with no credentials cannot be turned on; a discovered one is always
+    /// considered configured.
+    #[serde(default = "yes")]
+    pub configured: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]

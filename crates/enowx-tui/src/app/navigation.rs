@@ -68,6 +68,22 @@ impl App {
     pub(crate) fn mouse(&mut self, event: MouseEvent) -> Result<()> {
         let position = Position::new(event.column, event.row);
         match event.kind {
+            // A tab at the top right opens its page.
+            MouseEventKind::Down(MouseButton::Left)
+                if self.page_tabs.iter().any(|(rect, _)| {
+                    rect.contains(ratatui::layout::Position::new(event.column, event.row))
+                }) =>
+            {
+                let position = ratatui::layout::Position::new(event.column, event.row);
+                if let Some((_, page)) = self
+                    .page_tabs
+                    .iter()
+                    .find(|(rect, _)| rect.contains(position))
+                    .copied()
+                {
+                    self.open_page(page)?;
+                }
+            }
             MouseEventKind::Down(MouseButton::Left)
                 if self.queue_send_button.is_some_and(|button| {
                     button.contains(ratatui::layout::Position::new(event.column, event.row))

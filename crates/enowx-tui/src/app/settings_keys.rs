@@ -4,9 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 impl App {
     /// The field the cursor is on in the open form.
     fn form_field(&self) -> Option<SettingsField> {
-        crate::modal::form_fields(self.modal)
-            .get(self.modal_cursor)
-            .copied()
+        self.current_form_fields().get(self.modal_cursor).copied()
     }
 
     /// React to an edit in a form: the error it showed no longer applies.
@@ -84,7 +82,7 @@ impl App {
             self.modal = Modal::None;
             return Ok(());
         };
-        let fields = crate::modal::form_fields(self.modal).len();
+        let fields = self.current_form_fields().len();
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             match key.code {
                 KeyCode::Char('c') => self.modal = Modal::None,

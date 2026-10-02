@@ -30,13 +30,8 @@ impl App {
                 ));
             }
         }
-        if items.is_empty() {
-            self.push(
-                TranscriptKind::System,
-                "No saved sessions in this workspace.",
-            );
-            return Ok(());
-        }
+        // Opened even when empty: it is a tab, and a tab that refuses to open
+        // reads as broken. The page says there is nothing yet.
         self.modal_items = items;
         self.modal = Modal::Sessions;
         self.modal_cursor = 0;

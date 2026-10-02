@@ -230,7 +230,11 @@ fn the_x_lights_and_goes_out_in_a_loop() {
 /// Rows of nothing above the block, below it (to the keys), and columns of
 /// nothing to its left and right.
 fn gaps(rows: &[String], height: u16) -> (usize, usize, usize, usize) {
-    let first = rows.iter().position(|row| !row.trim().is_empty()).unwrap();
+    // Row 0 holds the page tabs at the top right; the block is below them.
+    let first = 1 + rows[1..]
+        .iter()
+        .position(|row| !row.trim().is_empty())
+        .unwrap();
     let keys = height as usize - 1;
     let last = (0..keys)
         .rev()

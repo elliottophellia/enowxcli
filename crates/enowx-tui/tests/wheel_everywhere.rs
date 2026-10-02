@@ -44,7 +44,7 @@ fn step(app: &mut TestApp, down: bool, column: u16, row: u16) {
 fn the_wheel_moves_the_command_palette_not_the_transcript() {
     let mut app = TestApp::new();
     app.set_max_scroll(20);
-    app.press(KeyCode::Char('p'), true).expect("ctrl+p");
+    app.run_command("/commands").expect("/commands");
     let _ = app.render_to_text(W, H);
     let first = app.palette_selection();
     // Anywhere on screen: the open window has the focus.
@@ -78,7 +78,7 @@ fn the_wheel_moves_between_settings_fields() {
 #[test]
 fn a_burst_moves_a_list_one_row() {
     let mut app = TestApp::new();
-    app.press(KeyCode::Char('p'), true).expect("ctrl+p");
+    app.run_command("/commands").expect("/commands");
     app.let_the_wheel_settle();
     for _ in 0..5 {
         app.mouse(wheel(true, 5, 5)).expect("wheel");

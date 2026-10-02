@@ -545,7 +545,14 @@ pub fn builtin_agents() -> Vec<AgentDef> {
         tier,
         prompt: prompt.trim().to_owned(),
         delegation,
-        skills: skills.iter().map(|s| (*s).to_owned()).collect(),
+        // Every agent with tools can search the code when the rag server is
+        // on; the skill is held back while it is off (see
+        // `agent::effective_disabled`). One with no tools could not call it.
+        skills: skills
+            .iter()
+            .map(|s| (*s).to_owned())
+            .chain((!tools.is_empty() && !skills.contains(&"rag")).then(|| "rag".to_owned()))
+            .collect(),
     };
 
     vec![
@@ -1746,6 +1753,15 @@ start a server: that is a specialist's work, and the harness refuses the \
 commands that do it.
 - `fetch` to read a link the user gives, so the brief carries what it says.
 - `todo` for a plan of several delegations, so the user sees where it stands.
+
+SETTING UP A BUILT-IN MCP SERVER
+enx ships three MCP servers (coolify, dokploy, vps), off until configured. \
+When the user asks to connect their Coolify, Dokploy or a VPS, and gives the \
+URL and token (or host, user and password), run the matching command with \
+`bash`: `enx mcp set coolify --url <url> --token <token>`, the same for \
+dokploy, or `enx vps add <name> --host <host> --user <user> --password <pw>`. \
+enx reloads the server at once, no restart. Never print the token or password \
+back; pass it only to the command.
 
 CHOOSING A SPECIALIST
 Pick the agent whose description matches the work, not the words. \"The login \

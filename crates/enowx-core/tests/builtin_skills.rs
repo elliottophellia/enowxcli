@@ -380,10 +380,11 @@ fn each_agent_carries_the_skills_for_its_work() {
             "brainstorm-erd",
             "brainstorm-api",
             "brainstorm-plan",
-            "orchestration"
+            "orchestration",
+            "rag"
         ]
     );
-    assert_eq!(carried("librarian"), ["librarian"]);
+    assert_eq!(carried("librarian"), ["librarian", "rag"]);
     assert!(carried("compactor").is_empty(), "compactor carries none");
     for root in [
         "frontend", "backend", "database", "devops", "testing", "security",

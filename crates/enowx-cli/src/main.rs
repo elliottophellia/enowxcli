@@ -76,14 +76,25 @@ enum McpCommand {
     /// Each built-in server and whether it is installed.
     #[command(alias = "ls")]
     List,
-    /// Set up coolify or dokploy: its URL, then an API token at a prompt.
-    Install {
+    /// Fill in a built-in server's credentials: coolify or dokploy take a URL
+    /// and an API token (asked at a prompt, or given with --token so an agent
+    /// can set it up). This turns the server on.
+    #[command(alias = "install")]
+    Set {
         name: String,
         #[arg(long)]
         url: Option<String>,
+        /// The API token (for rag, the Voyage AI key). Given here it is not
+        /// prompted for.
+        #[arg(long)]
+        token: Option<String>,
+        /// rag only: the Postgres connection string, local or cloud.
+        #[arg(long)]
+        dsn: Option<String>,
     },
-    /// Remove a built-in server's setup and stored secrets.
-    Uninstall { name: String },
+    /// Forget a built-in server's setup and stored secrets, and turn it off.
+    #[command(alias = "uninstall")]
+    Clear { name: String },
     /// Run a built-in server over stdio, as an MCP client starts it.
     #[command(hide = true)]
     Serve { name: String },
@@ -104,6 +115,9 @@ enum VpsCommand {
         /// A private key file to sign in with instead of a password.
         #[arg(long)]
         key: Option<String>,
+        /// The password. Given here it is not prompted for.
+        #[arg(long)]
+        password: Option<String>,
     },
     #[command(alias = "ls")]
     List,
@@ -160,8 +174,19 @@ async fn main() -> Result<()> {
         }
         Command::Mcp { command } => match command {
             McpCommand::List => mcp::list(),
-            McpCommand::Install { name, url } => mcp::install(&name, url),
-            McpCommand::Uninstall { name } => mcp::uninstall(&name),
+            McpCommand::Set {
+                name,
+                url,
+                token,
+                dsn,
+            } => {
+                if name == "rag" {
+                    mcp::set_rag(dsn, token)
+                } else {
+                    mcp::install(&name, url, token)
+                }
+            }
+            McpCommand::Clear { name } => mcp::uninstall(&name),
             McpCommand::Serve { name } => enowx_core::builtin_mcp::serve(&name).await,
         },
         Command::Vps { command } => match command {
@@ -171,7 +196,8 @@ async fn main() -> Result<()> {
                 user,
                 port,
                 key,
-            } => mcp::vps_add(&name, &host, &user, port, key),
+                password,
+            } => mcp::vps_add(&name, &host, &user, port, key, password),
             VpsCommand::List => mcp::vps_list(),
             VpsCommand::Remove { name } => mcp::vps_remove(&name),
         },

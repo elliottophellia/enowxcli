@@ -55,8 +55,19 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
     } else {
         LIST_HINT
     };
-    let (_, content) = overlay(frame, app, width, body, app.modal.title(), hint);
+    let (_, content) = overlay(frame, app, width, body.max(1), app.modal.title(), hint);
     let t = app.theme;
+    if app.modal_items.is_empty() {
+        let note = match app.modal {
+            Modal::Sessions => "No saved sessions in this workspace yet.",
+            _ => "Nothing here yet.",
+        };
+        frame.render_widget(
+            Paragraph::new(note).style(Style::default().fg(t.muted)),
+            content,
+        );
+        return;
+    }
     // The `›` marker takes two columns; text past the box ends in `…`
     // rather than stopping mid-word at the edge.
     let text_width = (content.width as usize).saturating_sub(2);

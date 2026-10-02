@@ -13,12 +13,33 @@ use enowx_core::Config;
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::{io, time::Duration};
 
-struct TerminalGuard;
+struct TerminalGuard {
+    /// Whether the terminal took the kitty keyboard flags, and so must be
+    /// handed them back on the way out.
+    #[cfg_attr(windows, allow(dead_code))]
+    enhanced: bool,
+}
 
 impl TerminalGuard {
     fn enter() -> Result<Self> {
         enable_raw_mode()?;
-        let guard = Self;
+        #[allow(unused_mut)]
+        let mut guard = Self { enhanced: false };
+        // Terminals that speak the kitty keyboard protocol (kitty, WezTerm,
+        // foot, Ghostty, Alacritty, iTerm2) can then tell Ctrl+Enter and
+        // Shift+Enter from Enter, Esc from an Alt chord, and Ctrl+I from Tab.
+        // Elsewhere (Terminal.app, GNOME Terminal, tmux) the legacy encoding
+        // stays, and every shortcut has a form that survives it. The Windows
+        // console reports keys directly and needs none of this.
+        #[cfg(not(windows))]
+        if crossterm::terminal::supports_keyboard_enhancement().unwrap_or(false) {
+            use crossterm::event::{KeyboardEnhancementFlags, PushKeyboardEnhancementFlags};
+            guard.enhanced = execute!(
+                io::stdout(),
+                PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+            )
+            .is_ok();
+        }
         execute!(
             io::stdout(),
             EnterAlternateScreen,
@@ -39,6 +60,10 @@ impl Drop for TerminalGuard {
         use std::io::Write as _;
         let _ = write!(io::stdout(), "\x1b[0 q");
         let _ = io::stdout().flush();
+        #[cfg(not(windows))]
+        if self.enhanced {
+            let _ = execute!(io::stdout(), crossterm::event::PopKeyboardEnhancementFlags);
+        }
         let _ = execute!(
             io::stdout(),
             DisableBracketedPaste,
@@ -80,6 +105,7 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
         app.tick_queue();
         app.tick_handoff();
         app.tick_resources();
+        app.tick_mcp_reload();
         app.catch_up_with_catalog();
         app.drain_picker_events();
         app.drain_typesafe_check();
@@ -90,9 +116,18 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
             // wheel or trackpad sends dozens of events a second, and drawing a
             // long transcript after each one fell behind them: the queue kept
             // scrolling after the hand had stopped.
-            let mut handled = 0;
+            let mut batch = Vec::new();
             loop {
-                match event::read()? {
+                batch.push(event::read()?);
+                if batch.len() >= 512 || !event::poll(Duration::ZERO)? {
+                    break;
+                }
+            }
+            for terminal_event in crate::keymap::coalesce_paste(batch) {
+                if app.should_quit {
+                    break;
+                }
+                match terminal_event {
                     TerminalEvent::Key(key) if key.kind != KeyEventKind::Release => {
                         if let Err(error) = app.key(crate::keymap::normalize(key)) {
                             if app.modal != Modal::None {
@@ -138,10 +173,6 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
                         }
                     }
                     _ => {}
-                }
-                handled += 1;
-                if handled >= 512 || app.should_quit || !event::poll(Duration::ZERO)? {
-                    break;
                 }
             }
         }

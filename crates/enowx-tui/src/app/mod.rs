@@ -24,6 +24,7 @@ mod keys;
 pub(crate) mod mcp_ui;
 pub(crate) mod model_picker;
 mod navigation;
+pub(crate) mod pages;
 pub(crate) mod question;
 mod queue;
 mod sessions;
@@ -248,10 +249,22 @@ pub(crate) struct App {
     pub(crate) queue_paused: bool,
     /// Where the queue's "send now" button was drawn, for a click.
     pub(crate) queue_send_button: Option<Rect>,
+    /// The main column on the last frame: where a settings page is drawn.
+    pub(crate) main_area: Option<Rect>,
+    /// The tabs at the top right, as drawn, for a click.
+    pub(crate) page_tabs: Vec<(Rect, pages::Page)>,
+    /// The tab last chosen, by its place in `pages::PAGES`.
+    pub(crate) page_index: usize,
     /// What this session costs the machine, sampled every few seconds.
     pub(crate) resources: crate::resources::Sampler,
     /// A handoff under way: the new session, or why it failed.
     pub(crate) handoff: Option<handoff::Pending>,
+    /// The last-seen change time of the files that configure MCP, so a fill
+    /// from the CLI (an agent running `enx mcp set ...`) reloads MCP in place
+    /// without a restart.
+    pub(crate) mcp_config_stamp: Option<std::time::SystemTime>,
+    /// When the MCP config files were last checked for a change.
+    pub(crate) mcp_reload_checked: std::time::Instant,
     pub(crate) attach_error: Option<String>,
     pub(crate) tool_counts: HashMap<String, usize>,
     pub(crate) context_tokens: u32,
@@ -426,8 +439,13 @@ impl App {
             queued: std::collections::VecDeque::new(),
             queue_paused: false,
             queue_send_button: None,
+            main_area: None,
+            page_tabs: Vec::new(),
+            page_index: 0,
             resources: crate::resources::Sampler::default(),
             handoff: None,
+            mcp_config_stamp: mcp_config_mtime(),
+            mcp_reload_checked: std::time::Instant::now(),
             attach_error: None,
             sidebar_pages_area: None,
             sidebar_area: None,
@@ -614,6 +632,19 @@ impl App {
 /// Format an elapsed second count as `s` / `m s` / `h m` so a long turn does
 /// not display `3612s`. Never shows leading zeros; anything under a minute
 /// stays raw seconds.
+/// The newest change time across the files that configure MCP. `None` when
+/// none exist yet.
+fn mcp_config_mtime() -> Option<std::time::SystemTime> {
+    [
+        enowx_core::builtin_mcp::config_path(),
+        enowx_core::discovery::overrides_path(),
+        enowx_core::auth::auth_path(),
+    ]
+    .iter()
+    .filter_map(|path| std::fs::metadata(path).ok()?.modified().ok())
+    .max()
+}
+
 pub(crate) fn fmt_elapsed(secs: u64) -> String {
     if secs < 60 {
         format!("{secs}s")
@@ -654,6 +685,33 @@ impl App {
             || was.vision != now.vision
         {
             self.adopt(next);
+        }
+    }
+
+    /// The fields of the open form. BuiltinMcp's depend on which server is
+    /// being configured; every other form has a static table.
+    pub(crate) fn current_form_fields(&self) -> &'static [crate::modal::SettingsField] {
+        if self.modal == crate::modal::Modal::BuiltinMcp {
+            crate::modal::builtin_mcp_fields(&self.settings.provider_id)
+        } else {
+            crate::modal::form_fields(self.modal)
+        }
+    }
+
+    /// If an MCP config file changed on disk (an agent filling in credentials
+    /// with `enx mcp set`), reload the servers in place. Checked about once a
+    /// second, not every frame: three stat calls on the render thread, times
+    /// 25 frames a second, is a cost for nothing when nothing changed.
+    pub(crate) fn tick_mcp_reload(&mut self) {
+        if self.mcp_reload_checked.elapsed() < std::time::Duration::from_millis(1000) {
+            return;
+        }
+        self.mcp_reload_checked = std::time::Instant::now();
+        let now = mcp_config_mtime();
+        if now != self.mcp_config_stamp {
+            self.mcp_config_stamp = now;
+            self.adopt(self.config.clone());
+            self.status = "mcp servers reloaded".into();
         }
     }
 

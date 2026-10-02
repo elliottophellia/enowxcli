@@ -35,7 +35,7 @@ fn ctrl_c_cancels_even_with_text_in_the_composer() {
 fn ctrl_c_cancels_while_a_window_is_open() {
     let mut app = TestApp::new();
     let cancel = app.start_fake_turn();
-    app.press(KeyCode::Char('p'), true).expect("open palette");
+    app.run_command("/commands").expect("open palette");
     assert!(app.palette_open());
     app.press(KeyCode::Char('c'), true).expect("ctrl+c");
     assert!(
@@ -82,7 +82,7 @@ fn esc_during_a_turn_keeps_the_draft() {
 fn esc_closes_a_window_without_stopping_the_turn() {
     let mut app = TestApp::new();
     let cancel = app.start_fake_turn();
-    app.press(KeyCode::Char('p'), true).expect("open palette");
+    app.run_command("/commands").expect("open palette");
     assert!(app.palette_open());
     app.press(KeyCode::Esc, false).expect("esc");
     assert!(!app.palette_open(), "Esc should close the window");

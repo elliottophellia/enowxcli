@@ -140,7 +140,7 @@ fn draw_queue(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         "sending"
     };
-    let header = format!("{indent}QUEUED {count} · {state} · Ctrl+Enter send now · ↑ edit last");
+    let header = format!("{indent}QUEUED {count} · {state} · Ctrl+S send now · ↑ edit last");
     let button = "[send now]";
     let button_w = button.chars().count() as u16;
     let room = area.width.saturating_sub(button_w + 2) as usize;

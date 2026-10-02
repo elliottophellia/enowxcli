@@ -89,7 +89,59 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
     if app.modal != Modal::None && !draw_popup(frame, app) {
         draw_modal(frame, app);
     }
+    draw_page_tabs(frame, app);
     no_control_characters(frame.buffer_mut());
+}
+
+/// The tabs at the top right of the main column: Chat, and a page for each
+/// kind of setting. Drawn on the top edge of whatever box is there, last, so
+/// a page or a popup never hides them.
+fn draw_page_tabs(frame: &mut Frame, app: &mut App) {
+    use crate::app::pages::{Page, PAGES};
+    app.page_tabs.clear();
+    let Some(main) = app.main_area else {
+        return;
+    };
+    let t = app.theme;
+    let current = app.page();
+    let labels: Vec<(Page, String)> = PAGES
+        .iter()
+        .map(|p| (*p, format!(" {} ", p.label())))
+        .collect();
+    let width: u16 = labels
+        .iter()
+        .map(|(_, l)| l.chars().count() as u16)
+        .sum::<u16>()
+        + labels.len().saturating_sub(1) as u16;
+    // Room for the box's corner and its title on the left; on a narrow window
+    // the tabs give way rather than overwrite the title.
+    if main.width < width + 24 {
+        return;
+    }
+    let mut x = main.right().saturating_sub(width + 2);
+    let y = main.y;
+    for (i, (page, label)) in labels.iter().enumerate() {
+        if i > 0 {
+            frame.render_widget(
+                Paragraph::new(Span::styled("·", Style::default().fg(t.faint).bg(t.panel))),
+                Rect::new(x, y, 1, 1),
+            );
+            x += 1;
+        }
+        let w = label.chars().count() as u16;
+        let style = if *page == current {
+            Style::default()
+                .fg(t.panel)
+                .bg(t.accent)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(t.muted).bg(t.panel)
+        };
+        let rect = Rect::new(x, y, w, 1);
+        frame.render_widget(Paragraph::new(Span::styled(label.clone(), style)), rect);
+        app.page_tabs.push((rect, *page));
+        x += w;
+    }
 }
 
 /// Blank every cell holding a control character.

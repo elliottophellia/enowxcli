@@ -61,6 +61,8 @@ fn server(name: &str, command: &str, args: &[&str]) -> McpServer {
         transport: McpTransport::Stdio,
         source: Default::default(),
         enabled: true,
+        builtin: false,
+        configured: true,
     }
 }
 

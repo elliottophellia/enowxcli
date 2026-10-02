@@ -194,7 +194,7 @@ fn draw_mcp(frame: &mut Frame, app: &mut App) {
         100,
         height,
         app.modal.title(),
-        "Enter edit · t tools · Tab enable/disable · Esc close",
+        "Tab on/off · c configure · t tools · Enter edit · Esc",
     );
     let (search, list_area) = search_layout(content);
     search_row(app, search, frame);
@@ -208,6 +208,8 @@ fn draw_mcp(frame: &mut Frame, app: &mut App) {
                 transport,
                 scope,
                 enabled,
+                builtin,
+                configured,
                 target,
             } => {
                 let (mark, colour, name_style) = if *enabled {
@@ -224,14 +226,24 @@ fn draw_mcp(frame: &mut Frame, app: &mut App) {
                     McpTransport::Http => "http",
                     McpTransport::Sse => "sse",
                 };
-                let scope = scope.label();
+                // A built-in server says it is built in, and whether it is set
+                // up; a discovered one shows its scope.
+                let (tag, tag_colour) = if *builtin {
+                    if *configured {
+                        ("built-in", t.muted)
+                    } else {
+                        ("set up with c", t.yellow)
+                    }
+                } else {
+                    (scope.label(), t.muted)
+                };
                 ListItem::new(Line::from(vec![
                     Span::styled(format!("{mark} "), Style::default().fg(colour)),
-                    Span::styled(format!("{name:<24}"), name_style),
+                    Span::styled(format!("{name:<22}"), name_style),
                     Span::styled(format!(" {transport:<6}"), Style::default().fg(t.muted)),
-                    Span::styled(format!(" {scope:<8}"), Style::default().fg(t.muted)),
+                    Span::styled(format!(" {tag:<14}"), Style::default().fg(tag_colour)),
                     Span::styled(
-                        trim(target, list_area.width.saturating_sub(44) as usize),
+                        trim(target, list_area.width.saturating_sub(48) as usize),
                         Style::default().fg(t.faint),
                     ),
                 ]))

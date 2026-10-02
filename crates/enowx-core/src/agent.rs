@@ -109,6 +109,22 @@ Effort and tools:\n\
 - Files: new ones stay under about 300 lines (components about 200) unless splitting would scatter one idea; never split or restructure an existing file on your own, however long: ask first with `ask`, or propose it in your report.\n\
 - When you finish and answer the user (a delegated report has its own form), keep it short: at most six bullets of one line each, saying what you did or found, how you checked it, and what is left to the user (placeholders, decisions, anything unverified). No paragraphs, no retelling of the design or the conversation, no list of every file: the rows above hold the detail.\n";
 
+/// The skills switched off for this run: the ones the user turned off, and
+/// `rag` while its MCP server is off. The skill teaches agents to search the
+/// index; offered without the server, it would send them to tools that are
+/// not there.
+fn effective_disabled(config: &Config, discovery: &Discovery) -> Vec<String> {
+    let mut disabled = config.ui.disabled_skills.clone();
+    let rag_on = discovery
+        .mcp_servers
+        .iter()
+        .any(|server| server.builtin && server.name == "rag" && server.enabled);
+    if !rag_on && !disabled.iter().any(|name| name == "rag") {
+        disabled.push("rag".to_owned());
+    }
+    disabled
+}
+
 /// Build the tool registry with skill discovery. MCP servers are spawned lazily
 /// via `Agent::start_mcp` so a synchronous `Agent::new` cannot deadlock the
 /// tokio runtime with a nested `block_on`.
@@ -369,7 +385,7 @@ impl Agent {
     }
 
     fn assemble(config: Config, store: SessionStore, discovery: Arc<Discovery>) -> Self {
-        let disabled = config.ui.disabled_skills.clone();
+        let disabled = effective_disabled(&config, &discovery);
         let registry = build_registry(discovery.clone(), disabled);
         let system_one = crate::systemone::SystemOne::new(&config.typesafe);
         let config_workspace = config.workspace();
@@ -630,10 +646,10 @@ impl Agent {
             );
         }
         let carried = self.discovery.carried_by(agent);
-        if let Some(extra) = self
-            .discovery
-            .system_prompt_for(&self.config.ui.disabled_skills, Some(&carried))
-        {
+        if let Some(extra) = self.discovery.system_prompt_for(
+            &effective_disabled(&self.config, &self.discovery),
+            Some(&carried),
+        ) {
             prompt.push('\n');
             prompt.push_str(&extra);
         }
@@ -641,7 +657,7 @@ impl Agent {
         if agent.delegation == crate::agent_def::Delegation::Orchestrator {
             if let Some(block) = self
                 .discovery
-                .local_skills_block(&self.config.ui.disabled_skills)
+                .local_skills_block(&effective_disabled(&self.config, &self.discovery))
             {
                 prompt.push_str(&block);
             }
@@ -1433,7 +1449,7 @@ impl Agent {
         let readable = self
             .discovery
             .skills_for(
-                &self.config.ui.disabled_skills,
+                &effective_disabled(&self.config, &self.discovery),
                 &self.discovery.carried_by(&active),
             )
             .next()
@@ -1927,7 +1943,17 @@ impl Agent {
                         }
                         Ok(_) => ToolOutput::error("tool arguments must be a JSON object"),
                         Err(error) => {
-                            ToolOutput::error(format!("tool arguments are not valid JSON: {error}"))
+                            // A tool call whose arguments do not parse is most
+                            // often one cut off mid-stream: a big `write` is
+                            // the usual culprit. Point at the fix.
+                            let hint = if call.name == "write" {
+                                " The call was likely cut off because the file is large.                                  Create the file with its first section, then add each                                  following section with `edit`, instead of one big `write`."
+                            } else {
+                                ""
+                            };
+                            ToolOutput::error(format!(
+                                "tool arguments are not valid JSON: {error}.{hint}"
+                            ))
                         }
                     }
                 };
@@ -2958,5 +2984,49 @@ mod parallel_run_tests {
         let mut broken = call("read");
         broken.arguments = "{\"path\":".into();
         assert_eq!(parallel_run(&[call("read"), broken]), 1);
+    }
+}
+
+#[cfg(test)]
+mod rag_skill_tests {
+    use super::*;
+    use crate::discovery::{McpServer, McpTransport, SkillScope};
+
+    fn with_rag(enabled: bool) -> Discovery {
+        Discovery {
+            mcp_servers: vec![McpServer {
+                name: "rag".into(),
+                scope: SkillScope::Builtin,
+                command_or_url: "enx".into(),
+                args: Vec::new(),
+                env: Default::default(),
+                transport: McpTransport::Stdio,
+                source: Default::default(),
+                enabled,
+                builtin: true,
+                configured: enabled,
+            }],
+            ..Discovery::default()
+        }
+    }
+
+    /// The rag skill points agents at the rag server's tools, so it is held
+    /// back while the server is off and offered once it is on.
+    #[test]
+    fn the_rag_skill_follows_its_server() {
+        let config = Config::default();
+        assert!(effective_disabled(&config, &with_rag(false)).contains(&"rag".to_owned()));
+        assert!(!effective_disabled(&config, &with_rag(true)).contains(&"rag".to_owned()));
+        assert!(effective_disabled(&config, &Discovery::default()).contains(&"rag".to_owned()));
+    }
+
+    /// Every agent with tools carries it, so whichever one is working can
+    /// search; the compactor has no tools to call it with.
+    #[test]
+    fn every_agent_carries_the_rag_skill() {
+        for agent in crate::agent_def::builtin_agents() {
+            let carries = agent.skills.iter().any(|s| s == "rag");
+            assert_eq!(carries, !agent.tools.is_empty(), "{}", agent.name);
+        }
     }
 }

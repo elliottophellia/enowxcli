@@ -45,6 +45,8 @@ pub enum Modal {
     Skills,
     Mcp,
     McpForm,
+    /// Configure a built-in MCP server (coolify, dokploy, or a VPS).
+    BuiltinMcp,
     /// Ctrl+C in an empty composer: confirm before quitting.
     QuitConfirm,
     /// `/handoff`: carry on in a fresh session, keeping or deleting this
@@ -77,6 +79,7 @@ impl Modal {
             | Modal::ProviderForm
             | Modal::ModelManual
             | Modal::ModelEdit
+            | Modal::BuiltinMcp
             | Modal::ProviderKey => "",
         }
     }
@@ -91,6 +94,7 @@ impl Modal {
                 | Modal::ProviderKey
                 | Modal::TypeSafeKey
                 | Modal::McpForm
+                | Modal::BuiltinMcp
         )
     }
 }
@@ -107,6 +111,11 @@ pub enum SettingsField {
     Vision,
     PriceInput,
     PriceOutput,
+    Host,
+    User,
+    Port,
+    /// A Postgres connection string. Masked: it carries the password.
+    Dsn,
 }
 
 impl SettingsField {
@@ -122,7 +131,16 @@ impl SettingsField {
             SettingsField::Vision => "Vision (sees images)",
             SettingsField::PriceInput => "Price in ($/1M tokens)",
             SettingsField::PriceOutput => "Price out ($/1M tokens)",
+            SettingsField::Host => "Host (address)",
+            SettingsField::User => "SSH user",
+            SettingsField::Port => "SSH port",
+            SettingsField::Dsn => "Database (postgres://user:pass@host:5432/db)",
         }
+    }
+
+    /// Typed hidden, shown as dots: a key, a password, a connection string.
+    pub fn is_secret(self) -> bool {
+        matches!(self, SettingsField::ApiKey | SettingsField::Dsn)
     }
 
     /// A cycled choice (Left/Right picks a value) rather than a text field.
@@ -150,7 +168,26 @@ pub fn form_fields(modal: Modal) -> &'static [SettingsField] {
             SettingsField::PriceOutput,
         ],
         Modal::ProviderKey | Modal::TypeSafeKey => &[SettingsField::ApiKey],
+        // BuiltinMcp's fields depend on the server, so the app passes them
+        // through `builtin_mcp_fields` instead of this static table.
         _ => &[],
+    }
+}
+
+/// The fields for configuring a built-in MCP server: coolify and dokploy take
+/// a URL and a token; a VPS takes host, user, port and a password.
+pub fn builtin_mcp_fields(server: &str) -> &'static [SettingsField] {
+    match server {
+        "vps" => &[
+            SettingsField::Name,
+            SettingsField::Host,
+            SettingsField::User,
+            SettingsField::Port,
+            SettingsField::ApiKey,
+        ],
+        // A Postgres with pgvector, local or in the cloud, and a Voyage key.
+        "rag" => &[SettingsField::Dsn, SettingsField::ApiKey],
+        _ => &[SettingsField::BaseUrl, SettingsField::ApiKey],
     }
 }
 
@@ -172,6 +209,8 @@ pub struct SettingsDraft {
     pub vision: String,
     pub price_input: String,
     pub price_output: String,
+    /// A database connection string, for the RAG server.
+    pub dsn: String,
     /// The efforts this model offers, to cycle through on the Effort field.
     pub efforts: Vec<String>,
 }
@@ -204,6 +243,10 @@ impl SettingsDraft {
             SettingsField::Vision => &self.vision,
             SettingsField::PriceInput => &self.price_input,
             SettingsField::PriceOutput => &self.price_output,
+            SettingsField::Host => &self.base_url,
+            SettingsField::User => &self.models_url,
+            SettingsField::Port => &self.context_window,
+            SettingsField::Dsn => &self.dsn,
         }
     }
 
@@ -219,6 +262,10 @@ impl SettingsDraft {
             SettingsField::Vision => &mut self.vision,
             SettingsField::PriceInput => &mut self.price_input,
             SettingsField::PriceOutput => &mut self.price_output,
+            SettingsField::Host => &mut self.base_url,
+            SettingsField::User => &mut self.models_url,
+            SettingsField::Port => &mut self.context_window,
+            SettingsField::Dsn => &mut self.dsn,
         }
     }
 

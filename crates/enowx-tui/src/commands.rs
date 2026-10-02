@@ -1,5 +1,6 @@
-pub(crate) const COMMANDS: [(&str, &str); 23] = [
+pub(crate) const COMMANDS: [(&str, &str); 24] = [
     ("help", "Show every command"),
+    ("commands", "Browse and search every command"),
     ("new", "Start a fresh session"),
     ("resume", "Reopen a saved session in this workspace"),
     (
@@ -86,7 +87,14 @@ const PALETTE: [(&str, &[(&str, &str)]); 5] = [
             ("preview", "Browser previews"),
         ],
     ),
-    ("App", &[("help", "Help"), ("quit", "Quit")]),
+    (
+        "App",
+        &[
+            ("commands", "All commands"),
+            ("help", "Help"),
+            ("quit", "Quit"),
+        ],
+    ),
 ];
 
 /// Every command in palette order, group by group.

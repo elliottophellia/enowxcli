@@ -13,6 +13,15 @@ pub struct TestApp {
     inner: App,
     /// Held while this app lives: see `HomeTurn`.
     _turn: HomeTurn,
+    /// The test's own home, workspace and config; removed when the test ends.
+    /// Left behind, they piled up by the tens of thousands and filled the disk.
+    tmp: std::path::PathBuf,
+}
+
+impl Drop for TestApp {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.tmp);
+    }
 }
 
 /// `HOME` and `ENX_HOME` are one pair of variables for the whole process,
@@ -93,6 +102,7 @@ impl TestApp {
         Self {
             inner: App::new(config),
             _turn: turn,
+            tmp,
         }
     }
 
@@ -963,6 +973,8 @@ impl TestApp {
             transport: McpTransport::Stdio,
             source,
             enabled: true,
+            builtin: false,
+            configured: true,
         });
         self.inner.discovery = std::sync::Arc::new(discovery);
     }
@@ -1124,6 +1136,20 @@ impl TestApp {
 
     pub fn press_key(&mut self, code: crossterm::event::KeyCode) -> anyhow::Result<()> {
         self.press(code, false)
+    }
+
+    /// Send a key with any modifiers, normalized the way the runtime does.
+    pub fn press_chord(
+        &mut self,
+        code: crossterm::event::KeyCode,
+        modifiers: crossterm::event::KeyModifiers,
+    ) -> anyhow::Result<()> {
+        let key = crossterm::event::KeyEvent::new(code, modifiers);
+        self.inner.key(crate::keymap::normalize(key))
+    }
+
+    pub fn wants_to_quit(&self) -> bool {
+        self.inner.should_quit
     }
 }
 

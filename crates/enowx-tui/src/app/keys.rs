@@ -22,22 +22,13 @@ impl App {
             self.interrupt();
             return Ok(());
         }
-        // Ctrl+P closes whatever is open before any modal gets to read it.
-        // Otherwise the key that opens the palette does nothing while a form
-        // is up, and the user presses it twice wondering why.
+        // Ctrl+P moves between the tabs from anywhere, a page included: a page
+        // is a modal, and its own handler would otherwise take the key.
         if key.modifiers.contains(KeyModifiers::CONTROL)
-            && matches!(key.code, KeyCode::Char('p'))
-            && self.modal != Modal::None
+            && key.code == KeyCode::Char('p')
+            && self.modal != Modal::QuitConfirm
         {
-            if self.modal == Modal::Themes {
-                // The theme picker previews as you move; closing it without
-                // choosing has to put the saved one back, or the preview
-                // sticks.
-                self.theme = Theme::find(&self.config.ui.theme);
-            }
-            self.modal = Modal::None;
-            self.modal_error.clear();
-            return Ok(());
+            return self.next_page();
         }
         if self.modal != Modal::None {
             if self.modal.is_form() && self.modal != Modal::McpForm {
@@ -193,6 +184,11 @@ impl App {
                         self.show_mcp_tools();
                         return Ok(());
                     }
+                    // Configure a built-in server's credentials.
+                    KeyCode::Char('c') if self.modal == Modal::Mcp => {
+                        self.config_selected_mcp();
+                        return Ok(());
+                    }
                     KeyCode::Up => {
                         self.modal_cursor = self.modal_cursor.saturating_sub(1);
                         return Ok(());
@@ -321,20 +317,19 @@ impl App {
                         self.modal = Modal::QuitConfirm;
                     }
                 }
-                KeyCode::Up => {
-                    // No mouse needed: this is a TUI, and plenty of sessions
-                    // run over ssh or inside tmux without one.
-                    if let Some(index) = self
-                        .blocks
-                        .iter()
-                        .rposition(|b| matches!(b.kind, TranscriptKind::User))
-                    {
-                        self.open_message_menu(index);
-                    } else {
-                        self.status = "no message to act on".into();
-                    }
-                }
-                KeyCode::Char('d') => self.should_quit = true,
+                // No mouse needed: this is a TUI, and plenty of sessions run
+                // over ssh or inside tmux without one. macOS takes Ctrl+Up
+                // for Mission Control, so Alt+Up does the same.
+                KeyCode::Up => self.open_last_message_menu(),
+                // Ctrl+D is end-of-input: it quits from an empty composer and
+                // erases forward otherwise, as in a shell, so a stray press
+                // mid-draft does not throw the session away.
+                KeyCode::Char('d') if self.input.is_empty() => self.should_quit = true,
+                KeyCode::Char('d') => self.delete_forward(),
+                KeyCode::Backspace => self.delete_word_back(),
+                // Ctrl+S sends now on every terminal: Ctrl+Enter only reaches
+                // us where the terminal can tell it from Enter.
+                KeyCode::Char('s') if self.busy && self.viewing.is_none() => self.send_now(),
                 KeyCode::Char('l') => self.blocks.clear(),
                 KeyCode::Char('r') => self.show_reasoning = !self.show_reasoning,
                 KeyCode::Char('o') => self.show_tool_output = !self.show_tool_output,
@@ -342,12 +337,12 @@ impl App {
                 // terminals; keep it as a fallback for setups where the native
                 // shortcut cannot reach us, and let the terminal's own paste
                 // (Cmd+V / Shift+Insert) flow through as a bracketed paste.
+                // Windows Terminal keeps Ctrl+V for its own paste; Alt+V
+                // attaches from the clipboard there.
                 KeyCode::Char('v') => self.attach_from_clipboard(),
                 KeyCode::Char('b') => self.toggle_sidebar()?,
-                // Typing `/` still shows the inline list above the composer,
-                // which serves someone who knows the name they want. This is
-                // for looking: a floating list that searches summaries too.
-                KeyCode::Char('p') => self.open_palette(),
+                // The tabs at the top right; typing `/` lists the commands.
+                KeyCode::Char('p') => self.next_page()?,
                 // Sidebar tabs and the log's filter and detail. These were
                 // F1-F7; not every terminal or OS passes function keys
                 // through, so they are Ctrl combinations now.
@@ -388,14 +383,31 @@ impl App {
                     self.select_tab(c as usize - '1' as usize);
                     return Ok(());
                 }
-                KeyCode::Left => {
+                // macOS Terminal and iTerm2 send Option+Left/Right as the
+                // word-motion keys Alt+B and Alt+F, so both forms page.
+                KeyCode::Left | KeyCode::Char('b') => {
                     self.page_sidebar(false);
                     return Ok(());
                 }
-                KeyCode::Right => {
+                KeyCode::Right | KeyCode::Char('f') => {
                     self.page_sidebar(true);
                     return Ok(());
                 }
+                KeyCode::Up if self.viewing.is_none() => {
+                    self.open_last_message_menu();
+                    return Ok(());
+                }
+                KeyCode::Char('v') if self.viewing.is_none() => {
+                    self.attach_from_clipboard();
+                    return Ok(());
+                }
+                KeyCode::Backspace if self.viewing.is_none() => {
+                    self.delete_word_back();
+                    return Ok(());
+                }
+                // Any other Alt chord is not text: typing its letter would
+                // put a stray character in the draft.
+                KeyCode::Char(_) => return Ok(()),
                 _ => {}
             }
         }
@@ -458,6 +470,11 @@ impl App {
         }
 
         match key.code {
+            // Shift+Enter is a newline wherever the terminal reports it.
+            KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.input.insert(self.cursor, '\n');
+                self.cursor += 1;
+            }
             KeyCode::Enter => {
                 let text = self.input.trim().to_string();
                 if self.busy && !text.starts_with('/') {
@@ -500,14 +517,7 @@ impl App {
                     self.cursor = previous;
                 }
             }
-            KeyCode::Delete if self.cursor < self.input.len() => {
-                let next = self.input[self.cursor..]
-                    .char_indices()
-                    .nth(1)
-                    .map(|(index, _)| self.cursor + index)
-                    .unwrap_or(self.input.len());
-                self.input.drain(self.cursor..next);
-            }
+            KeyCode::Delete => self.delete_forward(),
             KeyCode::Left if self.cursor > 0 => {
                 self.cursor = self.input[..self.cursor]
                     .char_indices()
@@ -617,4 +627,58 @@ fn char_index(s: &str, n: usize) -> Option<usize> {
         return Some(0);
     }
     s.char_indices().nth(n).map(|(i, _)| i).or(Some(s.len()))
+}
+
+impl App {
+    /// The message menu for the last thing the user sent.
+    fn open_last_message_menu(&mut self) {
+        if let Some(index) = self
+            .blocks
+            .iter()
+            .rposition(|b| matches!(b.kind, TranscriptKind::User))
+        {
+            self.open_message_menu(index);
+        } else {
+            self.status = "no message to act on".into();
+        }
+    }
+
+    /// Erase the character after the caret.
+    fn delete_forward(&mut self) {
+        if self.cursor >= self.input.len() {
+            return;
+        }
+        let next = self.input[self.cursor..]
+            .char_indices()
+            .nth(1)
+            .map(|(index, _)| self.cursor + index)
+            .unwrap_or(self.input.len());
+        self.input.drain(self.cursor..next);
+    }
+
+    /// Ctrl+Backspace or Alt+Backspace: erase the word before the caret,
+    /// with the spaces after it.
+    fn delete_word_back(&mut self) {
+        let before = &self.input[..self.cursor];
+        let trimmed = before.trim_end_matches(|c: char| c.is_whitespace() && c != '\n');
+        let start = trimmed
+            .char_indices()
+            .rev()
+            .find(|(_, c)| c.is_whitespace())
+            .map(|(index, c)| index + c.len_utf8())
+            .unwrap_or(0);
+        // Directly after a newline, the newline itself goes, like one
+        // Backspace would.
+        let start = if start == self.cursor {
+            before
+                .char_indices()
+                .last()
+                .map(|(index, _)| index)
+                .unwrap_or(0)
+        } else {
+            start
+        };
+        self.input.drain(start..self.cursor);
+        self.cursor = start;
+    }
 }

@@ -17,6 +17,10 @@ pub(crate) enum McpRow {
         transport: McpTransport,
         scope: SkillScope,
         enabled: bool,
+        /// A server enx serves itself (coolify, dokploy, vps).
+        builtin: bool,
+        /// Whether a built-in server has its credentials yet.
+        configured: bool,
         /// What the server runs or where it lives: the one thing that tells
         /// two servers apart once the name is not enough.
         target: String,
@@ -90,9 +94,18 @@ impl App {
                 transport: s.transport,
                 scope: s.scope,
                 enabled: s.enabled,
-                target: s.command_or_url.clone(),
+                builtin: s.builtin,
+                configured: s.configured,
+                target: if s.builtin {
+                    enowx_core::builtin_mcp::summary(&s.name).to_string()
+                } else {
+                    s.command_or_url.clone()
+                },
             })
             .collect();
+        // The user's own servers first, then the ones enx serves itself, so
+        // what they configured is not pushed down by what ships with enx.
+        rows.sort_by_key(|row| matches!(row, McpRow::Server { builtin: true, .. }));
         rows.push(McpRow::AddNew);
         rows
     }
@@ -100,17 +113,183 @@ impl App {
     /// Tab on a server row: flip enabled via the overlay file and refresh.
     pub(crate) fn toggle_selected_mcp(&mut self) -> Result<()> {
         let rows = self.mcp_rows();
-        let Some(McpRow::Server { name, enabled, .. }) = rows.get(self.modal_cursor).cloned()
+        let Some(McpRow::Server {
+            name,
+            enabled,
+            builtin,
+            configured,
+            ..
+        }) = rows.get(self.modal_cursor).cloned()
         else {
             return Ok(());
         };
+        // A built-in server with no credentials cannot be turned on: offer to
+        // fill them in instead of enabling something that would only error.
+        if builtin && !configured && !enabled {
+            self.open_builtin_mcp(&name);
+            return Ok(());
+        }
         persist::set_mcp_enabled(&name, !enabled)?;
         self.adopt(self.config.clone());
         self.status = if enabled {
-            format!("mcp disabled: {name}")
+            format!("mcp off: {name}")
         } else {
-            format!("mcp enabled: {name}")
+            format!("mcp on: {name}")
         };
+        Ok(())
+    }
+
+    /// `c` on a built-in server row: open the config form, prefilled with what
+    /// is already set (the token or password is never shown).
+    pub(crate) fn config_selected_mcp(&mut self) {
+        let rows = self.mcp_rows();
+        if let Some(McpRow::Server { name, builtin, .. }) = rows.get(self.modal_cursor).cloned() {
+            if builtin {
+                self.open_builtin_mcp(&name);
+            } else {
+                self.status = format!("{name} is not a built-in server; press Enter to edit it");
+            }
+        }
+    }
+
+    fn open_builtin_mcp(&mut self, name: &str) {
+        use enowx_core::builtin_mcp::BuiltinConfig;
+        let config = BuiltinConfig::load().unwrap_or_default();
+        let mut draft = crate::modal::SettingsDraft {
+            provider_id: name.to_owned(),
+            ..Default::default()
+        };
+        match name {
+            "coolify" => {
+                if let Some(e) = config.coolify {
+                    draft.base_url = e.base_url;
+                }
+            }
+            "dokploy" => {
+                if let Some(e) = config.dokploy {
+                    draft.base_url = e.base_url;
+                }
+            }
+            "vps" => {
+                // One VPS at a time here: the first, or a fresh one.
+                if let Some((vps_name, host)) = config.vps.iter().next() {
+                    draft.name = vps_name.clone();
+                    draft.base_url = host.host.clone();
+                    draft.models_url = host.user.clone();
+                    draft.context_window = host.port.to_string();
+                }
+            }
+            _ => {}
+        }
+        self.settings = draft;
+        self.modal_cursor = 0;
+        self.modal_error.clear();
+        self.modal = crate::modal::Modal::BuiltinMcp;
+    }
+
+    /// Save a built-in server's credentials and turn it on, then reload MCP in
+    /// place: the running session keeps going, the server starts in the
+    /// background. No restart.
+    pub(crate) fn save_builtin_mcp(&mut self) -> Result<()> {
+        use enowx_core::auth::Auth;
+        use enowx_core::builtin_mcp::{secret_id, vps, BuiltinConfig, Endpoint};
+        let name = self.settings.provider_id.clone();
+        let mut config = BuiltinConfig::load().unwrap_or_default();
+        let mut auth = Auth::load()?;
+        let token = self.settings.api_key.trim().to_owned();
+        match name.as_str() {
+            "coolify" | "dokploy" => {
+                let url = self
+                    .settings
+                    .base_url
+                    .trim()
+                    .trim_end_matches('/')
+                    .to_owned();
+                if !(url.starts_with("http://") || url.starts_with("https://")) {
+                    self.modal_error = "the URL must start with http:// or https://".into();
+                    return Ok(());
+                }
+                // Keep an existing token when the field is left blank.
+                let had = auth.key(&secret_id(&name), &[]).is_some();
+                if token.is_empty() && !had {
+                    self.modal_error = "an API token is required".into();
+                    return Ok(());
+                }
+                let endpoint = Some(Endpoint { base_url: url });
+                if name == "coolify" {
+                    config.coolify = endpoint;
+                } else {
+                    config.dokploy = endpoint;
+                }
+                if !token.is_empty() {
+                    auth.store(&secret_id(&name), &token)?;
+                }
+            }
+            "rag" => {
+                use enowx_core::builtin_mcp::rag_dsn_id;
+                let dsn = self.settings.dsn.trim().to_owned();
+                let had_dsn = auth.key(&rag_dsn_id(), &[]).is_some();
+                let had_key = auth.key(&secret_id("rag"), &[]).is_some();
+                if dsn.is_empty() && !had_dsn {
+                    self.modal_error = "a database connection string is required".into();
+                    return Ok(());
+                }
+                if !dsn.is_empty()
+                    && !dsn.starts_with("postgres://")
+                    && !dsn.starts_with("postgresql://")
+                {
+                    self.modal_error =
+                        "the database must be a postgres:// connection string".into();
+                    return Ok(());
+                }
+                if token.is_empty() && !had_key {
+                    self.modal_error = "a Voyage AI API key is required".into();
+                    return Ok(());
+                }
+                if !dsn.is_empty() {
+                    auth.store(&rag_dsn_id(), &dsn)?;
+                }
+                if !token.is_empty() {
+                    auth.store(&secret_id("rag"), &token)?;
+                }
+                config.rag = Some(config.rag.take().unwrap_or_default());
+            }
+            "vps" => {
+                let vps_name = self.settings.name.trim().to_owned();
+                let host = self.settings.base_url.trim().to_owned();
+                let user = self.settings.models_url.trim().to_owned();
+                if !vps::valid_name(&vps_name) || host.is_empty() || user.is_empty() {
+                    self.modal_error = "a name, host and user are required".into();
+                    return Ok(());
+                }
+                let port: u16 = self.settings.context_window.trim().parse().unwrap_or(22);
+                let had = auth.key(&vps::password_id(&vps_name), &[]).is_some();
+                if token.is_empty() && !had {
+                    self.modal_error =
+                        "a password is required (or add a key with `enx vps add`)".into();
+                    return Ok(());
+                }
+                if !token.is_empty() {
+                    auth.store(&vps::password_id(&vps_name), &token)?;
+                }
+                config.vps.insert(
+                    vps_name,
+                    vps::Host {
+                        host,
+                        port,
+                        user,
+                        key_path: None,
+                    },
+                );
+            }
+            _ => {}
+        }
+        config.save()?;
+        persist::set_mcp_enabled(&name, true)?;
+        self.modal = crate::modal::Modal::Mcp;
+        self.modal_error.clear();
+        self.adopt(self.config.clone());
+        self.status = format!("{name} set up and turned on");
         Ok(())
     }
 

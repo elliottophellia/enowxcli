@@ -285,6 +285,12 @@ pub(crate) fn read_key(prompt: &str) -> Result<String> {
                 KeyCode::Backspace => {
                     key.pop();
                 }
+                // A shortcut is not part of the key (AltGr characters were
+                // already made plain by `normalize`).
+                KeyCode::Char(_)
+                    if event
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) => {}
                 KeyCode::Char(c) => key.push(c),
                 _ => {}
             }

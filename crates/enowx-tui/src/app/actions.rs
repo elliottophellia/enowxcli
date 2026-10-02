@@ -373,8 +373,29 @@ impl App {
             "help" => {
                 let mut text = String::from("Commands");
                 for (name, summary) in COMMANDS { text.push_str(&format!("\n  /{name:<10} {summary}")); }
-                text.push_str("\n\nKeys\n  Enter      Send message\n  Ctrl+J     Newline\n  Ctrl+R     Toggle reasoning\n  Ctrl+O     Toggle tool output\n  PgUp/PgDn  Scroll transcript\n  Esc        Close picker / stop turn / clear input\n  Ctrl+C     Stop turn / quit");
-                text.push_str("\n  Ctrl+Enter Send now, while a turn runs (Enter queues)\n  Ctrl+T     Next sidebar tab (Alt+1-4 picks one)\n  Ctrl+G/X   Filter logs / show detail\n  Alt+←/→    Sidebar pages\n  Ctrl+B     Toggle sidebar\n  Ctrl+P     Command palette\n  Ctrl+↑     Edit, resend or copy your last message\n  /typesafe  TypeSafe key and context-saving features\n  /theme     Choose palette");
+                // Every key has a form that reaches us on Linux, macOS and
+                // Windows terminals alike; the second form is the one to use
+                // where the first is taken by the OS or the terminal.
+                text.push_str(concat!(
+                    "\n\nKeys",
+                    "\n  Enter              Send (queues while a turn runs)",
+                    "\n  Shift/Alt+Enter    Newline (Ctrl+J too, when idle)",
+                    "\n  Ctrl+Enter, Ctrl+S Send now, while a turn runs",
+                    "\n  Ctrl+Backspace     Erase a word (Alt+Backspace too)",
+                    "\n  Ctrl+R / Ctrl+O    Toggle reasoning / tool output",
+                    "\n  PgUp/PgDn          Scroll transcript",
+                    "\n  Esc                Close page / stop turn / clear input",
+                    "\n  Ctrl+C             Stop turn / clear input / quit",
+                    "\n  Ctrl+D             Quit when the composer is empty",
+                    "\n  Ctrl+P             Next tab: Models, Providers, Agents, MCP...",
+                    "\n  Ctrl+T             Next sidebar tab (Alt+1-4 picks one)",
+                    "\n  Ctrl+G / Ctrl+X    Filter logs / show detail",
+                    "\n  Alt+Left/Right     Sidebar pages (Alt+B / Alt+F too)",
+                    "\n  Ctrl+B             Toggle sidebar",
+                    "\n  Ctrl+Up, Alt+Up    Edit, resend or copy your last message",
+                    "\n  Ctrl+V, Alt+V      Attach an image from the clipboard",
+                    "\n  /commands          Search every command",
+                ));
                 self.push(TranscriptKind::System, text);
             }
             "new" => self.new_session(),
@@ -399,6 +420,7 @@ impl App {
             "mcp" => self.open_mcp(),
             "compact" => self.start_compact()?,
             "handoff" => self.open_handoff()?,
+            "commands" => self.open_palette(),
             "sidebar" => self.toggle_sidebar()?,
             "preview" => self.toggle_preview()?,
             "reasoning" => {
@@ -640,6 +662,7 @@ impl App {
             Modal::Commands => return self.accept_palette_row(),
             Modal::Mcp => return self.accept_mcp_row(),
             Modal::McpForm => return self.submit_mcp_form(),
+            Modal::BuiltinMcp => return self.save_builtin_mcp(),
             Modal::QuitConfirm => {
                 self.should_quit = true;
             }

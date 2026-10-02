@@ -367,6 +367,7 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
         "ui-stack-astro",
         include_str!("../../skills/ui-stack-astro/SKILL.md"),
     ),
+    ("rag", include_str!("../../skills/rag/SKILL.md")),
     ("canvas", include_str!("../../skills/canvas/SKILL.md")),
     (
         "canvas-interactive",

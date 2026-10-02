@@ -52,38 +52,54 @@ pub fn collect(workspace: &Path, discovery: &mut Discovery) {
         &mut claimed,
     );
 
-    // The built-in servers enx serves itself, once installed. One the user
-    // declared under the same name elsewhere keeps the name.
-    for server in crate::builtin_mcp::installed_servers() {
+    // The overlay file: which servers the user turned on or off, without
+    // touching another tool's config. Read once; built-in defaults off read
+    // their state from here, and discovered servers are overridden by it.
+    let overrides = read_overrides();
+
+    // The built-in servers enx serves itself (coolify, dokploy, vps): always
+    // listed, off until configured and turned on. One the user declared under
+    // the same name elsewhere keeps the name.
+    let enabled = |name: &str| {
+        overrides
+            .get(name)
+            .and_then(|o| o.get("enabled"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    };
+    for server in crate::builtin_mcp::builtin_servers(workspace, enabled) {
         if claimed.insert(server.name.clone()) {
             discovery.mcp_servers.push(server);
         }
     }
 
-    // Overlay disables/re-enables discovered servers without touching source.
-    apply_overrides(discovery);
+    // Overlay disables/re-enables discovered (non-built-in) servers.
+    apply_overrides_map(discovery, &overrides);
 }
 
-fn apply_overrides(discovery: &mut Discovery) {
-    let path = super::overrides_path();
-    let Ok(text) = fs::read_to_string(&path) else {
-        return;
-    };
-    let Ok(value): Result<Value, _> = serde_json::from_str(&text) else {
-        discovery.warnings.push(format!(
-            "mcp overrides: {} is not valid JSON",
-            path.display()
-        ));
-        return;
-    };
-    let Some(map) = value.as_object() else {
-        return;
-    };
+/// Read the overlay file as a map of name to its JSON object.
+fn read_overrides() -> std::collections::BTreeMap<String, Value> {
+    std::fs::read_to_string(super::overrides_path())
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+fn apply_overrides_map(
+    discovery: &mut Discovery,
+    overrides: &std::collections::BTreeMap<String, Value>,
+) {
     for server in &mut discovery.mcp_servers {
-        if let Some(entry) = map.get(&server.name).and_then(Value::as_object) {
-            if let Some(enabled) = entry.get("enabled").and_then(Value::as_bool) {
-                server.enabled = enabled;
-            }
+        // Built-in servers already took their state from the overlay above.
+        if server.builtin {
+            continue;
+        }
+        if let Some(enabled) = overrides
+            .get(&server.name)
+            .and_then(|o| o.get("enabled"))
+            .and_then(Value::as_bool)
+        {
+            server.enabled = enabled;
         }
     }
 }
@@ -166,6 +182,8 @@ fn read_json_map(
             transport,
             source: path.to_path_buf(),
             enabled,
+            builtin: false,
+            configured: true,
         });
     }
 }
@@ -197,6 +215,8 @@ fn read_codex_toml(path: &Path, discovery: &mut Discovery, claimed: &mut HashSet
                             transport: McpTransport::Stdio,
                             source: path.to_path_buf(),
                             enabled,
+                            builtin: false,
+                            configured: true,
                         });
                     }
                 }

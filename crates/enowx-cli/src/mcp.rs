@@ -29,6 +29,10 @@ pub fn list() -> Result<()> {
         let detail = match name {
             "coolify" => config.coolify.as_ref().map(|e| e.base_url.clone()),
             "dokploy" => config.dokploy.as_ref().map(|e| e.base_url.clone()),
+            "rag" => config
+                .rag
+                .as_ref()
+                .map(|_| "Voyage AI + pgvector".to_owned()),
             _ if config.vps.is_empty() => None,
             _ => Some(format!(
                 "{} VPS: {}",
@@ -36,9 +40,20 @@ pub fn list() -> Result<()> {
                 config.vps.keys().cloned().collect::<Vec<_>>().join(", ")
             )),
         };
+        let on = enowx_core::persist::read_overrides()
+            .get(name)
+            .and_then(|o| o.enabled)
+            .unwrap_or(false);
         match detail {
-            Some(detail) => println!("{name:8} installed   {detail}"),
-            None => println!("{name:8} not installed   (enx {})", install_hint(name)),
+            Some(detail) => println!(
+                "{name:8} {:<13} {detail}",
+                if on {
+                    "configured, on"
+                } else {
+                    "configured, off"
+                }
+            ),
+            None => println!("{name:8} {:<13} (enx {})", "not set up", install_hint(name)),
         }
     }
     Ok(())
@@ -47,13 +62,14 @@ pub fn list() -> Result<()> {
 fn install_hint(name: &str) -> &'static str {
     match name {
         "vps" => "vps add <name> --host <address> --user <user>",
-        "coolify" => "mcp install coolify",
-        _ => "mcp install dokploy",
+        "coolify" => "mcp set coolify --url <url> --token <token>",
+        "rag" => "mcp set rag --dsn <postgres://...> --token <voyage key>",
+        _ => "mcp set dokploy --url <url> --token <token>",
     }
 }
 
 /// `enx mcp install coolify|dokploy`: the panel's URL and an API token.
-pub fn install(name: &str, url: Option<String>) -> Result<()> {
+pub fn install(name: &str, url: Option<String>, token: Option<String>) -> Result<()> {
     let (label, token_hint) = match name {
         "coolify" => (
             "Coolify",
@@ -80,8 +96,13 @@ pub fn install(name: &str, url: Option<String>) -> Result<()> {
         url.starts_with("https://") || url.starts_with("http://"),
         "the {label} URL must start with https:// or http://"
     );
-    eprintln!("{token_hint}");
-    let token = read_key(&format!("{label} API token: "))?;
+    let token = match token {
+        Some(token) => token,
+        None => {
+            eprintln!("{token_hint}");
+            read_key(&format!("{label} API token: "))?
+        }
+    };
     anyhow::ensure!(!token.trim().is_empty(), "no token entered; nothing saved");
 
     let mut config = BuiltinConfig::load()?;
@@ -95,11 +116,45 @@ pub fn install(name: &str, url: Option<String>) -> Result<()> {
     let mut auth = Auth::load()?;
     auth.store(&secret_id(name), &token)?;
     let path = config.save()?;
+    // Turn it on: a built-in server is off until configured, and filling it
+    // in from the CLI is how the user (or an agent helping them) sets it up.
+    enowx_core::persist::set_mcp_enabled(name, true)?;
     println!(
-        "Installed {name} ({url}); its setup is in {}",
+        "Configured {name} ({url}) and turned it on. Setup in {}",
         path.display()
     );
-    println!("Agents can use it from the next session. Check it with: enx mcp list");
+    Ok(())
+}
+
+/// `enx mcp set rag`: the database (a Postgres with pgvector, local or
+/// cloud) and the Voyage AI key. Both are secrets and go to auth.json.
+pub fn set_rag(dsn: Option<String>, token: Option<String>) -> Result<()> {
+    use enowx_core::builtin_mcp::{rag, rag_dsn_id};
+    let dsn = match dsn {
+        Some(dsn) => dsn,
+        None => read_key("Postgres connection string (postgres://...): ")?,
+    };
+    let dsn = dsn.trim().to_owned();
+    anyhow::ensure!(
+        dsn.starts_with("postgres://") || dsn.starts_with("postgresql://"),
+        "the database must be a postgres:// connection string"
+    );
+    let token = match token {
+        Some(token) => token,
+        None => {
+            eprintln!("Create a key at https://dash.voyageai.com/api-keys");
+            read_key("Voyage AI API key: ")?
+        }
+    };
+    anyhow::ensure!(!token.trim().is_empty(), "no key entered; nothing saved");
+    let mut auth = Auth::load()?;
+    auth.store(&rag_dsn_id(), &dsn)?;
+    auth.store(&secret_id("rag"), token.trim())?;
+    let mut config = BuiltinConfig::load()?;
+    config.rag = Some(config.rag.take().unwrap_or_else(rag::RagSetup::default));
+    config.save()?;
+    enowx_core::persist::set_mcp_enabled("rag", true)?;
+    println!("Configured rag and turned it on. Its search skill is offered to agents now.");
     Ok(())
 }
 
@@ -110,6 +165,10 @@ pub fn uninstall(name: &str) -> Result<()> {
     match name {
         "coolify" => config.coolify = None,
         "dokploy" => config.dokploy = None,
+        "rag" => {
+            config.rag = None;
+            auth.forget(&enowx_core::builtin_mcp::rag_dsn_id())?;
+        }
         "vps" => {
             for host in config.vps.keys() {
                 auth.forget(&vps::password_id(host))?;
@@ -120,12 +179,20 @@ pub fn uninstall(name: &str) -> Result<()> {
     }
     auth.forget(&secret_id(name))?;
     config.save()?;
-    println!("Uninstalled {name}");
+    enowx_core::persist::set_mcp_enabled(name, false)?;
+    println!("Cleared {name} and turned it off");
     Ok(())
 }
 
 /// `enx vps add`: a VPS signing in with a key file, or a password typed now.
-pub fn vps_add(name: &str, host: &str, user: &str, port: u16, key: Option<String>) -> Result<()> {
+pub fn vps_add(
+    name: &str,
+    host: &str,
+    user: &str,
+    port: u16,
+    key: Option<String>,
+    password: Option<String>,
+) -> Result<()> {
     anyhow::ensure!(
         vps::valid_name(name),
         "a VPS name is letters, digits, - and _ (at most 40)"
@@ -144,7 +211,10 @@ pub fn vps_add(name: &str, host: &str, user: &str, port: u16, key: Option<String
             Some(path)
         }
         None => {
-            let password = read_key(&format!("Password for {user}@{host}: "))?;
+            let password = match password {
+                Some(password) => password,
+                None => read_key(&format!("Password for {user}@{host}: "))?,
+            };
             anyhow::ensure!(!password.is_empty(), "no password entered; nothing saved");
             auth.store(&vps::password_id(name), &password)
                 .context("storing the password")?;
@@ -165,8 +235,10 @@ pub fn vps_add(name: &str, host: &str, user: &str, port: u16, key: Option<String
         )
         .is_some();
     config.save()?;
+    // A configured VPS turns the vps server on.
+    enowx_core::persist::set_mcp_enabled("vps", true)?;
     println!(
-        "{} VPS {name} ({user}@{host}:{port}). Its host key is recorded on the first connection.",
+        "{} VPS {name} ({user}@{host}:{port}) and turned the vps server on. Its host key is recorded on the first connection.",
         if replaced { "Updated" } else { "Added" }
     );
     Ok(())

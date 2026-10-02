@@ -1,4 +1,5 @@
-//! Ctrl+P opens the command palette: a floating, searchable list.
+//! `/commands` opens the command palette: a floating, searchable list.
+//! (Ctrl+P steps through the page tabs instead; see `pages.rs`.)
 //!
 //! Typing `/` still shows the inline list above the composer. That serves
 //! someone who knows the name they want; this is for looking.
@@ -7,11 +8,14 @@ use crossterm::event::KeyCode;
 use enowx_tui::testing::TestApp;
 
 fn open(app: &mut TestApp) {
-    app.press(KeyCode::Char('p'), true).expect("ctrl+p");
+    app.run_command("/commands").expect("/commands");
     // Every test below asserts against an OPEN palette. Without this, a
     // binding that does nothing leaves the ones asserting `!palette_open()`
     // passing for the wrong reason.
-    assert!(app.palette_open(), "ctrl+p should have opened the palette");
+    assert!(
+        app.palette_open(),
+        "/commands should have opened the palette"
+    );
 }
 
 #[test]
@@ -243,9 +247,10 @@ fn escape_closes_it() {
     assert!(!app.palette_open());
 }
 
-/// Ctrl+P while something else is open closes that, rather than doing nothing.
+/// Ctrl+P while a form is open leaves it for the next tab, rather than
+/// typing into it or doing nothing.
 #[test]
-fn it_closes_another_open_window() {
+fn ctrl_p_leaves_an_open_form() {
     let mut app = TestApp::new();
     app.open_custom_provider_form();
     assert!(app.settings_modal_open(), "settings should be open first");
@@ -254,9 +259,9 @@ fn it_closes_another_open_window() {
     assert!(!app.palette_open(), "one key, one effect");
 }
 
-/// The theme picker previews as you move; closing must restore the saved one.
+/// The theme page previews as you move; leaving it must restore the saved one.
 #[test]
-fn closing_the_theme_picker_restores_the_saved_theme() {
+fn leaving_the_theme_page_restores_the_saved_theme() {
     let mut app = TestApp::new();
     let before = app.theme_name();
     app.open_themes();

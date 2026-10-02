@@ -10,6 +10,7 @@
 
 pub mod coolify;
 pub mod dokploy;
+pub mod rag;
 pub mod vps;
 
 use std::{collections::BTreeMap, path::PathBuf};
@@ -26,7 +27,7 @@ use crate::{
 };
 
 /// The built-in servers, by the name they are installed and served under.
-pub const NAMES: [&str; 3] = ["coolify", "dokploy", "vps"];
+pub const NAMES: [&str; 4] = ["coolify", "dokploy", "vps", "rag"];
 
 pub fn config_path() -> PathBuf {
     home_dir().join("builtin-mcp.json")
@@ -42,12 +43,22 @@ pub struct BuiltinConfig {
     /// VPSes by name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub vps: BTreeMap<String, vps::Host>,
+    /// Retrieval over the project's code. Its database DSN and Voyage key
+    /// are secrets, in `auth.json` under [`rag_dsn_id`] and [`secret_id`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rag: Option<rag::RagSetup>,
 }
 
 /// A panel's address. Its token is in `auth.json` under [`secret_id`].
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Endpoint {
     pub base_url: String,
+}
+
+/// The `auth.json` entry holding the RAG database's connection string: a
+/// secret, since it carries the database password.
+pub fn rag_dsn_id() -> String {
+    secret_id("rag-dsn")
 }
 
 /// The `auth.json` entry holding a built-in server's token, or a VPS's
@@ -86,33 +97,55 @@ impl BuiltinConfig {
             "coolify" => self.coolify.is_some(),
             "dokploy" => self.dokploy.is_some(),
             "vps" => !self.vps.is_empty(),
+            "rag" => self.rag.is_some(),
             _ => false,
         }
     }
 }
 
-/// The installed built-in servers as MCP declarations, each run by this
-/// binary. Not installed, not listed: an agent is never offered a server
-/// that would only answer that it has no token.
-pub fn installed_servers() -> Vec<McpServer> {
-    let Ok(config) = BuiltinConfig::load() else {
-        return Vec::new();
-    };
-    let Ok(exe) = std::env::current_exe() else {
-        return Vec::new();
-    };
+/// One line describing a built-in server for the MCP menu.
+pub fn summary(name: &str) -> &'static str {
+    match name {
+        "coolify" => "Coolify: deploy, start, stop and read your apps, databases and servers",
+        "dokploy" => "Dokploy: deploy and manage your projects, apps and compose stacks",
+        "vps" => "Your VPSes over SSH: run a command, or read a host's status",
+        "rag" => "Search this project's code by meaning: Voyage AI embeddings in pgvector",
+        _ => "",
+    }
+}
+
+/// All three built-in servers as MCP declarations, always listed. `enabled`
+/// comes from the overlay (default off); `configured` says whether the server
+/// has the credentials it needs, so the menu can refuse to turn on an empty
+/// one and offer `c` to fill it in. Each is run by this binary over stdio.
+pub fn builtin_servers(
+    workspace: &std::path::Path,
+    enabled: impl Fn(&str) -> bool,
+) -> Vec<McpServer> {
+    let config = BuiltinConfig::load().unwrap_or_default();
+    let exe = std::env::current_exe().unwrap_or_else(|_| "enx".into());
     NAMES
         .iter()
-        .filter(|name| config.is_installed(name))
-        .map(|name| McpServer {
-            name: (*name).to_owned(),
-            scope: SkillScope::Builtin,
-            command_or_url: exe.display().to_string(),
-            args: vec!["mcp".into(), "serve".into(), (*name).to_owned()],
-            env: BTreeMap::new(),
-            transport: McpTransport::Stdio,
-            source: config_path(),
-            enabled: true,
+        .map(|name| {
+            let configured = config.is_installed(name);
+            McpServer {
+                name: (*name).to_owned(),
+                scope: SkillScope::Builtin,
+                command_or_url: exe.display().to_string(),
+                args: vec!["mcp".into(), "serve".into(), (*name).to_owned()],
+                // The workspace the session works in, which `rag` indexes; the
+                // process itself inherits wherever enx was started.
+                env: BTreeMap::from([(
+                    "ENX_WORKSPACE".to_owned(),
+                    workspace.display().to_string(),
+                )]),
+                transport: McpTransport::Stdio,
+                source: config_path(),
+                // Off until configured and turned on.
+                enabled: configured && enabled(name),
+                builtin: true,
+                configured,
+            }
         })
         .collect()
 }
@@ -140,7 +173,7 @@ pub fn server(name: &str) -> Result<Box<dyn Server>> {
     let token = |server: &str| {
         auth.key(&secret_id(server), &[])
             .map(|(key, _)| key)
-            .with_context(|| format!("no {server} token stored; run `enx mcp install {server}`"))
+            .with_context(|| format!("no {server} token stored; press c on {server} in /mcp, or run `enx mcp set {server}`"))
     };
     Ok(match name {
         "coolify" => {
@@ -166,6 +199,16 @@ pub fn server(name: &str) -> Result<Box<dyn Server>> {
                 bail!("no VPS is set up; add one with `enx vps add`");
             }
             Box::new(vps::Vps::new(config.vps, auth))
+        }
+        "rag" => {
+            let setup = config
+                .rag
+                .context("rag is not set up; press c on rag in /mcp, or run `enx mcp set rag`")?;
+            let dsn = auth
+                .key(&rag_dsn_id(), &[])
+                .map(|(key, _)| key)
+                .context("no database stored for rag; press c on rag in /mcp")?;
+            Box::new(rag::Rag::new(&dsn, &token("rag")?, &setup)?)
         }
         other => bail!(
             "enx has no built-in MCP server `{other}` (built in: {})",
@@ -364,6 +407,19 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(unknown["error"]["code"], -32601);
+    }
+
+    #[test]
+    fn all_three_are_listed_off_until_configured() {
+        // With no config file, every built-in server is listed, off, and not
+        // configured (so the menu offers `c`).
+        let servers = builtin_servers(std::path::Path::new("/w"), |_| true);
+        assert_eq!(servers.len(), NAMES.len());
+        for server in &servers {
+            assert!(server.builtin);
+            assert!(!server.configured, "{} needs setup first", server.name);
+            assert!(!server.enabled, "{} is off until configured", server.name);
+        }
     }
 
     #[test]

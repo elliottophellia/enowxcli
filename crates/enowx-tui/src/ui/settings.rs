@@ -1,7 +1,7 @@
 use super::*;
 
 pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
-    let fields = crate::modal::form_fields(app.modal);
+    let fields = app.current_form_fields();
     let width = area.width.saturating_sub(2).min(72);
     // Content rows: each field is its label, its value and a gap; the note
     // sits on the last row with a blank row above it.
@@ -36,6 +36,11 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
             "Overrides the detected values. Empty uses the catalogue or the id.".into(),
             format!("EDIT {}", app.settings.model.to_uppercase()),
         ),
+        Modal::BuiltinMcp => (
+            "Tab field · Enter save and turn on · Esc back",
+            "Kept in ~/.enx/. The token or password goes to auth.json, for you alone.".into(),
+            format!("SET UP {}", app.settings.provider_id.to_uppercase()),
+        ),
         _ => (
             if width < 44 {
                 "Tab field · Enter save · Esc back"
@@ -68,7 +73,7 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
         let active = index == app.modal_cursor;
         let raw = app.settings.value(field);
         let choice = field.is_choice();
-        let shown = if field == SettingsField::ApiKey {
+        let shown = if field.is_secret() {
             "•".repeat(raw.chars().count())
         } else if choice {
             format!("◂ {} ▸", app.settings.choice_shown(field))
@@ -105,7 +110,7 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
         let field_area = Rect::new(area.x + 2, y + 1, area.width.saturating_sub(2), 1);
         let cursor_column = if !active || choice {
             0
-        } else if field == SettingsField::ApiKey {
+        } else if field.is_secret() {
             raw[..app.field_cursor].chars().count()
         } else {
             raw[..app.field_cursor].width()
@@ -175,5 +180,11 @@ fn placeholder(app: &App, field: SettingsField) -> &'static str {
         SettingsField::ContextWindow => "e.g. 200000",
         SettingsField::Effort | SettingsField::Vision => "←→ to choose",
         SettingsField::PriceInput | SettingsField::PriceOutput => "e.g. 3.0 (blank = unknown)",
+        SettingsField::Host => "203.0.113.5 or a hostname",
+        SettingsField::User => "root",
+        SettingsField::Port => "22",
+        SettingsField::Dsn => {
+            "postgres://localhost/enx (local) or a cloud URL with ?sslmode=require"
+        }
     }
 }

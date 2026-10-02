@@ -389,7 +389,14 @@ pub fn builtin_agents() -> Vec<AgentDef> {
 
     // Interface work: how it looks (`ui`), how it moves (`motion`) and how
     // it works (`frontend`).
-    let interface = join(&[&ui, &motion_family, &frontend, &["code", "writing", "i18n"]]);
+    // A desktop app is interface work too: choosing its stack, and GPUI
+    // when that is the one.
+    let interface = join(&[
+        &ui,
+        &motion_family,
+        &frontend,
+        &["code", "writing", "i18n", "systems-desktop", "systems-gpui"],
+    ]);
     // Motion builds on the look and the stack, not on every page and part.
     let motion_base: Vec<&'static str> = ui
         .iter()
@@ -672,7 +679,8 @@ pub fn builtin_agents() -> Vec<AgentDef> {
         ),
         make(
             "systems",
-            "low-level, memory, concurrency, FFI, binary formats",
+            "low-level, memory, concurrency, FFI, binary formats, native desktop apps in \
+             Rust (GPUI, Tauri's core)",
             FULL,
             Tier::Strong,
             Delegation::Librarian,

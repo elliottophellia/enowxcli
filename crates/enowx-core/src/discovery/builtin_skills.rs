@@ -597,6 +597,14 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
         "systems-rust",
         include_str!("../../skills/systems-rust/SKILL.md"),
     ),
+    (
+        "systems-desktop",
+        include_str!("../../skills/systems-desktop/SKILL.md"),
+    ),
+    (
+        "systems-gpui",
+        include_str!("../../skills/systems-gpui/SKILL.md"),
+    ),
     ("testing", include_str!("../../skills/testing/SKILL.md")),
     (
         "testing-ci",

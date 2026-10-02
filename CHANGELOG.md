@@ -155,6 +155,14 @@ after v0.1.0.
 
 ### Skills
 
+- **Desktop apps in Rust: `systems-desktop` and `systems-gpui`.** The first
+  chooses the stack (Tauri for a web UI with a Rust core, GPUI for a native
+  GPU-drawn app, with egui, iced and Slint in brief) and settles packaging,
+  signing and updates up front. The second covers GPUI, the framework Zed
+  is built on: setup per platform, entities and views, `notify`, events,
+  actions, key bindings and focus, `uniform_list`, async work, testing and
+  shipping. Carried by `systems` and `fe`.
+
 - **New `ui-layout-grid` skill**: CSS Grid and Flexbox mechanics for tidy
   layouts.
 - **New `canvas` agent and skills**: standalone single-file HTML pages, tools,

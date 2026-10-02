@@ -228,8 +228,15 @@ pub(super) fn overlay(
             )
         }
     };
+    // A Settings section waiting behind the focused section list is drawn
+    // without the accent: the accent marks where the keys go.
+    let edge = if page && app.settings_nav {
+        t.border
+    } else {
+        t.accent
+    };
     frame.render_widget(Clear, rect);
-    panel_box(frame, rect, t.accent, t.panel);
+    panel_box(frame, rect, edge, t.panel);
     let title = title.trim();
     if !title.is_empty() {
         box_title(
@@ -237,7 +244,13 @@ pub(super) fn overlay(
             rect,
             vec![Span::styled(
                 title.to_owned(),
-                Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(if page && app.settings_nav {
+                        t.muted
+                    } else {
+                        t.accent
+                    })
+                    .add_modifier(Modifier::BOLD),
             )],
             t.panel,
         );

@@ -327,10 +327,12 @@ continues at once and `Esc` cancels the wait.
 Two tabs sit at the top right: Chat and Settings. Settings takes the main
 column in place of the chat, with its sections listed on the left (Models,
 Providers, Agents, MCP, RAG, Skills, Sessions, Theme) and the chosen one beside
-them. `Ctrl+P` switches between Chat and Settings. Inside, `Left` moves to
-the section list, `Up`/`Down` pick a section, `Right` (or `Enter`) goes back
-into it, and `Esc` returns to the chat; clicking a tab or a section does the
-same. `/commands` opens a searchable list of every command, and typing `/`
+them. `Ctrl+P` switches between Chat and Settings. Settings opens with the
+section list focused: `Up`/`Down` pick a section, shown beside the list, and
+`Enter` goes into it. `Esc` steps back one level: from a form to its list,
+from a section to the section list, and from the section list to the chat
+(`Left` also steps out of a section). With the mouse, a click on a section
+picks it and a click inside it goes in. `/commands` opens a searchable list of every command, and typing `/`
 lists them above the composer.
 
 Keys work the same on Linux, macOS and Windows. Where a terminal or the OS
@@ -342,7 +344,7 @@ takes a shortcut for itself, a second form does the same thing:
 | `Shift+Enter`, `Alt+Enter` | Newline (`Ctrl+J` too, when idle) |
 | `Ctrl+Enter`, `Ctrl+S` | Send now, while a turn runs |
 | `Ctrl+Backspace`, `Alt+Backspace` | Erase a word |
-| `Esc` | Leave Settings, stop a turn, or clear the composer |
+| `Esc` | Back one level in Settings, stop a turn, or clear the composer |
 | `Ctrl+C` | Stop a turn, clear the composer, or ask to quit |
 | `Ctrl+D` | Quit, from an empty composer |
 | `Ctrl+P` | Switch between Chat and Settings |

@@ -94,6 +94,9 @@ fn the_search_narrows_the_list_and_esc_clears_it() {
     app.press_key(KeyCode::Esc).expect("clear the search");
     assert!(!app.modal_closed(), "the first Esc clears the search");
     assert!(app.picker_rows().len() > 3);
+    // In Settings: the next Esc steps out to the section list, the one
+    // after leaves Settings.
+    app.press_key(KeyCode::Esc).expect("to the section list");
     app.press_key(KeyCode::Esc).expect("close");
     assert!(app.modal_closed());
 }

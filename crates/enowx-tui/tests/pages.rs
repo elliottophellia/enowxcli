@@ -45,6 +45,9 @@ fn settings_replaces_the_chat_with_sections_beside_the_section() {
         "the section beside it: {screen}"
     );
     assert!(!screen.contains("HISTORY-LINE-ONE"), "{screen}");
+    // Esc twice: out of the section, then out of Settings.
+    app.press_key(KeyCode::Esc).expect("esc");
+    assert!(app.is_modal_open(), "first Esc: back to the section list");
     app.press_key(KeyCode::Esc).expect("esc");
     assert!(!app.is_modal_open());
     assert!(app
@@ -148,7 +151,58 @@ fn settings_reopens_on_the_section_left_with_esc() {
     let mut app = chat();
     app.run_command("/theme").unwrap();
     app.press_key(KeyCode::Esc).unwrap();
+    app.press_key(KeyCode::Esc).unwrap();
     assert!(!app.is_modal_open());
     app.press(KeyCode::Char('p'), true).unwrap();
     assert!(app.modal_title().contains("THEME"), "{}", app.modal_title());
+}
+
+/// Settings opens on the section list, not in a section: the arrows pick a
+/// section, Enter goes in, Esc comes back out, and Esc again leaves.
+#[test]
+fn settings_opens_on_the_section_list_and_esc_steps_back_one_level() {
+    let mut app = chat();
+    app.press(KeyCode::Char('p'), true).unwrap();
+    assert!(
+        app.modal_title().contains("MODELS"),
+        "{}",
+        app.modal_title()
+    );
+    // On the list: Down picks the next section rather than a model.
+    app.press_key(KeyCode::Down).unwrap();
+    assert!(
+        app.modal_title().contains("PROVIDER"),
+        "{}",
+        app.modal_title()
+    );
+    // Enter goes in; now Down moves within the section.
+    app.press_key(KeyCode::Enter).unwrap();
+    app.press_key(KeyCode::Down).unwrap();
+    assert!(
+        app.modal_title().contains("PROVIDER"),
+        "{}",
+        app.modal_title()
+    );
+    // Esc: back on the list, the section still shown.
+    app.press_key(KeyCode::Esc).unwrap();
+    assert!(app.modal_title().contains("PROVIDER"));
+    app.press_key(KeyCode::Down).unwrap();
+    assert!(app.modal_title().contains("AGENT"), "{}", app.modal_title());
+    // Esc on the list: out of Settings.
+    app.press_key(KeyCode::Esc).unwrap();
+    assert!(!app.is_modal_open());
+}
+
+/// A form opened from a section goes back to that section's list first.
+#[test]
+fn esc_in_a_server_setup_goes_back_to_the_mcp_list() {
+    let mut app = chat();
+    app.run_command("/mcp").unwrap();
+    app.press_key(KeyCode::Char('c')).unwrap();
+    assert!(app.render_to_text(160, 40).join("\n").contains("SET UP"));
+    app.press_key(KeyCode::Esc).unwrap();
+    assert!(app.modal_title().contains("MCP"), "{}", app.modal_title());
+    app.press_key(KeyCode::Esc).unwrap();
+    app.press_key(KeyCode::Esc).unwrap();
+    assert!(!app.is_modal_open());
 }

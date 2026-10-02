@@ -141,7 +141,8 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
                 })),
             field_area,
         );
-        if active && field_area.width > 0 {
+        // No caret in a form while the Settings section list has the keys.
+        if active && field_area.width > 0 && !app.settings_nav {
             frame.set_cursor_position((
                 field_area.x + (cursor_column - offset) as u16,
                 field_area.y,

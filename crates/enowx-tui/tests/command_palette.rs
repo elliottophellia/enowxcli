@@ -199,6 +199,9 @@ fn the_window_a_command_opens_takes_keys() {
     let first = app.modal_selection();
     app.press_key(KeyCode::Down).expect("down");
     assert_ne!(app.modal_selection(), first, "Down should move");
+    // The roster is a Settings section: Esc steps out to the section list,
+    // a second Esc closes Settings.
+    app.press_key(KeyCode::Esc).expect("esc");
     app.press_key(KeyCode::Esc).expect("esc");
     assert!(!app.any_modal_open(), "Esc should close it");
 }

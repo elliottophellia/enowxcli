@@ -6,10 +6,12 @@
 //! setting, drawn in place instead of as a popup, so every key and click it
 //! handled before still works.
 //!
-//! Keys: `Ctrl+P` switches between Chat and Settings. In Settings, `Left`
-//! moves to the section list, `Up`/`Down` there pick a section, `Right`,
-//! `Enter` or `Tab` go back into it, and `Esc` returns to the chat. The mouse
-//! does the same with a click on a tab or a section.
+//! Keys: `Ctrl+P` switches between Chat and Settings. Settings opens with
+//! the section list focused: `Up`/`Down` pick a section (shown beside it),
+//! `Enter` goes into it. `Esc` goes back one level: from a form to its list,
+//! from a section to the section list, from the section list to the chat.
+//! `Left` also steps out to the list. The mouse does the same: a click on a
+//! section picks it, a click in the section goes into it.
 
 use super::*;
 
@@ -143,12 +145,20 @@ impl App {
         Ok(())
     }
 
-    /// Open a tab: Settings opens on the section used last.
+    /// Open a tab: Settings opens on the section used last, with the
+    /// section list focused.
     pub(crate) fn open_tab(&mut self, tab: Tab) -> Result<()> {
         match tab {
             Tab::Chat => self.open_page(Page::Chat),
-            Tab::Settings if self.tab() == Tab::Settings => Ok(()),
-            Tab::Settings => self.open_page(SECTIONS[self.page_index.min(SECTIONS.len() - 1)]),
+            Tab::Settings if self.tab() == Tab::Settings => {
+                self.settings_nav = true;
+                Ok(())
+            }
+            Tab::Settings => {
+                self.open_page(SECTIONS[self.page_index.min(SECTIONS.len() - 1)])?;
+                self.settings_nav = true;
+                Ok(())
+            }
         }
     }
 
@@ -170,10 +180,47 @@ impl App {
             .unwrap_or(self.page_index)
     }
 
+    /// Esc inside a section: one level back. A section's own list or form
+    /// gives the focus to the section list; a form opened from that list
+    /// (a provider's key, an MCP server's setup) goes back to the list; a
+    /// search being typed is cleared first.
+    fn settings_escape(&mut self) -> Result<bool> {
+        match self.modal {
+            Modal::Models if !self.modal_search.is_empty() || self.picking_for_agent.is_some() => {
+                Ok(false)
+            }
+            Modal::McpForm | Modal::BuiltinMcp => {
+                let at = self.modal_cursor;
+                self.modal_error.clear();
+                self.open_mcp();
+                self.modal_cursor = at.min(self.mcp_rows().len().saturating_sub(1));
+                Ok(true)
+            }
+            Modal::Models
+            | Modal::Providers
+            | Modal::Agents
+            | Modal::Mcp
+            | Modal::Rag
+            | Modal::Skills
+            | Modal::Sessions
+            | Modal::Themes
+            | Modal::Effort => {
+                // The theme section previews as you move: stepping out
+                // without choosing puts the saved theme back.
+                if self.modal == Modal::Themes {
+                    self.theme = crate::theme::Theme::find(&self.config.ui.theme);
+                }
+                self.settings_nav = true;
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
     /// Keys while Settings is on screen, before the section sees them.
     /// Returns whether the key was taken.
     pub(crate) fn settings_page_key(&mut self, key: &crossterm::event::KeyEvent) -> Result<bool> {
-        use crossterm::event::KeyCode;
+        use crossterm::event::{KeyCode, KeyModifiers};
         if self.tab() != Tab::Settings {
             self.settings_nav = false;
             return Ok(false);
@@ -195,9 +242,15 @@ impl App {
                 }
                 KeyCode::Right | KeyCode::Enter | KeyCode::Tab => self.settings_nav = false,
                 KeyCode::Esc => self.open_page(Page::Chat)?,
+                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    self.open_page(Page::Chat)?
+                }
                 _ => {}
             }
             return Ok(true);
+        }
+        if key.code == KeyCode::Esc {
+            return self.settings_escape();
         }
         // Left steps out to the section list from a section's list. A form
         // keeps it for its caret and its choices, unless the caret is

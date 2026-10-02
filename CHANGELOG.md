@@ -42,9 +42,10 @@ after v0.1.0.
 - **Chat and Settings tabs at the top right.** Settings takes the whole main
   column in place of the chat: its sections (Models, Providers, Agents, MCP,
   RAG, Skills, Sessions, Theme) are listed on the left and the chosen one is
-  beside them. `Ctrl+P` switches between Chat and Settings, `Left` moves to
-  the section list, `Up`/`Down` pick a section, `Right` goes back in, `Esc`
-  returns to the chat; a click does the same. The searchable command list
+  beside them. `Ctrl+P` switches between Chat and Settings. Settings opens
+  on the section list: `Up`/`Down` pick a section, `Enter` goes in, and `Esc`
+  steps back one level (form to list, section to section list, list to
+  chat); a click on a section picks it, a click inside goes in. The searchable command list
   moved to `/commands` (typing `/` still lists commands inline).
 - **Queue messages typed while a turn runs.** Enter during a turn puts the
   message in a queue above the composer, with a `[send now]` button; queued

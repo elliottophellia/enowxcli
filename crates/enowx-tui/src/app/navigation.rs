@@ -100,7 +100,8 @@ impl App {
                     if page != self.page() {
                         self.open_page(page)?;
                     }
-                    self.settings_nav = false;
+                    // Picking a section shows it; a click in it goes in.
+                    self.settings_nav = true;
                 }
             }
             MouseEventKind::Down(MouseButton::Left)
@@ -111,6 +112,14 @@ impl App {
                 self.send_queued_now();
             }
             MouseEventKind::Down(MouseButton::Left) => {
+                // A click inside a Settings section goes into it.
+                if self.settings_nav
+                    && self
+                        .settings_content
+                        .is_some_and(|area| area.contains(position))
+                {
+                    self.settings_nav = false;
+                }
                 // QuitConfirm buttons: single click on Yes/No acts immediately.
                 if self.modal == Modal::QuitConfirm {
                     for (rect, is_yes) in self.quit_confirm_rects {

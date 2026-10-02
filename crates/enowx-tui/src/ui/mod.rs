@@ -201,9 +201,9 @@ fn draw_settings_nav(frame: &mut Frame, app: &mut App) {
         frame,
         nav,
         if focused {
-            "↑↓ · → open"
+            "↑↓ · Enter"
         } else {
-            "← here"
+            "Esc: here"
         },
         t.muted,
         t.panel,

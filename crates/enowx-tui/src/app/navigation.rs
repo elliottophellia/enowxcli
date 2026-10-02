@@ -68,6 +68,23 @@ impl App {
     pub(crate) fn mouse(&mut self, event: MouseEvent) -> Result<()> {
         let position = Position::new(event.column, event.row);
         match event.kind {
+            // Right-click on a sub-agent in the sidebar stops it. Its caller
+            // is told it was stopped, with what it did, and goes on from there.
+            MouseEventKind::Down(MouseButton::Right)
+                if self
+                    .delegation_rects
+                    .iter()
+                    .any(|(rect, _)| rect.contains(position)) =>
+            {
+                if let Some(index) = self
+                    .delegation_rects
+                    .iter()
+                    .find(|(rect, _)| rect.contains(position))
+                    .map(|(_, index)| *index)
+                {
+                    self.kill_delegation(index);
+                }
+            }
             // A tab at the top right opens its page.
             MouseEventKind::Down(MouseButton::Left)
                 if self.page_tabs.iter().any(|(rect, _)| {

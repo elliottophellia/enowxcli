@@ -86,7 +86,11 @@ impl Tool for WriteTool {
         "write"
     }
     fn description(&self) -> &str {
-        "Create or overwrite one UTF-8 file inside the workspace."
+        "Create or overwrite one UTF-8 file inside the workspace. Keep each call to about \
+         150 lines: a longer reply takes minutes to generate and the provider can cut it \
+         off, and then nothing is written at all. Write a longer file in parts: `write` its \
+         first part ending in a marker comment (`<!-- next -->`, `// next`), then replace \
+         the marker with the next part and a new marker using `edit`, one part per step."
     }
     fn parameters(&self) -> Value {
         json!({"type":"object","properties":{

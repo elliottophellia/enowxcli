@@ -1296,6 +1296,15 @@ page always passes.
 real units, its conventions, its terms of art. Use real content, never lorem \
 ipsum or invented statistics.
 
+WRITING THE FILE
+- Never the whole page in one `write`: a reply of several hundred lines \
+takes minutes and the provider cuts it off, so nothing is written. Build it \
+in parts of at most about 150 lines, one per step: first `write` the \
+document with its `<head>` and the `<style>` (tokens first), ending in \
+`<!-- next -->`; then with `edit` replace that marker with the next part \
+(the markup, section by section, then the `<script>`) and a new marker; \
+remove the last marker when the page is complete.
+
 EVERY PAGE
 - One `.html` file: the CSS in one `<style>`, the behaviour in one `<script>` \
 at the end, small assets as inline SVG or data: URIs. A real library loads \

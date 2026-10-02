@@ -9,6 +9,14 @@ after v0.1.0.
 
 ### Agents and delegation
 
+- **Stop a sub-agent with a right-click on it in the sidebar.** Its caller
+  gets a report that it was stopped by the user, with the files it had
+  changed and what it said last, and is woken by it like any report; its
+  transcript is kept.
+- **The orchestrator and maestro can read what a delegation did**
+  (`delegation_log`): what it was asked, said and called, so after one is
+  stopped or fails the next brief starts where that work stopped.
+
 - **Agents can work together (Settings > Team, off by default).** Agents at
   work at the same time message each other (`message_agent`), share a board
   for the run (`team_board`), and a delegate's work that changed files is
@@ -170,6 +178,11 @@ after v0.1.0.
 - **`/resume` lists conversations only**, never a delegation's transcript.
 - **Enter saves a built-in MCP server's setup form.** It did nothing before;
   only the CLI could save one.
+- **Long files are written in parts.** A reply of several hundred lines
+  takes minutes and the provider could cut it off mid-call, so nothing was
+  written (the `canvas` agent failed this way repeatedly). `write`, the
+  harness and the canvas prompt now ask for at most about 150 lines per
+  call, continued with `edit` from a marker comment.
 - **The `write` tool refuses an empty write** with a message telling the
   model to send the file in parts, instead of silently creating an empty file
   when a long reply was cut off.

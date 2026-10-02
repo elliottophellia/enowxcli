@@ -359,6 +359,10 @@ pub struct Agent {
     /// Every delegated branch at work, by session id, so one is never run
     /// twice at once and its caller knows what is still running.
     running: Arc<std::sync::Mutex<std::collections::BTreeMap<String, RunningBranch>>>,
+    /// The token that stops each delegation at work, by its session.
+    cancels: std::sync::Mutex<std::collections::HashMap<String, CancellationToken>>,
+    /// Delegations the user stopped, until their report is written.
+    killed: std::sync::Mutex<std::collections::HashSet<String>>,
 }
 
 /// A delegated branch at work: who runs it, for whom, on what.
@@ -445,6 +449,8 @@ impl Agent {
             background: std::sync::Mutex::new(None),
             waiting: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             running: Arc::default(),
+            cancels: std::sync::Mutex::new(std::collections::HashMap::new()),
+            killed: std::sync::Mutex::new(std::collections::HashSet::new()),
         }
     }
 
@@ -587,6 +593,63 @@ impl Agent {
             return;
         };
         let _ = tokio::time::timeout(left, notified).await;
+    }
+
+    /// Stop a delegation at work, as the user asked from the sidebar. Its
+    /// turn ends at its next step; its caller gets a report saying it was
+    /// stopped, with what it had changed and where its transcript is, and
+    /// the transcript is kept. False when it is not running.
+    pub fn kill_delegation(&self, session_id: &str) -> bool {
+        let token = self
+            .cancels
+            .lock()
+            .ok()
+            .and_then(|cancels| cancels.get(session_id).cloned());
+        let Some(token) = token else {
+            return false;
+        };
+        if let Ok(mut killed) = self.killed.lock() {
+            killed.insert(session_id.to_owned());
+        }
+        token.cancel();
+        true
+    }
+
+    /// `delegation_log`: what a delegation of `session` did, read from its
+    /// transcript, so the agent that delegated can see how far a stopped or
+    /// failed one got before it briefs the next.
+    fn delegation_log(&self, session: &Session, args: &serde_json::Value) -> ToolOutput {
+        let id = args
+            .get("session")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if id.is_empty() {
+            return ToolOutput::error("delegation_log needs `session`: the id its report gave");
+        }
+        let Ok(branch) = self.store.load(id) else {
+            return ToolOutput::error(format!(
+                "no transcript for `{id}`: a delegation that reported in full has its \
+                 transcript cleared, and its report is all there is"
+            ));
+        };
+        // Only this conversation's own delegations, and theirs.
+        let mut at = branch.parent.clone();
+        let mut ours = false;
+        for _ in 0..16 {
+            match at {
+                Some(parent) if parent == session.id => {
+                    ours = true;
+                    break;
+                }
+                Some(parent) => at = self.store.load(&parent).ok().and_then(|s| s.parent),
+                None => break,
+            }
+        }
+        if !ours {
+            return ToolOutput::error(format!("`{id}` is not a delegation of this conversation"));
+        }
+        ToolOutput::ok(transcript_digest(&branch))
     }
 
     /// `message_agent` and `team_board`, for the agent `agent` in `session`.
@@ -1259,13 +1322,23 @@ impl Agent {
                 // mid-task would leave its caller a `NO REPORT` for work that was
                 // interrupted rather than failed.
                 let own = CancellationToken::new();
-                let outcome = Box::pin(self.run_inner(request, &sink, own)).await;
+                // Kept so the user can stop this one alone (`kill_delegation`).
+                if let Ok(mut cancels) = self.cancels.lock() {
+                    cancels.insert(branch.id.clone(), own.clone());
+                }
+                let outcome = Box::pin(self.run_inner(request, &sink, own.clone())).await;
                 // Checked before it lets go of its files, so the fixes a
-                // reviewer asks for are still its to make.
+                // reviewer asks for are still its to make. Not for work the
+                // user stopped.
                 let review = match &outcome {
-                    Ok(()) => Box::pin(self.cross_review(delegation, &branch.id, events)).await,
-                    Err(_) => None,
+                    Ok(()) if !own.is_cancelled() => {
+                        Box::pin(self.cross_review(delegation, &branch.id, events, &own)).await
+                    }
+                    _ => None,
                 };
+                if let Ok(mut cancels) = self.cancels.lock() {
+                    cancels.remove(&branch.id);
+                }
                 // Finished: what it was editing is open to the others again.
                 self.board.release(&branch.id);
                 if let Ok(mut running) = self.running.lock() {
@@ -1288,26 +1361,38 @@ impl Agent {
             let (outcome, review) = outcome;
             // Reload: the nested run owns the branch on disk from here.
             let branch = self.store.load(&branch.id).unwrap_or(branch);
-            let summary = match outcome {
-                Ok(()) => match review {
-                    Some(review) => format!("{}\n\n{review}", branch_summary(&branch)),
-                    None => branch_summary(&branch),
-                },
-                Err(error) => {
-                    // Whether files were already changed decides what the
-                    // caller may safely do next, so the report says which.
-                    let touched = files_touched(&branch);
-                    if touched.is_empty() {
-                        format!("failed before changing anything: {error:#}")
-                    } else {
-                        format!(
-                            "PARTIAL FAILURE: {error:#}\nAlready changed: {}\nDo not redo this work.",
-                            touched.join(", ")
+            let killed = self
+                .killed
+                .lock()
+                .map(|mut killed| killed.remove(&branch.id))
+                .unwrap_or(false);
+            let summary = if killed {
+                killed_summary(&branch)
+            } else {
+                match outcome {
+                    Ok(()) => match review {
+                        Some(review) => format!("{}\n\n{review}", branch_summary(&branch)),
+                        None => branch_summary(&branch),
+                    },
+                    Err(error) => {
+                        // Whether files were already changed decides what the
+                        // caller may safely do next, so the report says which.
+                        let touched = files_touched(&branch);
+                        if touched.is_empty() {
+                            format!("failed before changing anything: {error:#}")
+                        } else {
+                            format!(
+                            "PARTIAL FAILURE: {error:#}\nAlready changed: {}\nDo not redo this work. \
+                             What it did is in its transcript: `delegation_log` with session `{}`.",
+                            touched.join(", "),
+                            branch.id
                         )
+                        }
                     }
                 }
             };
-            let failed = summary.starts_with("failed") || summary.starts_with("PARTIAL FAILURE");
+            let failed =
+                killed || summary.starts_with("failed") || summary.starts_with("PARTIAL FAILURE");
             let _ = events
                 .send(Event::DelegationFinished {
                     agent: delegation.to.clone(),
@@ -1336,6 +1421,7 @@ impl Agent {
         delegation: &crate::routing::Delegation,
         branch_id: &str,
         events: &mpsc::Sender<Event>,
+        cancel: &CancellationToken,
     ) -> Option<String> {
         use crate::agent_def::canonical_name;
         use crate::comms::{corrections_message, parse_verdict, review_brief, Verdict};
@@ -1360,6 +1446,10 @@ impl Agent {
         let rounds = team.review_rounds.clamp(1, 5);
         let mut fixes = 0u8;
         loop {
+            // Stopped by the user: no more checking or fixing.
+            if cancel.is_cancelled() {
+                return None;
+            }
             let branch = self.store.load(branch_id).ok()?;
             let files = files_touched(&branch);
             // Nothing changed: an answer, not work to check.
@@ -1387,7 +1477,7 @@ impl Agent {
             };
             let (sink, mut drain) = mpsc::channel::<Event>(64);
             tokio::spawn(async move { while drain.recv().await.is_some() {} });
-            let outcome = Box::pin(self.run_inner(request, &sink, CancellationToken::new())).await;
+            let outcome = Box::pin(self.run_inner(request, &sink, cancel.child_token())).await;
             self.board.release(&review.id);
             let reviewed = self.store.load(&review.id).unwrap_or(review);
             let verdict_report = match outcome {
@@ -1438,7 +1528,7 @@ impl Agent {
                     let (sink, mut drain) = mpsc::channel::<Event>(64);
                     tokio::spawn(async move { while drain.recv().await.is_some() {} });
                     if let Err(error) =
-                        Box::pin(self.run_inner(request, &sink, CancellationToken::new())).await
+                        Box::pin(self.run_inner(request, &sink, cancel.child_token())).await
                     {
                         return Some(format!(
                             "CROSS-REVIEW by {reviewer}: corrections were asked for, and the \
@@ -1793,6 +1883,7 @@ impl Agent {
                 crate::routing::HandOff::No
             };
             schemas.extend(crate::routing::routing_schemas(hand_off));
+            schemas.push(crate::routing::delegation_log_schema());
         }
         // Working together, when it is on (Settings > Team).
         let team = self.config.agent.comms.clone();
@@ -2186,6 +2277,12 @@ impl Agent {
                                 &cancel,
                             )
                             .await
+                        }
+                        Ok(args @ serde_json::Value::Object(_))
+                            if call.name == "delegation_log"
+                                && active.delegation != crate::agent_def::Delegation::None =>
+                        {
+                            self.delegation_log(&session, &args)
                         }
                         Ok(args @ serde_json::Value::Object(_))
                             if crate::comms::is_comms_tool(&call.name) =>
@@ -2664,8 +2761,10 @@ fn cut_off(finish_reason: &str) -> String {
     };
     format!(
         "Not executed: {why} before this call's arguments were complete, so nothing was \
-         written or run. Do not send the same reply again. Send one `write` per step, and \
-         for a long file write its first part and add the rest with `edit` in the next steps."
+         written or run. The reply was too long to arrive whole: sending it again fails the \
+         same way. Send one `write` per step of at most about 150 lines: write the first part \
+         of the file ending in a marker comment (`<!-- next -->`, `// next`), then in each \
+         next step replace the marker with the next part and a new marker using `edit`."
     )
 }
 
@@ -2722,6 +2821,98 @@ fn persist_interrupted(
 /// Whether a delegation's transcript is kept after it reports: only one
 /// that finished with its report is cleared. A failure, a stop short (no
 /// report) or a branch still at work keeps its session to be resumed.
+/// The report of a delegation the user stopped: what it had changed, what
+/// it was doing last, and where to read the rest.
+fn killed_summary(branch: &Session) -> String {
+    let touched = files_touched(branch);
+    let last = branch
+        .turns
+        .iter()
+        .rev()
+        .find(|t| {
+            matches!(t.message.role, MessageRole::Assistant) && !t.message.content.trim().is_empty()
+        })
+        .map(|t| clip(t.message.content.trim(), 600))
+        .unwrap_or_else(|| "(nothing said yet)".into());
+    format!(
+        "KILLED by the user before it finished.\n\
+         Already changed: {}\n\
+         What it said last: {last}\n\
+         Its transcript is kept: read what it did with `delegation_log` (session `{}`) \
+         before you brief the next delegation, so the work done is not redone and the \
+         new brief starts where this one stopped. The user stopped it on purpose: do not \
+         resume or redo it unless they ask.",
+        if touched.is_empty() {
+            "none".to_owned()
+        } else {
+            touched.join(", ")
+        },
+        branch.id
+    )
+}
+
+/// `text` cut to `limit` characters, the cut marked.
+fn clip(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_owned();
+    }
+    let mut out: String = text.chars().take(limit).collect();
+    out.push_str(" …");
+    out
+}
+
+/// A delegation's transcript, condensed for the agent that delegated: what
+/// it was asked, what it said, the tools it called with their key argument,
+/// and the start of what each returned. The end is kept when it runs long:
+/// where the work stopped matters most.
+fn transcript_digest(branch: &Session) -> String {
+    let mut lines: Vec<String> = vec![format!(
+        "Transcript of `{}` ({}), {} messages:",
+        branch.agent,
+        branch.id,
+        branch.turns.len()
+    )];
+    for turn in &branch.turns {
+        let message = &turn.message;
+        let content = message.content.trim();
+        match message.role {
+            MessageRole::User if !content.is_empty() => {
+                lines.push(format!("[asked] {}", clip(content, 500)));
+            }
+            MessageRole::Assistant => {
+                if !content.is_empty() {
+                    lines.push(format!("[said] {}", clip(content, 800)));
+                }
+                for call in &message.tool_calls {
+                    let args: serde_json::Value =
+                        serde_json::from_str(&call.arguments).unwrap_or_default();
+                    let key = [
+                        "path", "pattern", "command", "query", "url", "agent", "name",
+                    ]
+                    .iter()
+                    .find_map(|k| args.get(*k).and_then(|v| v.as_str()))
+                    .unwrap_or("");
+                    lines.push(format!("[called] {} {}", call.name, clip(key, 160)));
+                }
+            }
+            MessageRole::Tool if !content.is_empty() => {
+                lines.push(format!("[result] {}", clip(content, 200)));
+            }
+            _ => {}
+        }
+    }
+    let mut out = lines.join("\n");
+    const LIMIT: usize = 14_000;
+    if out.chars().count() > LIMIT {
+        let skip = out.chars().count() - LIMIT;
+        out = format!(
+            "(the first {skip} characters are left out)\n{}",
+            out.chars().skip(skip).collect::<String>()
+        );
+    }
+    out
+}
+
 fn is_kept(report: &crate::event::DelegationReport) -> bool {
     report.failed || !report.summary.starts_with("DONE:")
 }

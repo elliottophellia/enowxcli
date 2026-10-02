@@ -301,6 +301,23 @@ impl App {
     /// Deliberately not `resume`: that adopts the session as the one being
     /// worked in. This keeps the main conversation as the live one and puts
     /// its blocks aside to restore on the way back.
+    /// Stop the sub-agent at `index` in the sidebar, if it is at work.
+    pub(crate) fn kill_delegation(&mut self, index: usize) {
+        let Some(delegation) = self.delegations.get(index).cloned() else {
+            return;
+        };
+        let name = enowx_core::agent_def::display_name(&delegation.agent);
+        if delegation.state != crate::app::DelegationState::Running {
+            self.status = format!("{name} is not running");
+            return;
+        }
+        self.status = if self.agent.kill_delegation(&delegation.session_id) {
+            format!("stopping {name}; its caller is told, with what it did")
+        } else {
+            format!("{name} already finished")
+        };
+    }
+
     pub(crate) fn view_delegation(&mut self, index: usize) -> Result<()> {
         let Some(delegation) = self.delegations.get(index).cloned() else {
             return Ok(());

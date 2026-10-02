@@ -323,6 +323,11 @@ read every two seconds: the memory of enx and the processes it started (MCP
 servers, language servers, the preview browser), their CPU, and the history
 on disk with its delegations.
 
+A sub-agent at work can be stopped with a right-click on it in the
+sidebar's Agents tab. The agent that delegated it is told it was stopped,
+with what it had changed, and can read its whole transcript with
+`delegation_log` before it briefs the next one.
+
 `/agent` lists the roster with the model each agent runs on under it (its
 own, or the shared default marked `· default`). `Enter` switches to the
 selected agent, `m` gives it a model of its own from the model list (saved

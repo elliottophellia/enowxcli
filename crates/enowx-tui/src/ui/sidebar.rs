@@ -543,15 +543,7 @@ fn detail_lines(app: &App, width: usize) -> Detail {
                     note(&mut lines, &format!("↓ {} more", total - end), t);
                 }
                 list_span = Some((first_line, lines.len().saturating_sub(1)));
-                note(
-                    &mut lines,
-                    if total > DELEGATIONS_SHOWN {
-                        "scroll to slide · click to open"
-                    } else {
-                        "click one to open · Esc returns"
-                    },
-                    t,
-                );
+                note(&mut lines, "click opens · right-click stops", t);
             }
 
             // The roster, names only and flowed, with the active agent in the

@@ -554,6 +554,30 @@ pub enum HandOff {
     BackToOrchestrator,
 }
 
+/// `delegation_log`, for an agent that delegates: read what one of its
+/// delegations did, from its transcript.
+pub fn delegation_log_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "delegation_log",
+            "description":
+                "Read what one of your delegations did: what it was asked, what it said, \
+                 the tools it called and what they returned. Use it when a delegation was \
+                 stopped, failed or came back without a full report, before you brief the \
+                 next one: start the new brief where that work stopped, and do not redo what \
+                 it already changed.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "session": {"type": "string", "description": "the session id its report gave"}
+                },
+                "required": ["session"]
+            }
+        }
+    })
+}
+
 pub fn routing_schemas(hand_off: HandOff) -> Vec<serde_json::Value> {
     use serde_json::json;
     let delegate = json!({

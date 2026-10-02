@@ -7,6 +7,7 @@ pub mod ask;
 pub mod auth;
 pub mod builtin_mcp;
 pub mod catalog;
+pub mod comms;
 pub mod compact;
 pub mod config;
 pub mod contract;

@@ -343,6 +343,8 @@ pub struct Agent {
     /// Which files the agents of the current run are editing, so two of
     /// them working at once never edit the same file.
     board: crate::contract::Board,
+    /// Messages and the shared board between the agents of a run.
+    comms: crate::comms::Comms,
     /// Language servers started for this workspace, shared by every agent
     /// of the run.
     lsp: Arc<crate::lsp::Lsp>,
@@ -437,6 +439,7 @@ impl Agent {
             asks_user: false,
             questions: std::sync::Mutex::new(std::collections::HashMap::new()),
             board: crate::contract::Board::default(),
+            comms: crate::comms::Comms::default(),
             lsp: Arc::new(crate::lsp::Lsp::new(config_workspace)),
             me: std::sync::Weak::new(),
             background: std::sync::Mutex::new(None),
@@ -584,6 +587,122 @@ impl Agent {
             return;
         };
         let _ = tokio::time::timeout(left, notified).await;
+    }
+
+    /// `message_agent` and `team_board`, for the agent `agent` in `session`.
+    fn comms_call(
+        &self,
+        session: &Session,
+        agent: &str,
+        tool: &str,
+        args: &serde_json::Value,
+    ) -> ToolOutput {
+        let team = &self.config.agent.comms;
+        let text = |key: &str| args.get(key).and_then(|v| v.as_str()).unwrap_or("").trim();
+        match tool {
+            "message_agent" if team.messages_on() => {
+                let (to, message) = (text("to"), text("message"));
+                if to.is_empty() || message.is_empty() {
+                    return ToolOutput::error("message_agent needs `to` and `message`");
+                }
+                match self.recipient(session, to) {
+                    Ok(target) => {
+                        self.comms.send(&target, agent, &session.id, message);
+                        ToolOutput::ok(format!(
+                            "Sent to {to}. It reads it at its next step; an answer comes back                              to you as a message. Carry on meanwhile."
+                        ))
+                    }
+                    Err(refusal) => ToolOutput::error(refusal),
+                }
+            }
+            "team_board" if team.board_on() => match text("action") {
+                "post" => {
+                    let note = text("text");
+                    if note.is_empty() {
+                        return ToolOutput::error("team_board post needs `text`");
+                    }
+                    self.comms.post(&session.id, agent, text("topic"), note);
+                    ToolOutput::ok("Posted to the board.")
+                }
+                "read" | "" => {
+                    let topic = Some(text("topic")).filter(|t| !t.is_empty());
+                    ToolOutput::ok(crate::comms::render_notes(
+                        &self.comms.read(&session.id, topic),
+                    ))
+                }
+                other => ToolOutput::error(format!(
+                    "team_board has no action `{other}`: use post or read"
+                )),
+            },
+            other => ToolOutput::error(format!("`{other}` is turned off in Settings > Team")),
+        }
+    }
+
+    /// The session `to` names for an agent in `session`: `lead` (or the
+    /// caller's own id) is the agent that delegated to it; otherwise an
+    /// agent at work in this run, its siblings first, then its own
+    /// delegates, then any other.
+    fn recipient(&self, session: &Session, to: &str) -> Result<String, String> {
+        use crate::agent_def::canonical_name;
+        let wanted = canonical_name(to.trim().trim_start_matches('@')).to_owned();
+        let caller = session
+            .parent
+            .as_deref()
+            .and_then(|parent| self.store.load(parent).ok());
+        if matches!(wanted.as_str(), "lead" | "caller" | "parent") {
+            return session
+                .parent
+                .clone()
+                .ok_or_else(|| "you were not delegated to: there is no lead to message".into());
+        }
+        if let Some(caller) = &caller {
+            if canonical_name(&caller.agent) == wanted {
+                return Ok(caller.id.clone());
+            }
+        }
+        let running: Vec<(String, RunningBranch)> = self
+            .running
+            .lock()
+            .map(|running| {
+                running
+                    .iter()
+                    .map(|(id, branch)| (id.clone(), branch.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let matches = |(id, branch): &&(String, RunningBranch)| {
+            *id != session.id && canonical_name(&branch.agent) == wanted
+        };
+        let sibling = running
+            .iter()
+            .filter(matches)
+            .find(|(_, b)| Some(b.parent.as_str()) == session.parent.as_deref());
+        let delegate = running
+            .iter()
+            .filter(matches)
+            .find(|(_, b)| b.parent == session.id);
+        if let Some((id, _)) = sibling
+            .or(delegate)
+            .or_else(|| running.iter().find(matches))
+        {
+            return Ok(id.clone());
+        }
+        let mut at_work: Vec<String> = running
+            .iter()
+            .filter(|(id, _)| *id != session.id)
+            .map(|(_, b)| b.agent.clone())
+            .collect();
+        if session.parent.is_some() {
+            at_work.push("lead".into());
+        }
+        Err(format!(
+            "`{to}` is not at work now. At work: {}",
+            if at_work.is_empty() {
+                "nobody else".to_owned()
+            } else {
+                at_work.join(", ")
+            }
+        ))
     }
 
     /// Send the built-in rag server a notification, if it is running. Fire
@@ -1017,6 +1136,7 @@ impl Agent {
                     continue;
                 };
                 self.board.branch(&branch.id, &parent.id);
+                self.comms.branch(&branch.id, &parent.id);
                 self.mark_running(&branch.id, &parent.id, delegation);
                 if let Some(record) = parent
                     .delegations
@@ -1059,6 +1179,7 @@ impl Agent {
                 continue;
             }
             self.board.branch(&branch.id, &parent.id);
+            self.comms.branch(&branch.id, &parent.id);
             self.mark_running(&branch.id, &parent.id, delegation);
             parent.delegations.push(crate::session::DelegationRecord {
                 agent: delegation.to.clone(),
@@ -1139,12 +1260,18 @@ impl Agent {
                 // interrupted rather than failed.
                 let own = CancellationToken::new();
                 let outcome = Box::pin(self.run_inner(request, &sink, own)).await;
+                // Checked before it lets go of its files, so the fixes a
+                // reviewer asks for are still its to make.
+                let review = match &outcome {
+                    Ok(()) => Box::pin(self.cross_review(delegation, &branch.id, events)).await,
+                    Err(_) => None,
+                };
                 // Finished: what it was editing is open to the others again.
                 self.board.release(&branch.id);
                 if let Ok(mut running) = self.running.lock() {
                     running.remove(&branch.id);
                 }
-                Some(outcome)
+                Some((outcome, review))
             });
         let outcomes = futures::future::join_all(runs).await;
 
@@ -1158,10 +1285,14 @@ impl Agent {
                 (Ok(branch), Some(outcome)) => (branch, outcome),
                 (Ok(_), None) => unreachable!("a started branch always runs"),
             };
+            let (outcome, review) = outcome;
             // Reload: the nested run owns the branch on disk from here.
             let branch = self.store.load(&branch.id).unwrap_or(branch);
             let summary = match outcome {
-                Ok(()) => branch_summary(&branch),
+                Ok(()) => match review {
+                    Some(review) => format!("{}\n\n{review}", branch_summary(&branch)),
+                    None => branch_summary(&branch),
+                },
                 Err(error) => {
                     // Whether files were already changed decides what the
                     // caller may safely do next, so the report says which.
@@ -1193,6 +1324,130 @@ impl Agent {
             });
         }
         reports
+    }
+
+    /// Cross-review (Settings > Team): the reviewer checks what a delegate
+    /// changed; corrections go back to the delegate, in its own session, and
+    /// the work is checked again, until it passes or the rounds are spent.
+    /// What the caller is told, appended to the delegate's report; None when
+    /// there was nothing to review.
+    async fn cross_review(
+        &self,
+        delegation: &crate::routing::Delegation,
+        branch_id: &str,
+        events: &mpsc::Sender<Event>,
+    ) -> Option<String> {
+        use crate::agent_def::canonical_name;
+        use crate::comms::{corrections_message, parse_verdict, review_brief, Verdict};
+        let team = self.config.agent.comms.clone();
+        if !team.review_on() {
+            return None;
+        }
+        let reviewer = team.reviewer.trim().to_owned();
+        if canonical_name(&reviewer) == canonical_name(&delegation.to) {
+            return None;
+        }
+        if !self
+            .discovery
+            .agents
+            .iter()
+            .any(|a| canonical_name(&a.name) == canonical_name(&reviewer))
+        {
+            return Some(format!(
+                "CROSS-REVIEW: skipped, there is no agent `{reviewer}` (Settings > Team)"
+            ));
+        }
+        let rounds = team.review_rounds.clamp(1, 5);
+        let mut fixes = 0u8;
+        loop {
+            let branch = self.store.load(branch_id).ok()?;
+            let files = files_touched(&branch);
+            // Nothing changed: an answer, not work to check.
+            if files.is_empty() {
+                return None;
+            }
+            let report = branch_summary(&branch);
+            let review = branch.branch(reviewer.clone());
+            self.store.save(&review).ok()?;
+            self.board.branch(&review.id, branch_id);
+            self.comms.branch(&review.id, branch_id);
+            let _ = events
+                .send(Event::DelegationStarted {
+                    agent: reviewer.clone(),
+                    task: format!("cross-review of {}'s work", delegation.to),
+                    session_id: review.id.clone(),
+                })
+                .await;
+            let request = RunRequest {
+                prompt: review_brief(&delegation.to, &delegation.task, &report, &files),
+                session_id: Some(review.id.clone()),
+                role: review.role,
+                attachments: Vec::new(),
+                agent: None,
+            };
+            let (sink, mut drain) = mpsc::channel::<Event>(64);
+            tokio::spawn(async move { while drain.recv().await.is_some() {} });
+            let outcome = Box::pin(self.run_inner(request, &sink, CancellationToken::new())).await;
+            self.board.release(&review.id);
+            let reviewed = self.store.load(&review.id).unwrap_or(review);
+            let verdict_report = match outcome {
+                Ok(()) => branch_summary(&reviewed),
+                Err(error) => format!("failed: {error:#}"),
+            };
+            let _ = events
+                .send(Event::DelegationFinished {
+                    agent: reviewer.clone(),
+                    summary: verdict_report.clone(),
+                    session_id: reviewed.id.clone(),
+                    failed: false,
+                })
+                .await;
+            // The review's verdict reaches the caller; its transcript is not
+            // kept, like any delegation that reported.
+            let _ = self.store.delete_family(&reviewed.id);
+            match parse_verdict(&verdict_report) {
+                Verdict::Pass => {
+                    return Some(if fixes == 0 {
+                        format!("CROSS-REVIEW by {reviewer}: PASS")
+                    } else {
+                        format!(
+                            "CROSS-REVIEW by {reviewer}: PASS after {fixes} correction round(s)"
+                        )
+                    });
+                }
+                Verdict::Unclear => {
+                    return Some(format!(
+                        "CROSS-REVIEW by {reviewer}: no clear verdict. Its review:\n{verdict_report}"
+                    ));
+                }
+                Verdict::Fix(corrections) => {
+                    if fixes >= rounds {
+                        return Some(format!(
+                            "CROSS-REVIEW by {reviewer}: still FIX after {rounds} correction \
+                             round(s). Open corrections:\n{corrections}"
+                        ));
+                    }
+                    fixes += 1;
+                    let request = RunRequest {
+                        prompt: corrections_message(&reviewer, &corrections, fixes, rounds),
+                        session_id: Some(branch_id.to_owned()),
+                        role: branch.role,
+                        attachments: Vec::new(),
+                        agent: None,
+                    };
+                    let (sink, mut drain) = mpsc::channel::<Event>(64);
+                    tokio::spawn(async move { while drain.recv().await.is_some() {} });
+                    if let Err(error) =
+                        Box::pin(self.run_inner(request, &sink, CancellationToken::new())).await
+                    {
+                        return Some(format!(
+                            "CROSS-REVIEW by {reviewer}: corrections were asked for, and the \
+                             fix failed: {error:#}\nCorrections:\n{corrections}"
+                        ));
+                    }
+                }
+            }
+        }
     }
 
     /// Roll finished branches into the session that delegated: their token
@@ -1539,6 +1794,9 @@ impl Agent {
             };
             schemas.extend(crate::routing::routing_schemas(hand_off));
         }
+        // Working together, when it is on (Settings > Team).
+        let team = self.config.agent.comms.clone();
+        schemas.extend(crate::comms::schemas(team.messages_on(), team.board_on()));
         // Set when a routing call is accepted during a step, and acted on once
         // the step's tool results are recorded — switching mid-loop would
         // leave the current turn's results attributed to the wrong agent.
@@ -1556,6 +1814,11 @@ impl Agent {
         if session.parent.is_some() {
             prompt.push_str(REPORT_CONTRACT);
         }
+        prompt.push_str(&crate::comms::prompt_note(
+            team.messages_on(),
+            team.board_on(),
+            team.review_on() && session.parent.is_some(),
+        ));
         // Delegations this conversation left running in the background: said
         // up front, or a "continue" from the user resumed one still at work and
         // two runs of the same session edited the same files.
@@ -1637,6 +1900,14 @@ impl Agent {
             if step > 0 {
                 self.compact_mid_turn(&mut session, &agent_config, events)
                     .await;
+            }
+            // Messages other agents left for this one since its last step.
+            if team.messages_on() {
+                let letters = self.comms.take(&session.id);
+                if !letters.is_empty() {
+                    session.push(Message::user(crate::comms::letters_message(&letters)));
+                    self.store.save(&session)?;
+                }
             }
             let mut wire = Vec::with_capacity(session.turns.len() + 1);
             wire.push(system.clone());
@@ -1915,6 +2186,11 @@ impl Agent {
                                 &cancel,
                             )
                             .await
+                        }
+                        Ok(args @ serde_json::Value::Object(_))
+                            if crate::comms::is_comms_tool(&call.name) =>
+                        {
+                            self.comms_call(&session, &active.name, &call.name, &args)
                         }
                         Ok(args @ serde_json::Value::Object(_))
                             if crate::routing::is_routing_tool(&call.name) =>

@@ -283,11 +283,34 @@ reads `.env` files, keys or lockfiles. Each checkout is its own project.
 The `rag` skill, which tells agents when to index and how to search,
 reaches them only while the server is on.
 
+## Agents working together
+
+Off by default; turn it on in Settings > Team (or `/team`). Each part can
+then be turned off on its own:
+
+- **Messages.** Agents at work at the same time (parallel delegations, the
+  lead that delegated to them) can message each other with `message_agent`:
+  ask a question, agree on an interface, or point out a mistake in another
+  agent's part. A message reaches its agent at its next step.
+- **Shared board.** `team_board` holds what one run decided (an endpoint's
+  shape, a token's name, a file that moved): agents post to it and read it
+  before work that touches another agent's part.
+- **Cross-review.** When a delegate's work changed files, a reviewer (the
+  `review` agent unless you pick another) checks it against the task. Its
+  corrections go back to the delegate, in the same session, and the work is
+  checked again, until it passes or the correction rounds (1 to 5, 2 by
+  default) are spent. The caller's report ends with the outcome:
+  `CROSS-REVIEW by review: PASS after 1 correction round(s)`, or the
+  corrections still open.
+
+The same settings live in `config.toml` under `[agent.comms]`: `enabled`,
+`messages`, `board`, `review`, `review_rounds`, `reviewer`.
+
 ## Terminal commands
 
 `/help` `/new` `/resume` `/agent` `/model` `/effort` `/provider` `/attach`
 `/theme` `/typesafe` `/skills` `/mcp` `/compact` `/handoff` `/sidebar` `/reasoning`
-`/tools` `/preview` `/rag` `/status` `/clear` `/stop` `/retry` `/commands` `/quit`
+`/tools` `/preview` `/rag` `/team` `/status` `/clear` `/stop` `/retry` `/commands` `/quit`
 
 `/handoff` carries the conversation on in a fresh session: its history is
 folded into a summary, the last few turns are kept as they were, and the same
@@ -326,7 +349,7 @@ continues at once and `Esc` cancels the wait.
 
 Two tabs sit at the top right: Chat and Settings. Settings takes the main
 column in place of the chat, with its sections listed on the left (Models,
-Providers, Agents, MCP, RAG, Skills, Sessions, Theme) and the chosen one beside
+Providers, Agents, Team, MCP, RAG, Skills, Sessions, Theme) and the chosen one beside
 them. `Ctrl+P` switches between Chat and Settings. Settings opens with the
 section list focused: `Up`/`Down` pick a section, shown beside the list, and
 `Enter` goes into it. `Esc` steps back one level: from a form to its list,

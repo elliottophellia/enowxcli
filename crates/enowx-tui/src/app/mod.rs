@@ -31,6 +31,7 @@ mod rag_ui;
 mod sessions;
 mod settings_keys;
 pub(crate) mod skills;
+mod team_ui;
 
 /// One sub-agent run, as the sidebar shows it.
 #[derive(Clone)]
@@ -705,6 +706,8 @@ impl App {
             crate::modal::builtin_mcp_fields(&self.settings.provider_id)
         } else if self.modal == crate::modal::Modal::Rag {
             crate::modal::rag_fields(&self.settings.rag_provider)
+        } else if self.modal == crate::modal::Modal::Team {
+            crate::modal::team_fields(self.settings.team_enabled == "on")
         } else {
             crate::modal::form_fields(self.modal)
         }

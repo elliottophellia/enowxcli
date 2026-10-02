@@ -9,6 +9,13 @@ after v0.1.0.
 
 ### Agents and delegation
 
+- **Agents can work together (Settings > Team, off by default).** Agents at
+  work at the same time message each other (`message_agent`), share a board
+  for the run (`team_board`), and a delegate's work that changed files is
+  cross-reviewed: the reviewer's corrections go back to the delegate and the
+  work is checked again, up to the rounds set (1 to 5). Each part can be
+  turned off on its own.
+
 - **New `maestro` agent**: an all-rounder in the LEAD group. It has the
   orchestrator's reach (delegate and hand off to anyone) but carries every
   tool, so it can change files, run commands and check interfaces itself
@@ -40,8 +47,8 @@ after v0.1.0.
 ### Interface
 
 - **Chat and Settings tabs at the top right.** Settings takes the whole main
-  column in place of the chat: its sections (Models, Providers, Agents, MCP,
-  RAG, Skills, Sessions, Theme) are listed on the left and the chosen one is
+  column in place of the chat: its sections (Models, Providers, Agents, Team,
+  MCP, RAG, Skills, Sessions, Theme) are listed on the left and the chosen one is
   beside them. `Ctrl+P` switches between Chat and Settings. Settings opens
   on the section list: `Up`/`Down` pick a section, `Enter` goes in, and `Esc`
   steps back one level (form to list, section to section list, list to

@@ -285,6 +285,51 @@ pub struct AgentConfig {
     /// Whether the orchestrator's delegations run in the background: its
     /// turn ends, and their reports start a new one when they finish.
     pub background_delegation: bool,
+    /// Agents working together: messages, a shared board, cross-review.
+    pub comms: CommsConfig,
+}
+
+/// The `[agent.comms]` table. Off unless `enabled`; each part can then be
+/// turned off on its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CommsConfig {
+    pub enabled: bool,
+    /// Agents at work at the same time may message each other.
+    pub messages: bool,
+    /// A board every agent in a run reads and posts to.
+    pub board: bool,
+    /// A delegate's work that changed files is checked by `reviewer`, and
+    /// sent back with corrections until it passes or `review_rounds` are
+    /// spent.
+    pub review: bool,
+    pub review_rounds: u8,
+    pub reviewer: String,
+}
+
+impl Default for CommsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            messages: true,
+            board: true,
+            review: true,
+            review_rounds: 2,
+            reviewer: "review".into(),
+        }
+    }
+}
+
+impl CommsConfig {
+    pub fn messages_on(&self) -> bool {
+        self.enabled && self.messages
+    }
+    pub fn board_on(&self) -> bool {
+        self.enabled && self.board
+    }
+    pub fn review_on(&self) -> bool {
+        self.enabled && self.review && self.review_rounds > 0
+    }
 }
 
 impl Default for AgentConfig {
@@ -302,6 +347,7 @@ impl Default for AgentConfig {
             lsp: true,
             preview: true,
             background_delegation: true,
+            comms: CommsConfig::default(),
         }
     }
 }
@@ -498,6 +544,10 @@ impl Config {
         anyhow::ensure!(
             self.agent.shell_timeout_secs > 0 && self.agent.shell_timeout_secs <= 86_400,
             "agent.shell_timeout_secs must be 1..=86400"
+        );
+        anyhow::ensure!(
+            (1..=5).contains(&self.agent.comms.review_rounds),
+            "agent.comms.review_rounds must be 1..=5"
         );
         for (id, entry) in &self.provider {
             anyhow::ensure!(

@@ -50,6 +50,9 @@ pub enum Modal {
     /// Settings > RAG: code search on or off, its database, and where its
     /// embeddings come from.
     Rag,
+    /// Settings > Team: agents messaging each other, a shared board, and
+    /// cross-review.
+    Team,
     /// Ctrl+C in an empty composer: confirm before quitting.
     QuitConfirm,
     /// `/handoff`: carry on in a fresh session, keeping or deleting this
@@ -84,6 +87,7 @@ impl Modal {
             | Modal::ModelEdit
             | Modal::BuiltinMcp
             | Modal::Rag
+            | Modal::Team
             | Modal::ProviderKey => "",
         }
     }
@@ -100,6 +104,7 @@ impl Modal {
                 | Modal::McpForm
                 | Modal::BuiltinMcp
                 | Modal::Rag
+                | Modal::Team
         )
     }
 }
@@ -148,6 +153,13 @@ pub enum SettingsField {
     EmbedUrl,
     /// Keep the RAG index fresh by itself, on or off.
     AutoIndex,
+    /// Settings > Team, every one a choice.
+    TeamEnabled,
+    TeamMessages,
+    TeamBoard,
+    TeamReview,
+    ReviewRounds,
+    Reviewer,
 }
 
 impl SettingsField {
@@ -177,6 +189,12 @@ impl SettingsField {
             SettingsField::Rerank | SettingsField::RerankText => "Reranker",
             SettingsField::EmbedUrl => "Base URL (OpenAI-compatible)",
             SettingsField::AutoIndex => "Index automatically (on start and on change)",
+            SettingsField::TeamEnabled => "Agents work together",
+            SettingsField::TeamMessages => "Messages between agents at work",
+            SettingsField::TeamBoard => "Shared board for each run",
+            SettingsField::TeamReview => "Cross-review of delegated work",
+            SettingsField::ReviewRounds => "Correction rounds at most",
+            SettingsField::Reviewer => "Reviewer",
         }
     }
 
@@ -200,6 +218,12 @@ impl SettingsField {
                 | SettingsField::Vision
                 | SettingsField::RagEnabled
                 | SettingsField::AutoIndex
+                | SettingsField::TeamEnabled
+                | SettingsField::TeamMessages
+                | SettingsField::TeamBoard
+                | SettingsField::TeamReview
+                | SettingsField::ReviewRounds
+                | SettingsField::Reviewer
                 | SettingsField::RagProvider
                 | SettingsField::EmbedModel
                 | SettingsField::Dimension
@@ -249,6 +273,23 @@ pub fn builtin_mcp_fields(server: &str) -> &'static [SettingsField] {
         // A Postgres with pgvector, local or in the cloud, and a Voyage key.
         "rag" => &[SettingsField::Dsn, SettingsField::ApiKey],
         _ => &[SettingsField::BaseUrl, SettingsField::ApiKey],
+    }
+}
+
+/// The fields of Settings > Team: with it off, only the switch; on, each
+/// part and how review runs.
+pub fn team_fields(enabled: bool) -> &'static [SettingsField] {
+    if enabled {
+        &[
+            SettingsField::TeamEnabled,
+            SettingsField::TeamMessages,
+            SettingsField::TeamBoard,
+            SettingsField::TeamReview,
+            SettingsField::ReviewRounds,
+            SettingsField::Reviewer,
+        ]
+    } else {
+        &[SettingsField::TeamEnabled]
     }
 }
 
@@ -322,6 +363,15 @@ pub struct SettingsDraft {
     pub rag_provider: String,
     pub dimension: String,
     pub rerank: String,
+    /// Settings > Team: "on"/"off" switches, the rounds ("1" to "5"), the
+    /// reviewer's id, and the agents that can review, to cycle through.
+    pub team_enabled: String,
+    pub team_messages: String,
+    pub team_board: String,
+    pub team_review: String,
+    pub review_rounds: String,
+    pub reviewer: String,
+    pub reviewers: Vec<String>,
     /// The efforts this model offers, to cycle through on the Effort field.
     pub efforts: Vec<String>,
 }
@@ -368,6 +418,12 @@ impl SettingsDraft {
             SettingsField::Rerank | SettingsField::RerankText => &self.rerank,
             SettingsField::EmbedUrl => &self.base_url,
             SettingsField::AutoIndex => &self.auto_index,
+            SettingsField::TeamEnabled => &self.team_enabled,
+            SettingsField::TeamMessages => &self.team_messages,
+            SettingsField::TeamBoard => &self.team_board,
+            SettingsField::TeamReview => &self.team_review,
+            SettingsField::ReviewRounds => &self.review_rounds,
+            SettingsField::Reviewer => &self.reviewer,
         }
     }
 
@@ -397,6 +453,12 @@ impl SettingsDraft {
             SettingsField::Rerank | SettingsField::RerankText => &mut self.rerank,
             SettingsField::EmbedUrl => &mut self.base_url,
             SettingsField::AutoIndex => &mut self.auto_index,
+            SettingsField::TeamEnabled => &mut self.team_enabled,
+            SettingsField::TeamMessages => &mut self.team_messages,
+            SettingsField::TeamBoard => &mut self.team_board,
+            SettingsField::TeamReview => &mut self.team_review,
+            SettingsField::ReviewRounds => &mut self.review_rounds,
+            SettingsField::Reviewer => &mut self.reviewer,
         }
     }
 
@@ -450,6 +512,24 @@ impl SettingsDraft {
                     "on".into()
                 }
             }
+            SettingsField::TeamEnabled
+            | SettingsField::TeamMessages
+            | SettingsField::TeamBoard
+            | SettingsField::TeamReview => {
+                if self.value(field) == "on" {
+                    "on".into()
+                } else {
+                    "off".into()
+                }
+            }
+            SettingsField::ReviewRounds => {
+                if self.review_rounds.is_empty() {
+                    "2".into()
+                } else {
+                    self.review_rounds.clone()
+                }
+            }
+            SettingsField::Reviewer => enowx_core::agent_def::display_name(&self.reviewer),
             SettingsField::RagProvider => {
                 enowx_core::builtin_mcp::rag::Provider::parse(&self.rag_provider)
                     .label()
@@ -488,6 +568,35 @@ impl SettingsDraft {
                     "off"
                 }
                 .into();
+            }
+            SettingsField::TeamEnabled
+            | SettingsField::TeamMessages
+            | SettingsField::TeamBoard
+            | SettingsField::TeamReview => {
+                let next = if self.value(field) == "on" {
+                    "off"
+                } else {
+                    "on"
+                };
+                *self.value_mut(field) = next.into();
+            }
+            SettingsField::ReviewRounds => {
+                let here: i32 = self.review_rounds.parse().unwrap_or(2);
+                let next = ((here - 1 + delta).rem_euclid(5)) + 1;
+                self.review_rounds = next.to_string();
+            }
+            SettingsField::Reviewer => {
+                if self.reviewers.is_empty() {
+                    return;
+                }
+                let here = self
+                    .reviewers
+                    .iter()
+                    .position(|r| *r == self.reviewer)
+                    .unwrap_or(0) as i32;
+                let len = self.reviewers.len() as i32;
+                let next = (here + delta).rem_euclid(len);
+                self.reviewer = self.reviewers[next as usize].clone();
             }
             // A new provider starts on its own defaults: another provider's
             // model, width or reranker means nothing there.

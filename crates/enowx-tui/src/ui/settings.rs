@@ -36,6 +36,11 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
             "Overrides the detected values. Empty uses the catalogue or the id.".into(),
             format!("EDIT {}", app.settings.model.to_uppercase()),
         ),
+        Modal::Team => (
+            "Tab field · ←→ choose · Enter save · Esc back",
+            "Off by default. Saved to ~/.enx/config.toml; applies from the next step.".into(),
+            "TEAM · AGENTS WORKING TOGETHER".into(),
+        ),
         Modal::Rag => (
             "Tab field · ←→ choose · Enter save · Esc chat",
             "Keys and the database go to ~/.enx/auth.json; blank keeps what is stored.".into(),
@@ -207,6 +212,12 @@ fn placeholder(app: &App, field: SettingsField) -> &'static str {
         SettingsField::EmbedModelText => "e.g. nomic-embed-text, jina-embeddings-v3",
         SettingsField::DimensionText => "the width the model returns, e.g. 768",
         SettingsField::RerankText => "blank: none (needs a /rerank endpoint)",
+        SettingsField::TeamEnabled
+        | SettingsField::TeamMessages
+        | SettingsField::TeamBoard
+        | SettingsField::TeamReview
+        | SettingsField::ReviewRounds
+        | SettingsField::Reviewer => "←→ to choose",
         SettingsField::RagEnabled
         | SettingsField::AutoIndex
         | SettingsField::RagProvider

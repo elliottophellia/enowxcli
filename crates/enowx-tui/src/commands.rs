@@ -1,4 +1,4 @@
-pub(crate) const COMMANDS: [(&str, &str); 25] = [
+pub(crate) const COMMANDS: [(&str, &str); 26] = [
     ("help", "Show every command"),
     ("commands", "Browse and search every command"),
     ("new", "Start a fresh session"),
@@ -16,6 +16,10 @@ pub(crate) const COMMANDS: [(&str, &str); 25] = [
     ("skills", "Browse and toggle discovered skills"),
     ("mcp", "Browse, toggle, or add MCP servers"),
     ("rag", "Code search: on or off, database, embedding model"),
+    (
+        "team",
+        "Agents working together: messages, shared board, cross-review",
+    ),
     ("compact", "Summarise older turns to free context"),
     (
         "handoff",
@@ -64,6 +68,7 @@ const PALETTE: [(&str, &[(&str, &str)]); 5] = [
         "Agents & models",
         &[
             ("agent", "Agents"),
+            ("team", "Agents working together"),
             ("model", "Model"),
             ("effort", "Thinking effort"),
             ("provider", "Provider"),

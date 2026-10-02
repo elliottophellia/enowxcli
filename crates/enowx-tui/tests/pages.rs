@@ -81,8 +81,11 @@ fn the_arrows_walk_the_section_list() {
     app.run_command("/agent").unwrap();
     assert!(app.modal_title().contains("AGENT"), "{}", app.modal_title());
     app.press_key(KeyCode::Left).unwrap();
+    // Agents, then Team, then MCP.
+    app.press_key(KeyCode::Down).unwrap();
     app.press_key(KeyCode::Down).unwrap();
     assert!(app.modal_title().contains("MCP"), "{}", app.modal_title());
+    app.press_key(KeyCode::Up).unwrap();
     app.press_key(KeyCode::Up).unwrap();
     app.press_key(KeyCode::Up).unwrap();
     assert!(

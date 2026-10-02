@@ -19,6 +19,7 @@ mod actions;
 mod connection;
 pub(crate) mod delegation_list;
 mod events;
+mod handoff;
 mod keys;
 pub(crate) mod mcp_ui;
 pub(crate) mod model_picker;
@@ -247,6 +248,10 @@ pub(crate) struct App {
     pub(crate) queue_paused: bool,
     /// Where the queue's "send now" button was drawn, for a click.
     pub(crate) queue_send_button: Option<Rect>,
+    /// What this session costs the machine, sampled every few seconds.
+    pub(crate) resources: crate::resources::Sampler,
+    /// A handoff under way: the new session, or why it failed.
+    pub(crate) handoff: Option<handoff::Pending>,
     pub(crate) attach_error: Option<String>,
     pub(crate) tool_counts: HashMap<String, usize>,
     pub(crate) context_tokens: u32,
@@ -421,6 +426,8 @@ impl App {
             queued: std::collections::VecDeque::new(),
             queue_paused: false,
             queue_send_button: None,
+            resources: crate::resources::Sampler::default(),
+            handoff: None,
             attach_error: None,
             sidebar_pages_area: None,
             sidebar_area: None,

@@ -398,6 +398,7 @@ impl App {
             "skills" => self.open_skills(),
             "mcp" => self.open_mcp(),
             "compact" => self.start_compact()?,
+            "handoff" => self.open_handoff()?,
             "sidebar" => self.toggle_sidebar()?,
             "preview" => self.toggle_preview()?,
             "reasoning" => {
@@ -641,6 +642,18 @@ impl App {
             Modal::McpForm => return self.submit_mcp_form(),
             Modal::QuitConfirm => {
                 self.should_quit = true;
+            }
+            Modal::Handoff => {
+                let choice = self
+                    .modal_items
+                    .get(self.modal_cursor)
+                    .map(|(id, _)| id.clone());
+                self.modal = Modal::None;
+                match choice.as_deref() {
+                    Some("keep") => return self.start_handoff(false),
+                    Some("delete") => return self.start_handoff(true),
+                    _ => {}
+                }
             }
             Modal::None => {}
         }

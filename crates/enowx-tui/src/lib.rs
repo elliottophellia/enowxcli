@@ -7,6 +7,7 @@ pub mod keymap;
 mod logs;
 mod modal;
 mod pricing;
+mod resources;
 mod runtime;
 mod session;
 mod syntax;

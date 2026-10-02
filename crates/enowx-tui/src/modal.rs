@@ -47,6 +47,9 @@ pub enum Modal {
     McpForm,
     /// Ctrl+C in an empty composer: confirm before quitting.
     QuitConfirm,
+    /// `/handoff`: carry on in a fresh session, keeping or deleting this
+    /// one's history.
+    Handoff,
 }
 
 impl Modal {
@@ -68,6 +71,7 @@ impl Modal {
             Modal::Mcp => " MCP SERVERS ",
             Modal::McpForm => " ADD MCP SERVER ",
             Modal::QuitConfirm => " QUIT ENX ",
+            Modal::Handoff => " HAND OFF TO A NEW SESSION ",
             // Forms draw their own heading, so the generic title is empty.
             Modal::None
             | Modal::ProviderForm

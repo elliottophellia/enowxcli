@@ -212,8 +212,19 @@ Other MCP clients can run them too: the command is `enx mcp serve coolify`
 ## Terminal commands
 
 `/help` `/new` `/resume` `/agent` `/model` `/effort` `/provider` `/attach`
-`/theme` `/typesafe` `/skills` `/mcp` `/compact` `/sidebar` `/reasoning`
+`/theme` `/typesafe` `/skills` `/mcp` `/compact` `/handoff` `/sidebar` `/reasoning`
 `/tools` `/preview` `/status` `/clear` `/stop` `/retry` `/quit`
+
+`/handoff` carries the conversation on in a fresh session: its history is
+folded into a summary, the last few turns are kept as they were, and the same
+agent holds it, so the context is light again. It asks first whether to keep
+the old session's history (it stays in `/resume`) or delete it, with its
+delegations' transcripts and the size it takes on disk.
+
+The SESSION card in the sidebar shows what the session costs the machine,
+read every two seconds: the memory of enx and the processes it started (MCP
+servers, language servers, the preview browser), their CPU, and the history
+on disk with its delegations.
 
 `/agent` lists the roster: `Enter` switches to the selected agent, `m` gives
 it a model of its own from the model list (saved as `agent.models.<agent>`,

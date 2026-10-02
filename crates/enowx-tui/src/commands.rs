@@ -1,4 +1,4 @@
-pub(crate) const COMMANDS: [(&str, &str); 22] = [
+pub(crate) const COMMANDS: [(&str, &str); 23] = [
     ("help", "Show every command"),
     ("new", "Start a fresh session"),
     ("resume", "Reopen a saved session in this workspace"),
@@ -15,6 +15,10 @@ pub(crate) const COMMANDS: [(&str, &str); 22] = [
     ("skills", "Browse and toggle discovered skills"),
     ("mcp", "Browse, toggle, or add MCP servers"),
     ("compact", "Summarise older turns to free context"),
+    (
+        "handoff",
+        "Carry on in a fresh, light session; keep or delete this one",
+    ),
     ("sidebar", "Toggle telemetry right sidebar"),
     ("reasoning", "Open or close every thinking row"),
     ("tools", "Expand or collapse tool output"),
@@ -47,6 +51,7 @@ const PALETTE: [(&str, &[(&str, &str)]); 5] = [
             ("new", "New session"),
             ("resume", "Resume session"),
             ("compact", "Compact context"),
+            ("handoff", "Hand off to a new session"),
             ("clear", "Clear transcript"),
             ("stop", "Stop turn"),
             ("retry", "Retry turn"),

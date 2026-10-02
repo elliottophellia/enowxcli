@@ -717,6 +717,42 @@ impl Agent {
         Ok(summary)
     }
 
+    /// Carry a conversation on in a fresh session: the old one's history
+    /// folded into a summary, its last turns kept as they were, the same
+    /// agent holding it. The new session starts light; the old one is left
+    /// as it was, for the caller to keep or delete.
+    pub async fn handoff(&self, session_id: &str) -> Result<Session> {
+        let old = self.store.load(session_id)?;
+        let mut next = old.clone();
+        next.id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now();
+        next.created_at = now;
+        next.updated_at = now;
+        next.parent = None;
+        // The old session's delegations stay with it: a branch can only be
+        // resumed by the session that started it.
+        next.delegations.clear();
+        next.switches.clear();
+        next.usage = crate::session::SessionUsage::default();
+        next.title = if old.title.is_empty() {
+            "Continued".to_owned()
+        } else if old.title.ends_with("(continued)") {
+            old.title.clone()
+        } else {
+            format!("{} (continued)", old.title)
+        };
+        let provider = Provider::from_config(&self.config)?;
+        let keep = self.config.agent.compact_keep_last.clamp(1, 4);
+        let summary =
+            crate::compact::compact_with(&mut next, &provider, keep, self.ranking_judge()).await?;
+        anyhow::ensure!(
+            summary.is_some(),
+            "too little history to hand off yet: the session is already light"
+        );
+        self.store.save(&next)?;
+        Ok(next)
+    }
+
     pub async fn run(
         &self,
         request: RunRequest,

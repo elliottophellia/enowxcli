@@ -33,6 +33,7 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
             | Modal::Providers
             | Modal::Themes
             | Modal::Effort
+            | Modal::Handoff
     ) {
         2
     } else {

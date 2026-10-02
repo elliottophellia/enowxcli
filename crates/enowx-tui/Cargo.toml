@@ -18,6 +18,7 @@ tokio.workspace = true
 unicode-width = "0.2"
 tokio-util.workspace = true
 pulldown-cmark = { version = "0.13.4", default-features = false }
+sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 
 [dev-dependencies]
 unicode-width = "0.2"

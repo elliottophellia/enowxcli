@@ -1202,6 +1202,11 @@ impl TestApp {
     pub fn composer_text(&self) -> String {
         self.inner.input.clone()
     }
+
+    /// One frame's sampling of memory, CPU and disk.
+    pub fn tick_resources(&mut self) {
+        self.inner.tick_resources();
+    }
 }
 
 impl TestApp {

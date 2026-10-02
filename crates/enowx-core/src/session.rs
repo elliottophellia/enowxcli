@@ -532,6 +532,37 @@ impl SessionStore {
         found.into_iter().map(|(_, record)| record).collect()
     }
 
+    /// Where `id`'s transcript is kept, when it is a session id.
+    pub fn file_of(&self, id: &str) -> Option<PathBuf> {
+        self.path_for(id).ok()
+    }
+
+    /// Every session `id` delegated to, theirs too, at any depth, with `id`
+    /// first.
+    pub fn family(&self, id: &str) -> Vec<String> {
+        let mut out = vec![id.to_owned()];
+        let mut at = 0;
+        while at < out.len() && out.len() < 10_000 {
+            for branch in self.branches_of(&out[at]) {
+                if !out.contains(&branch.session_id) {
+                    out.push(branch.session_id);
+                }
+            }
+            at += 1;
+        }
+        out
+    }
+
+    /// Delete a session and every delegation under it. Returns how many
+    /// transcripts were removed.
+    pub fn delete_family(&self, id: &str) -> Result<usize> {
+        let family = self.family(id);
+        for member in &family {
+            self.delete(member)?;
+        }
+        Ok(family.len())
+    }
+
     pub fn delete(&self, id: &str) -> Result<()> {
         let path = self.path_for(id)?;
         match std::fs::remove_file(&path) {
@@ -549,6 +580,29 @@ mod tests {
     fn temp_store() -> (SessionStore, PathBuf) {
         let dir = std::env::temp_dir().join(format!("enx-sessions-{}", uuid::Uuid::new_v4()));
         (SessionStore::new(dir.clone()), dir)
+    }
+
+    /// Deleting a session takes its delegations with it, at any depth, and
+    /// nothing else.
+    #[test]
+    fn a_session_is_deleted_with_its_delegations() {
+        let (store, dir) = temp_store();
+        let parent = Session::new(Role::Orchestrator);
+        let other = Session::new(Role::Orchestrator);
+        let child = parent.branch("fe");
+        let grandchild = child.branch("test");
+        for session in [&parent, &other, &child, &grandchild] {
+            store.save(session).unwrap();
+        }
+        assert_eq!(store.family(&parent.id).len(), 3);
+        assert_eq!(store.delete_family(&parent.id).unwrap(), 3);
+        assert!(store.load(&parent.id).is_err());
+        assert!(store.load(&grandchild.id).is_err());
+        assert!(
+            store.load(&other.id).is_ok(),
+            "another session is untouched"
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

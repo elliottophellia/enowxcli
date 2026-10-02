@@ -150,6 +150,57 @@ fn session_rows(app: &App, width: usize) -> Vec<Line<'static>> {
         ));
     }
     rows.push(Line::from(tools));
+    // What the session costs the machine: enx and the processes it started,
+    // and the history on disk, which `/handoff` can clear.
+    let usage = app.resources.usage;
+    if usage.own_memory > 0 {
+        let mut memory = vec![
+            label("memory"),
+            value(crate::resources::human(
+                usage.own_memory + usage.helpers_memory,
+            )),
+        ];
+        if usage.helpers > 0 {
+            memory.push(Span::styled(
+                format!(
+                    "  {} {}",
+                    usage.helpers,
+                    if usage.helpers == 1 {
+                        "helper"
+                    } else {
+                        "helpers"
+                    }
+                ),
+                Style::default().fg(t.muted),
+            ));
+        }
+        rows.push(Line::from(memory));
+        rows.push(Line::from(vec![
+            label("cpu"),
+            value(format!("{:.0}%", usage.cpu)),
+        ]));
+    }
+    if usage.on_disk > 0 {
+        let mut disk = vec![
+            label("on disk"),
+            value(crate::resources::human(usage.on_disk)),
+        ];
+        if usage.branches > 0 {
+            disk.push(Span::styled(
+                format!(
+                    "  {} {}",
+                    usage.branches,
+                    if usage.branches == 1 {
+                        "delegation"
+                    } else {
+                        "delegations"
+                    }
+                ),
+                Style::default().fg(t.muted),
+            ));
+        }
+        rows.push(Line::from(disk));
+    }
     // Only once it has done something: a row reading "0" on every install
     // that has never configured TypeSafe is noise.
     if app.trimmed_count > 0 {

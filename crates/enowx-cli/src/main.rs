@@ -91,6 +91,19 @@ enum McpCommand {
         /// rag only: the Postgres connection string, local or cloud.
         #[arg(long)]
         dsn: Option<String>,
+        /// rag only: where embeddings come from: voyage, openai or custom
+        /// (any OpenAI-compatible endpoint, with --url).
+        #[arg(long)]
+        provider: Option<String>,
+        /// rag only: the embedding model.
+        #[arg(long)]
+        model: Option<String>,
+        /// rag only: the vector width the model returns.
+        #[arg(long)]
+        dimension: Option<usize>,
+        /// rag only: the reranker, or `off`.
+        #[arg(long)]
+        rerank: Option<String>,
     },
     /// Forget a built-in server's setup and stored secrets, and turn it off.
     #[command(alias = "uninstall")]
@@ -188,9 +201,21 @@ async fn main() -> Result<()> {
                 url,
                 token,
                 dsn,
+                provider,
+                model,
+                dimension,
+                rerank,
             } => {
                 if name == "rag" {
-                    mcp::set_rag(dsn, token)
+                    mcp::set_rag(mcp::RagArgs {
+                        dsn,
+                        token,
+                        url,
+                        provider,
+                        model,
+                        dimension,
+                        rerank,
+                    })
                 } else {
                     mcp::install(&name, url, token)
                 }

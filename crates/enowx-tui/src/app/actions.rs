@@ -418,6 +418,7 @@ impl App {
             "effort" => self.open_effort()?,
             "skills" => self.open_skills(),
             "mcp" => self.open_mcp(),
+            "rag" => self.open_page(crate::app::pages::Page::Rag)?,
             "compact" => self.start_compact()?,
             "handoff" => self.open_handoff()?,
             "commands" => self.open_palette(),
@@ -663,6 +664,7 @@ impl App {
             Modal::Mcp => return self.accept_mcp_row(),
             Modal::McpForm => return self.submit_mcp_form(),
             Modal::BuiltinMcp => return self.save_builtin_mcp(),
+            Modal::Rag => return self.save_rag(),
             Modal::QuitConfirm => {
                 self.should_quit = true;
             }

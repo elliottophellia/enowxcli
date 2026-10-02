@@ -128,33 +128,96 @@ pub fn install(name: &str, url: Option<String>, token: Option<String>) -> Result
 
 /// `enx mcp set rag`: the database (a Postgres with pgvector, local or
 /// cloud) and the Voyage AI key. Both are secrets and go to auth.json.
-pub fn set_rag(dsn: Option<String>, token: Option<String>) -> Result<()> {
+pub struct RagArgs {
+    pub dsn: Option<String>,
+    pub token: Option<String>,
+    pub url: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub dimension: Option<usize>,
+    pub rerank: Option<String>,
+}
+
+/// `enx mcp set rag`: the database, the embedding provider and its key, the
+/// model, width and reranker. What is left out keeps its current value; a
+/// new provider starts on its own defaults.
+pub fn set_rag(args: RagArgs) -> Result<()> {
     use enowx_core::builtin_mcp::{rag, rag_dsn_id};
-    let dsn = match dsn {
-        Some(dsn) => dsn,
-        None => read_key("Postgres connection string (postgres://...): ")?,
+    let mut auth = Auth::load()?;
+    let mut config = BuiltinConfig::load()?;
+    let mut setup = config.rag.clone().unwrap_or_default();
+    if let Some(provider) = &args.provider {
+        let provider = rag::Provider::parse(provider);
+        if provider != setup.provider() {
+            setup = rag::RagSetup {
+                provider: provider.id().into(),
+                ..Default::default()
+            };
+        }
+    }
+    if let Some(url) = args.url {
+        setup.base_url = url.trim().trim_end_matches('/').to_owned();
+    }
+    if let Some(model) = args.model {
+        setup.model = model.trim().to_owned();
+        if args.dimension.is_none() {
+            setup.dimension = 0;
+        }
+    }
+    if let Some(dimension) = args.dimension {
+        setup.dimension = dimension;
+    }
+    if let Some(rerank) = args.rerank {
+        setup.rerank = rerank.trim().to_owned();
+    }
+    setup.check()?;
+    let provider = setup.provider();
+
+    let dsn = match args.dsn {
+        Some(dsn) => Some(dsn),
+        None if auth.key(&rag_dsn_id(), &[]).is_some() => None,
+        None => Some(read_key("Postgres connection string (postgres://...): ")?),
     };
-    let dsn = dsn.trim().to_owned();
-    anyhow::ensure!(
-        dsn.starts_with("postgres://") || dsn.starts_with("postgresql://"),
-        "the database must be a postgres:// connection string"
-    );
-    let token = match token {
-        Some(token) => token,
+    if let Some(dsn) = dsn {
+        let dsn = dsn.trim().to_owned();
+        anyhow::ensure!(
+            dsn.starts_with("postgres://") || dsn.starts_with("postgresql://"),
+            "the database must be a postgres:// connection string"
+        );
+        auth.store(&rag_dsn_id(), &dsn)?;
+    }
+    let token = match args.token {
+        Some(token) => Some(token),
+        None if auth.key(&secret_id("rag"), &[]).is_some() => None,
+        // A local endpoint (Ollama, LM Studio) takes no key.
+        None if provider == rag::Provider::Custom => None,
         None => {
-            eprintln!("Create a key at https://dash.voyageai.com/api-keys");
-            read_key("Voyage AI API key: ")?
+            match provider {
+                rag::Provider::Voyage => {
+                    eprintln!("Create a key at https://dash.voyageai.com/api-keys")
+                }
+                rag::Provider::OpenAi => {
+                    eprintln!("Create a key at https://platform.openai.com/api-keys")
+                }
+                rag::Provider::Custom => {}
+            }
+            Some(read_key(&format!("{} API key: ", provider.label()))?)
         }
     };
-    anyhow::ensure!(!token.trim().is_empty(), "no key entered; nothing saved");
-    let mut auth = Auth::load()?;
-    auth.store(&rag_dsn_id(), &dsn)?;
-    auth.store(&secret_id("rag"), token.trim())?;
-    let mut config = BuiltinConfig::load()?;
-    config.rag = Some(config.rag.take().unwrap_or_else(rag::RagSetup::default));
+    if let Some(token) = token {
+        anyhow::ensure!(!token.trim().is_empty(), "no key entered; nothing saved");
+        auth.store(&secret_id("rag"), token.trim())?;
+    }
+    config.rag = Some(setup.clone());
     config.save()?;
     enowx_core::persist::set_mcp_enabled("rag", true)?;
-    println!("Configured rag and turned it on. Its search skill is offered to agents now.");
+    println!(
+        "Configured rag ({}, {}, {} dimensions, reranker {}) and turned it on. Its search skill is offered to agents now.",
+        provider.label(),
+        setup.model(),
+        setup.dimension(),
+        setup.reranker().unwrap_or_else(|| "off".into())
+    );
     Ok(())
 }
 

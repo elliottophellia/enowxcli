@@ -27,6 +27,7 @@ mod navigation;
 pub(crate) mod pages;
 pub(crate) mod question;
 mod queue;
+mod rag_ui;
 mod sessions;
 mod settings_keys;
 pub(crate) mod skills;
@@ -702,6 +703,8 @@ impl App {
     pub(crate) fn current_form_fields(&self) -> &'static [crate::modal::SettingsField] {
         if self.modal == crate::modal::Modal::BuiltinMcp {
             crate::modal::builtin_mcp_fields(&self.settings.provider_id)
+        } else if self.modal == crate::modal::Modal::Rag {
+            crate::modal::rag_fields(&self.settings.rag_provider)
         } else {
             crate::modal::form_fields(self.modal)
         }

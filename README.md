@@ -193,7 +193,7 @@ session, no restart.
 | `coolify` | Applications, servers, databases, services and projects; deploy, start, stop, restart; logs; deployments; env var names |
 | `dokploy` | Projects with their applications, compose stacks and databases; deploy, redeploy, start, stop; logs; deployments; servers; containers |
 | `vps` | Your VPSes over SSH: run a command, or a read-only status (load, disk, memory, Docker) |
-| `rag` | Code search over the workspace: `index`, `search`, `status`, `forget` (see below) |
+| `rag` | Code search over the workspace: `index`, `search`, `status`, `forget` (set up in Settings > RAG, see below) |
 
 Fill a server in from the TUI (`c` on its row), or from the CLI, which an
 agent can run for you: enx reloads MCP the moment the credentials land, so you
@@ -237,28 +237,42 @@ Other MCP clients can run them too: the command is `enx mcp serve coolify`
 ### Code search (`rag`)
 
 `rag` indexes the workspace into Postgres with the pgvector extension and
-lets agents search it by meaning. It needs two things: a Postgres database,
-local (`postgres://localhost/enx`) or cloud (Neon, Supabase, RDS, with
-`?sslmode=require`), and a [Voyage AI](https://www.voyageai.com) API key.
+lets agents search it by meaning. It has a section of its own in Settings
+(`Ctrl+P`, then RAG, or `/rag`):
+
+| Field | Choices |
+|---|---|
+| Code search (RAG) | on or off (off by default) |
+| Database | a Postgres with pgvector, local (`postgres://localhost/enx`) or cloud (Neon, Supabase, RDS, with `?sslmode=require`) |
+| Embedding provider | Voyage AI, OpenAI, or Custom: any OpenAI-compatible `/embeddings` endpoint (Ollama, LM Studio, Jina, Mistral, a gateway) |
+| API key | the provider's; optional for a local endpoint |
+| Embedding model | picked from the provider's (`voyage-code-3`, `voyage-3.5`, `text-embedding-3-small`, ...), typed for a custom endpoint |
+| Dimension | picked from the widths the model offers, typed for a custom endpoint |
+| Reranker | `rerank-2.5`, `rerank-2.5-lite` or off for Voyage; for a custom endpoint, a model its `/rerank` serves, or blank for none |
+
+The same from the CLI, which an agent can run for you:
 
 ```sh
 enx mcp set rag --dsn postgres://localhost/enx --token <voyage key>
+enx mcp set rag --provider openai --model text-embedding-3-large --dimension 1024 --token <key>
+enx mcp set rag --provider custom --url http://localhost:11434/v1 --model nomic-embed-text --dimension 768
 ```
 
-or `c` on its row in `/mcp`. Chunks are embedded with `voyage-code-3` and
-stored in the table `enx_rag_chunks_1024` (the `vector` extension is
-created if the role may). A search fuses vector and keyword matches and
-reranks them with `rerank-2.5`. Indexing is incremental (only changed chunks
-are embedded again), honours `.gitignore`, and never reads `.env` files,
-keys or lockfiles. Each checkout is its own project in the table. The `rag`
-skill, which tells agents when to index and how to search, reaches them only
-while the server is on.
+Chunks go to a table per width (`enx_rag_chunks_1024`, ...) and record the
+model that embedded them: after a change of model or width, the next `index`
+embeds the project again instead of mixing vectors, and a search only
+compares vectors of the model in use. A search fuses vector and keyword
+matches, then reranks them when a reranker is set. Indexing is incremental
+(only changed chunks are embedded again), honours `.gitignore`, and never
+reads `.env` files, keys or lockfiles. Each checkout is its own project.
+The `rag` skill, which tells agents when to index and how to search,
+reaches them only while the server is on.
 
 ## Terminal commands
 
 `/help` `/new` `/resume` `/agent` `/model` `/effort` `/provider` `/attach`
 `/theme` `/typesafe` `/skills` `/mcp` `/compact` `/handoff` `/sidebar` `/reasoning`
-`/tools` `/preview` `/status` `/clear` `/stop` `/retry` `/commands` `/quit`
+`/tools` `/preview` `/rag` `/status` `/clear` `/stop` `/retry` `/commands` `/quit`
 
 `/handoff` carries the conversation on in a fresh session: its history is
 folded into a summary, the last few turns are kept as they were, and the same
@@ -297,7 +311,7 @@ continues at once and `Esc` cancels the wait.
 
 Two tabs sit at the top right: Chat and Settings. Settings takes the main
 column in place of the chat, with its sections listed on the left (Models,
-Providers, Agents, MCP, Skills, Sessions, Theme) and the chosen one beside
+Providers, Agents, MCP, RAG, Skills, Sessions, Theme) and the chosen one beside
 them. `Ctrl+P` switches between Chat and Settings. Inside, `Left` moves to
 the section list, `Up`/`Down` pick a section, `Right` (or `Enter`) goes back
 into it, and `Esc` returns to the chat; clicking a tab or a section does the

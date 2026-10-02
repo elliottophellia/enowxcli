@@ -139,6 +139,8 @@ impl App {
                 Modal::ModelManual => self.save_manual_model()?,
                 Modal::ModelEdit => self.save_edit_model()?,
                 Modal::TypeSafeKey => self.save_typesafe_key()?,
+                Modal::BuiltinMcp => self.save_builtin_mcp()?,
+                Modal::Rag => self.save_rag()?,
                 _ => {}
             },
             // A cycled choice (effort, vision) steps with Left/Right or

@@ -21,17 +21,19 @@ pub(crate) enum Page {
     Providers,
     Agents,
     Mcp,
+    Rag,
     Skills,
     Sessions,
     Theme,
 }
 
 /// The sections of Settings, in the order they are listed.
-pub(crate) const SECTIONS: [Page; 7] = [
+pub(crate) const SECTIONS: [Page; 8] = [
     Page::Models,
     Page::Providers,
     Page::Agents,
     Page::Mcp,
+    Page::Rag,
     Page::Skills,
     Page::Sessions,
     Page::Theme,
@@ -63,6 +65,7 @@ impl Page {
             Page::Providers => "Providers",
             Page::Agents => "Agents",
             Page::Mcp => "MCP",
+            Page::Rag => "RAG",
             Page::Skills => "Skills",
             Page::Sessions => "Sessions",
             Page::Theme => "Theme",
@@ -78,6 +81,7 @@ impl Page {
             Modal::Providers | Modal::ProviderKey | Modal::ProviderForm => Page::Providers,
             Modal::Agents => Page::Agents,
             Modal::Mcp | Modal::McpForm | Modal::BuiltinMcp => Page::Mcp,
+            Modal::Rag => Page::Rag,
             Modal::Skills => Page::Skills,
             Modal::Sessions => Page::Sessions,
             Modal::Themes => Page::Theme,
@@ -131,6 +135,7 @@ impl App {
             Page::Providers => self.open_providers(),
             Page::Agents => self.open_agents(),
             Page::Mcp => self.open_mcp(),
+            Page::Rag => self.open_rag(),
             Page::Skills => self.open_skills(),
             Page::Sessions => self.open_sessions()?,
             Page::Theme => self.open_themes(),
@@ -194,9 +199,20 @@ impl App {
             }
             return Ok(true);
         }
-        // Left steps out to the section list from a section's list; a form
-        // keeps it for its own caret.
-        if key.code == KeyCode::Left && key.modifiers.is_empty() && !self.modal.is_form() {
+        // Left steps out to the section list from a section's list. A form
+        // keeps it for its caret and its choices, unless the caret is
+        // already at the start of a text field.
+        let at_start = self.modal.is_form()
+            && self.modal != Modal::McpForm
+            && self.field_cursor == 0
+            && self
+                .current_form_fields()
+                .get(self.modal_cursor)
+                .is_some_and(|f| !f.is_choice());
+        if key.code == KeyCode::Left
+            && key.modifiers.is_empty()
+            && (!self.modal.is_form() || at_start)
+        {
             self.settings_nav = true;
             return Ok(true);
         }

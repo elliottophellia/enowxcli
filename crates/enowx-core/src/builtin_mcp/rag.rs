@@ -1,5 +1,6 @@
-//! Retrieval over the project's own code: chunks embedded with Voyage AI and
-//! kept in Postgres with pgvector, local or in the cloud.
+//! Retrieval over the project's own code: chunks embedded by Voyage AI,
+//! OpenAI or any OpenAI-compatible endpoint (Ollama, LM Studio, Jina, ...)
+//! and kept in Postgres with pgvector, local or in the cloud.
 //!
 //! Indexing walks the workspace the way git sees it (`.gitignore` honoured,
 //! `.env` files never read), cuts each file into chunks of whole lines that
@@ -7,7 +8,11 @@
 //! changed since the last run. Chunks of files that were removed, or of the
 //! tail of a file that got shorter, are deleted. Search combines the vector
 //! match with a lexical one (reciprocal rank fusion) and reranks the
-//! candidates with Voyage's reranker.
+//! candidates with a reranker when one is set (Voyage's by default).
+//!
+//! Each chunk records the model that embedded it. Switching the model makes
+//! the next `index` embed the project again rather than mix vectors from two
+//! models, and a search only compares vectors of the model in use.
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -23,13 +28,17 @@ use tokio::sync::Mutex;
 
 use super::{schema, Server, ToolSpec};
 
-/// The embedding model: Voyage's model for code, at its default width.
+/// The default embedding model: Voyage's model for code, at its default width.
 pub const MODEL: &str = "voyage-code-3";
 pub const DIM: usize = 1024;
-/// The reranker run over the candidates.
+/// The default reranker, for Voyage.
 pub const RERANK_MODEL: &str = "rerank-2.5";
 
 const VOYAGE: &str = "https://api.voyageai.com/v1";
+const OPENAI: &str = "https://api.openai.com/v1";
+/// pgvector's HNSW index takes vectors up to this width; wider ones are
+/// searched exactly, without the index.
+const HNSW_MAX: usize = 2000;
 /// Characters per chunk, in whole lines.
 const CHUNK: usize = 1500;
 /// Files larger than this are not read.
@@ -39,25 +48,206 @@ const BATCH: usize = 64;
 /// Candidates fetched before reranking.
 const RECALL: i64 = 40;
 
-/// The non-secret half of the setup. The DSN and the Voyage key are secrets
-/// and live in `auth.json`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct RagSetup {
-    /// The embedding model; `voyage-code-3` when empty.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub model: String,
+/// Where the embeddings come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Provider {
+    Voyage,
+    OpenAi,
+    /// Any endpoint that speaks OpenAI's `/embeddings`: Ollama, LM Studio,
+    /// Jina, Mistral, Together, a gateway.
+    Custom,
 }
 
-/// The table holding every project's chunks, named by vector width so a
-/// change of model never lands in a column of the wrong size.
-fn table() -> String {
-    format!("enx_rag_chunks_{DIM}")
+impl Provider {
+    pub const ALL: [Provider; 3] = [Provider::Voyage, Provider::OpenAi, Provider::Custom];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Provider::Voyage => "voyage",
+            Provider::OpenAi => "openai",
+            Provider::Custom => "custom",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Provider::Voyage => "Voyage AI",
+            Provider::OpenAi => "OpenAI",
+            Provider::Custom => "Custom (OpenAI-compatible)",
+        }
+    }
+
+    pub fn parse(id: &str) -> Provider {
+        match id.trim().to_ascii_lowercase().as_str() {
+            "openai" => Provider::OpenAi,
+            "custom" | "openai-compatible" | "compatible" => Provider::Custom,
+            _ => Provider::Voyage,
+        }
+    }
+
+    /// The models offered for picking, each with the widths it can return
+    /// (its default first). Empty for a custom endpoint: its model is typed.
+    pub fn models(self) -> &'static [(&'static str, &'static [usize])] {
+        const VOYAGE_DIMS: &[usize] = &[1024, 256, 512, 2048];
+        match self {
+            Provider::Voyage => &[
+                ("voyage-code-3", VOYAGE_DIMS),
+                ("voyage-3.5", VOYAGE_DIMS),
+                ("voyage-3.5-lite", VOYAGE_DIMS),
+                ("voyage-3-large", VOYAGE_DIMS),
+            ],
+            Provider::OpenAi => &[
+                ("text-embedding-3-small", &[1536, 512, 1024]),
+                ("text-embedding-3-large", &[1024, 256, 1536, 3072]),
+            ],
+            Provider::Custom => &[],
+        }
+    }
+
+    /// The rerankers offered for picking; a custom endpoint's is typed.
+    pub fn rerankers(self) -> &'static [&'static str] {
+        match self {
+            Provider::Voyage => &["rerank-2.5", "rerank-2.5-lite"],
+            Provider::OpenAi | Provider::Custom => &[],
+        }
+    }
+
+    /// Where its API lives when no base URL is set.
+    pub fn default_url(self) -> &'static str {
+        match self {
+            Provider::Voyage => VOYAGE,
+            Provider::OpenAi => OPENAI,
+            Provider::Custom => "",
+        }
+    }
+}
+
+/// The non-secret half of the setup. The DSN and the API key are secrets and
+/// live in `auth.json`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RagSetup {
+    /// `voyage` (the default), `openai` or `custom`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub provider: String,
+    /// The API's base URL, for a custom endpoint (`http://localhost:11434/v1`
+    /// for Ollama). Empty: the provider's own.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub base_url: String,
+    /// The embedding model; the provider's first when empty.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub model: String,
+    /// The vector width; the model's default when 0. Required for a custom
+    /// endpoint, whose models enx does not know.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub dimension: usize,
+    /// The reranker: empty for the provider's default, `off` for none.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub rerank: String,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
+}
+
+impl RagSetup {
+    pub fn provider(&self) -> Provider {
+        Provider::parse(&self.provider)
+    }
+
+    pub fn base_url(&self) -> String {
+        let url = self.base_url.trim().trim_end_matches('/');
+        if url.is_empty() {
+            self.provider().default_url().to_owned()
+        } else {
+            url.to_owned()
+        }
+    }
+
+    pub fn model(&self) -> String {
+        let model = self.model.trim();
+        if !model.is_empty() {
+            return model.to_owned();
+        }
+        self.provider()
+            .models()
+            .first()
+            .map(|(m, _)| (*m).to_owned())
+            .unwrap_or_default()
+    }
+
+    pub fn dimension(&self) -> usize {
+        if self.dimension > 0 {
+            return self.dimension;
+        }
+        let model = self.model();
+        self.provider()
+            .models()
+            .iter()
+            .find(|(m, _)| *m == model)
+            .and_then(|(_, dims)| dims.first().copied())
+            .unwrap_or(0)
+    }
+
+    /// The reranker in use, if any.
+    pub fn reranker(&self) -> Option<String> {
+        let rerank = self.rerank.trim();
+        if rerank.eq_ignore_ascii_case("off") {
+            return None;
+        }
+        if !rerank.is_empty() {
+            return Some(rerank.to_owned());
+        }
+        self.provider().rerankers().first().map(|r| (*r).to_owned())
+    }
+
+    /// What a chunk records as the model that embedded it.
+    pub fn embedder(&self) -> String {
+        format!(
+            "{}:{}:{}",
+            self.provider().id(),
+            self.model(),
+            self.dimension()
+        )
+    }
+
+    /// Whether the setup can run: a model and a width, and a URL for a
+    /// custom endpoint. The reason when it cannot.
+    pub fn check(&self) -> Result<()> {
+        if self.provider() == Provider::Custom {
+            let url = self.base_url();
+            anyhow::ensure!(
+                url.starts_with("http://") || url.starts_with("https://"),
+                "a custom embedding endpoint needs a base URL (http:// or https://)"
+            );
+        }
+        anyhow::ensure!(!self.model().is_empty(), "no embedding model set");
+        anyhow::ensure!(
+            self.dimension() > 0,
+            "no vector width set for {}; give the dimension the model returns",
+            self.model()
+        );
+        anyhow::ensure!(
+            self.dimension() <= 16000,
+            "pgvector stores at most 16000 dimensions"
+        );
+        Ok(())
+    }
+}
+
+/// The table holding every project's chunks of one width: a change of
+/// width never lands in a column of the wrong size.
+fn table(dim: usize) -> String {
+    format!("enx_rag_chunks_{dim}")
 }
 
 pub struct Rag {
     dsn: String,
-    voyage_key: String,
+    /// The embedding API's key; may be empty for a local endpoint.
+    key: String,
+    setup: RagSetup,
     model: String,
+    dim: usize,
+    url: String,
     http: reqwest::Client,
     db: Mutex<Option<Arc<tokio_postgres::Client>>>,
     /// The folder indexed when a call names none.
@@ -65,7 +255,8 @@ pub struct Rag {
 }
 
 impl Rag {
-    pub fn new(dsn: &str, voyage_key: &str, setup: &RagSetup) -> Result<Self> {
+    pub fn new(dsn: &str, key: &str, setup: &RagSetup) -> Result<Self> {
+        setup.check()?;
         anyhow::ensure!(
             dsn.starts_with("postgres://") || dsn.starts_with("postgresql://"),
             "the database must be a postgres:// connection string"
@@ -76,12 +267,11 @@ impl Rag {
             .unwrap_or_else(|| PathBuf::from("."));
         Ok(Self {
             dsn: dsn.trim().to_owned(),
-            voyage_key: voyage_key.trim().to_owned(),
-            model: if setup.model.trim().is_empty() {
-                MODEL.to_owned()
-            } else {
-                setup.model.trim().to_owned()
-            },
+            key: key.trim().to_owned(),
+            model: setup.model(),
+            dim: setup.dimension(),
+            url: setup.base_url(),
+            setup: setup.clone(),
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(120))
                 .build()?,
@@ -120,7 +310,7 @@ impl Rag {
             let _ = connection.await;
         });
         let client = Arc::new(client);
-        prepare(&client).await?;
+        prepare(&client, self.dim).await?;
         *slot = Some(client.clone());
         Ok(client)
     }
@@ -130,47 +320,68 @@ impl Rag {
         #[derive(Deserialize)]
         struct Item {
             embedding: Vec<f32>,
-            index: usize,
+            #[serde(default)]
+            index: Option<usize>,
         }
         #[derive(Deserialize)]
         struct Reply {
             data: Vec<Item>,
         }
-        let response = self
+        let provider = self.setup.provider();
+        let mut body = json!({ "input": inputs, "model": self.model });
+        match provider {
+            Provider::Voyage => {
+                body["input_type"] = json!(if query { "query" } else { "document" });
+                body["output_dimension"] = json!(self.dim);
+            }
+            // Only the v3 models take a width; older ones return their own.
+            Provider::OpenAi if self.model.starts_with("text-embedding-3") => {
+                body["dimensions"] = json!(self.dim);
+            }
+            // An unknown endpoint gets the plain request: some refuse fields
+            // they do not know. Its width is checked on the way back.
+            _ => {}
+        }
+        let mut request = self
             .http
-            .post(format!("{VOYAGE}/embeddings"))
-            .bearer_auth(&self.voyage_key)
-            .json(&json!({
-                "input": inputs,
-                "model": self.model,
-                "input_type": if query { "query" } else { "document" },
-                "output_dimension": DIM,
-            }))
+            .post(format!("{}/embeddings", self.url))
+            .json(&body);
+        if !self.key.is_empty() {
+            request = request.bearer_auth(&self.key);
+        }
+        let who = provider.label();
+        let response = request
             .send()
             .await
-            .context("reaching Voyage AI")?;
+            .with_context(|| format!("reaching {who} at {}", self.url))?;
         let status = response.status();
-        let body = response.text().await.unwrap_or_default();
+        let text = response.text().await.unwrap_or_default();
         if !status.is_success() {
             if status.as_u16() == 401 || status.as_u16() == 403 {
-                bail!("Voyage AI refused the API key ({status}); set it again with `c` on rag in /mcp");
+                bail!("{who} refused the API key ({status}); set it again in Settings > RAG");
             }
             bail!(
-                "Voyage AI answered {status}: {}",
-                body.chars().take(300).collect::<String>()
+                "{who} answered {status}: {}",
+                text.chars().take(300).collect::<String>()
             );
         }
-        let reply: Reply = serde_json::from_str(&body).context("reading Voyage AI's reply")?;
+        let reply: Reply =
+            serde_json::from_str(&text).with_context(|| format!("reading {who}'s reply"))?;
         let mut vectors = vec![Vec::new(); inputs.len()];
-        for item in reply.data {
-            if let Some(slot) = vectors.get_mut(item.index) {
+        for (position, item) in reply.data.into_iter().enumerate() {
+            if let Some(slot) = vectors.get_mut(item.index.unwrap_or(position)) {
                 *slot = item.embedding;
             }
         }
-        anyhow::ensure!(
-            vectors.iter().all(|v| v.len() == DIM),
-            "Voyage AI returned vectors of the wrong width"
-        );
+        if let Some(wrong) = vectors.iter().find(|v| v.len() != self.dim) {
+            bail!(
+                "{} returned vectors {} wide, not the {} set; set the dimension to {} in Settings > RAG",
+                self.model,
+                wrong.len(),
+                self.dim,
+                wrong.len()
+            );
+        }
         Ok(vectors)
     }
 
@@ -187,34 +398,43 @@ impl Rag {
             index: usize,
             relevance_score: f32,
         }
+        // Voyage answers `data`; Cohere, Jina and most others `results`.
         #[derive(Deserialize)]
         struct Reply {
+            #[serde(default)]
             data: Vec<Item>,
+            #[serde(default)]
+            results: Vec<Item>,
         }
-        let response = self
-            .http
-            .post(format!("{VOYAGE}/rerank"))
-            .bearer_auth(&self.voyage_key)
-            .json(&json!({
-                "query": query,
-                "documents": documents,
-                "model": RERANK_MODEL,
-                "top_k": top,
-            }))
-            .send()
-            .await
-            .ok()?;
+        let model = self.setup.reranker()?;
+        let mut body = json!({ "query": query, "documents": documents, "model": model });
+        // Voyage takes `top_k`; others name it differently or refuse it, so
+        // they get none and the answer is cut here.
+        if self.setup.provider() == Provider::Voyage {
+            body["top_k"] = json!(top);
+        }
+        let mut request = self.http.post(format!("{}/rerank", self.url)).json(&body);
+        if !self.key.is_empty() {
+            request = request.bearer_auth(&self.key);
+        }
+        let response = request.send().await.ok()?;
         if !response.status().is_success() {
             return None;
         }
         let reply: Reply = response.json().await.ok()?;
-        Some(
-            reply
-                .data
+        let mut items = if reply.data.is_empty() {
+            reply.results
+        } else {
+            reply.data
+        };
+        items.sort_by(|a, b| b.relevance_score.total_cmp(&a.relevance_score));
+        items.truncate(top);
+        (!items.is_empty()).then(|| {
+            items
                 .into_iter()
                 .map(|i| (i.index, i.relevance_score))
-                .collect(),
-        )
+                .collect()
+        })
     }
 
     fn root(&self, args: &Value) -> Result<PathBuf> {
@@ -235,7 +455,19 @@ impl Rag {
     async fn index(&self, args: &Value) -> Result<String> {
         let root = self.root(args)?;
         let project = project_id(&root);
+        let embedder = self.setup.embedder();
         let db = self.db().await?;
+        // Chunks a different model embedded cannot be compared with this
+        // one's: they go, and the project is embedded again.
+        let replaced = db
+            .execute(
+                &format!(
+                    "DELETE FROM {} WHERE project_id = $1 AND embed_model <> $2",
+                    table(self.dim)
+                ),
+                &[&project, &embedder],
+            )
+            .await?;
         let chunks = tokio::task::spawn_blocking({
             let root = root.clone();
             move || collect(&root)
@@ -251,7 +483,7 @@ impl Rag {
             .query(
                 &format!(
                     "SELECT id, content_hash FROM {} WHERE project_id = $1",
-                    table()
+                    table(self.dim)
                 ),
                 &[&project],
             )
@@ -274,14 +506,14 @@ impl Rag {
             for (chunk, vector) in batch.iter().zip(vectors) {
                 db.execute(
                     &format!(
-                        "INSERT INTO {} (project_id, id, source_file, start_line, end_line, content, content_hash, embedding, indexed_at)
-                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::vector, now())
+                        "INSERT INTO {} (project_id, id, source_file, start_line, end_line, content, content_hash, embedding, embed_model, indexed_at)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::vector, $9, now())
                          ON CONFLICT (project_id, id) DO UPDATE SET
                            source_file = EXCLUDED.source_file, start_line = EXCLUDED.start_line,
                            end_line = EXCLUDED.end_line, content = EXCLUDED.content,
                            content_hash = EXCLUDED.content_hash, embedding = EXCLUDED.embedding,
-                           indexed_at = now()",
-                        table()
+                           embed_model = EXCLUDED.embed_model, indexed_at = now()",
+                        table(self.dim)
                     ),
                     &[
                         &project,
@@ -292,6 +524,7 @@ impl Rag {
                         &chunk.text(),
                         &chunk.hash,
                         &vector_literal(&vector),
+                        &embedder,
                     ],
                 )
                 .await?;
@@ -310,19 +543,26 @@ impl Rag {
             db.execute(
                 &format!(
                     "DELETE FROM {} WHERE project_id = $1 AND id = ANY($2)",
-                    table()
+                    table(self.dim)
                 ),
                 &[&project, &stale],
             )
             .await?;
         }
-        Ok(format!(
-            "Indexed {} ({project}): {files} files, {} chunks; embedded {embedded} new or changed, removed {} stale, {} unchanged.",
+        let mut summary = format!(
+            "Indexed {} ({project}) with {}: {files} files, {} chunks; embedded {embedded} new or changed, removed {} stale, {} unchanged.",
             root.display(),
+            self.model,
             chunks.len(),
             stale.len(),
             chunks.len() - embedded,
-        ))
+        );
+        if replaced > 0 {
+            summary.push_str(&format!(
+                " The {replaced} chunks a previous model embedded were replaced."
+            ));
+        }
+        Ok(summary)
     }
 
     async fn search(&self, args: &Value) -> Result<String> {
@@ -337,6 +577,7 @@ impl Rag {
             .clamp(1, 30) as usize;
         let root = self.root(args)?;
         let project = project_id(&root);
+        let embedder = self.setup.embedder();
         let db = self.db().await?;
         let vector = self
             .embed(std::slice::from_ref(&query), true)
@@ -348,31 +589,40 @@ impl Rag {
                 &format!(
                     "WITH dense AS (
                        SELECT id, row_number() OVER (ORDER BY embedding <=> $1::text::vector) AS rank
-                       FROM {t} WHERE project_id = $2
+                       FROM {t} WHERE project_id = $2 AND embed_model = $5
                        ORDER BY embedding <=> $1::text::vector LIMIT $3),
                      lexical AS (
                        SELECT id, row_number() OVER (ORDER BY ts_rank(content_tsv, plainto_tsquery('simple', $4)) DESC) AS rank
-                       FROM {t} WHERE project_id = $2 AND content_tsv @@ plainto_tsquery('simple', $4)
+                       FROM {t} WHERE project_id = $2 AND embed_model = $5 AND content_tsv @@ plainto_tsquery('simple', $4)
                        LIMIT $3)
                      SELECT c.source_file, c.start_line, c.end_line, c.content,
                             (COALESCE(1.0 / (60 + d.rank), 0) + COALESCE(1.0 / (60 + l.rank), 0))::float8 AS score
                      FROM dense d FULL OUTER JOIN lexical l ON d.id = l.id
                      JOIN {t} c ON c.project_id = $2 AND c.id = COALESCE(d.id, l.id)
                      ORDER BY score DESC LIMIT $3",
-                    t = table()
+                    t = table(self.dim)
                 ),
-                &[&vector_literal(&vector), &project, &RECALL, &query],
+                &[&vector_literal(&vector), &project, &RECALL, &query, &embedder],
             )
             .await?;
         if rows.is_empty() {
-            let indexed: i64 = db
+            let row = db
                 .query_one(
-                    &format!("SELECT count(*) FROM {} WHERE project_id = $1", table()),
-                    &[&project],
+                    &format!(
+                        "SELECT count(*), count(*) FILTER (WHERE embed_model = $2) FROM {} WHERE project_id = $1",
+                        table(self.dim)
+                    ),
+                    &[&project, &embedder],
                 )
-                .await?
-                .try_get(0)?;
-            return Ok(if indexed == 0 {
+                .await?;
+            let (indexed, current): (i64, i64) = (row.try_get(0)?, row.try_get(1)?);
+            return Ok(if indexed > 0 && current == 0 {
+                format!(
+                    "{} was indexed with another model. Call `index` to embed it with {}.",
+                    root.display(),
+                    self.model
+                )
+            } else if indexed == 0 {
                 format!("{} is not indexed yet. Call `index` first.", root.display())
             } else {
                 format!("Nothing in {} matches that.", root.display())
@@ -424,10 +674,10 @@ impl Rag {
         let row = db
             .query_one(
                 &format!(
-                    "SELECT count(*), count(DISTINCT source_file), max(indexed_at)::text FROM {} WHERE project_id = $1",
-                    table()
+                    "SELECT count(*), count(DISTINCT source_file), max(indexed_at)::text FROM {} WHERE project_id = $1 AND embed_model = $2",
+                    table(self.dim)
                 ),
-                &[&project],
+                &[&project, &self.setup.embedder()],
             )
             .await?;
         let (chunks, files, last): (i64, i64, Option<String>) =
@@ -438,8 +688,10 @@ impl Rag {
             "chunks": chunks,
             "files": files,
             "last_indexed": last,
+            "provider": self.setup.provider().label(),
             "model": self.model,
-            "reranker": RERANK_MODEL,
+            "dimension": self.dim,
+            "reranker": self.setup.reranker().unwrap_or_else(|| "off".into()),
         })))
     }
 
@@ -449,7 +701,7 @@ impl Rag {
         let db = self.db().await?;
         let removed = db
             .execute(
-                &format!("DELETE FROM {} WHERE project_id = $1", table()),
+                &format!("DELETE FROM {} WHERE project_id = $1", table(self.dim)),
                 &[&project],
             )
             .await?;
@@ -464,7 +716,7 @@ fn render(value: &Value) -> String {
 /// The vector extension, the table and its indexes, created when missing. A
 /// managed database where the extension already exists but this role may
 /// not create it is fine.
-async fn prepare(db: &tokio_postgres::Client) -> Result<()> {
+async fn prepare(db: &tokio_postgres::Client, dim: usize) -> Result<()> {
     if let Err(error) = db
         .batch_execute("CREATE EXTENSION IF NOT EXISTS vector")
         .await
@@ -479,7 +731,7 @@ async fn prepare(db: &tokio_postgres::Client) -> Result<()> {
             );
         }
     }
-    let t = table();
+    let t = table(dim);
     db.batch_execute(&format!(
         "CREATE TABLE IF NOT EXISTS {t} (
            project_id TEXT NOT NULL,
@@ -489,16 +741,24 @@ async fn prepare(db: &tokio_postgres::Client) -> Result<()> {
            end_line INTEGER NOT NULL,
            content TEXT NOT NULL,
            content_hash TEXT NOT NULL,
-           embedding vector({DIM}) NOT NULL,
+           embedding vector({dim}) NOT NULL,
+           embed_model TEXT NOT NULL DEFAULT '',
            content_tsv tsvector GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED,
            indexed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
            PRIMARY KEY (project_id, id));
-         CREATE INDEX IF NOT EXISTS {t}_project ON {t} (project_id);
-         CREATE INDEX IF NOT EXISTS {t}_embedding ON {t} USING hnsw (embedding vector_cosine_ops);
+         ALTER TABLE {t} ADD COLUMN IF NOT EXISTS embed_model TEXT NOT NULL DEFAULT '';
+         CREATE INDEX IF NOT EXISTS {t}_project ON {t} (project_id, embed_model);
          CREATE INDEX IF NOT EXISTS {t}_tsv ON {t} USING GIN (content_tsv);"
     ))
     .await
     .context("creating the RAG table")?;
+    if dim <= HNSW_MAX {
+        db.batch_execute(&format!(
+            "CREATE INDEX IF NOT EXISTS {t}_embedding ON {t} USING hnsw (embedding vector_cosine_ops);"
+        ))
+        .await
+        .context("creating the vector index")?;
+    }
     Ok(())
 }
 
@@ -796,6 +1056,81 @@ impl Server for Rag {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_provider_has_its_defaults() {
+        let voyage = RagSetup::default();
+        assert_eq!(voyage.provider(), Provider::Voyage);
+        assert_eq!(voyage.model(), MODEL);
+        assert_eq!(voyage.dimension(), DIM);
+        assert_eq!(voyage.reranker().as_deref(), Some(RERANK_MODEL));
+        assert_eq!(voyage.base_url(), VOYAGE);
+        voyage.check().unwrap();
+
+        let openai = RagSetup {
+            provider: "openai".into(),
+            ..Default::default()
+        };
+        assert_eq!(openai.model(), "text-embedding-3-small");
+        assert_eq!(openai.dimension(), 1536);
+        assert_eq!(openai.reranker(), None, "OpenAI has no reranker");
+
+        let large = RagSetup {
+            provider: "openai".into(),
+            model: "text-embedding-3-large".into(),
+            ..Default::default()
+        };
+        assert_eq!(large.dimension(), 1024);
+    }
+
+    #[test]
+    fn a_custom_endpoint_needs_its_url_model_and_width() {
+        let mut custom = RagSetup {
+            provider: "custom".into(),
+            ..Default::default()
+        };
+        assert!(custom.check().is_err(), "no URL");
+        custom.base_url = "http://localhost:11434/v1/".into();
+        assert!(custom.check().is_err(), "no model");
+        custom.model = "nomic-embed-text".into();
+        assert!(custom.check().is_err(), "no width");
+        custom.dimension = 768;
+        custom.check().unwrap();
+        assert_eq!(custom.base_url(), "http://localhost:11434/v1");
+        assert_eq!(custom.reranker(), None);
+        custom.rerank = "jina-reranker-v2".into();
+        assert_eq!(custom.reranker().as_deref(), Some("jina-reranker-v2"));
+    }
+
+    #[test]
+    fn the_reranker_can_be_turned_off() {
+        let setup = RagSetup {
+            rerank: "off".into(),
+            ..Default::default()
+        };
+        assert_eq!(setup.reranker(), None);
+    }
+
+    /// A change of model or width changes what chunks record, so `index`
+    /// knows to embed again.
+    #[test]
+    fn the_embedder_names_provider_model_and_width() {
+        let a = RagSetup::default();
+        let b = RagSetup {
+            dimension: 512,
+            ..Default::default()
+        };
+        assert_eq!(a.embedder(), "voyage:voyage-code-3:1024");
+        assert_ne!(a.embedder(), b.embedder());
+    }
+
+    /// A setup saved before providers existed still reads, as Voyage.
+    #[test]
+    fn an_old_setup_still_reads() {
+        let old: RagSetup = serde_json::from_str("{}").unwrap();
+        assert_eq!(old, RagSetup::default());
+        assert_eq!(serde_json::to_string(&RagSetup::default()).unwrap(), "{}");
+    }
 
     #[test]
     fn chunks_keep_whole_lines_and_their_range() {

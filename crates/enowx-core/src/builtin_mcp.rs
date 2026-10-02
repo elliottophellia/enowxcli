@@ -109,7 +109,7 @@ pub fn summary(name: &str) -> &'static str {
         "coolify" => "Coolify: deploy, start, stop and read your apps, databases and servers",
         "dokploy" => "Dokploy: deploy and manage your projects, apps and compose stacks",
         "vps" => "Your VPSes over SSH: run a command, or read a host's status",
-        "rag" => "Search this project's code by meaning: Voyage AI embeddings in pgvector",
+        "rag" => "Search this project's code by meaning: embeddings in pgvector (Settings > RAG)",
         _ => "",
     }
 }
@@ -203,12 +203,20 @@ pub fn server(name: &str) -> Result<Box<dyn Server>> {
         "rag" => {
             let setup = config
                 .rag
-                .context("rag is not set up; press c on rag in /mcp, or run `enx mcp set rag`")?;
+                .context("rag is not set up; open Settings > RAG, or run `enx mcp set rag`")?;
             let dsn = auth
                 .key(&rag_dsn_id(), &[])
                 .map(|(key, _)| key)
-                .context("no database stored for rag; press c on rag in /mcp")?;
-            Box::new(rag::Rag::new(&dsn, &token("rag")?, &setup)?)
+                .context("no database stored for rag; open Settings > RAG")?;
+            // A local endpoint (Ollama, LM Studio) needs no key.
+            let key = match setup.provider() {
+                rag::Provider::Custom => auth
+                    .key(&secret_id("rag"), &[])
+                    .map(|(key, _)| key.to_owned())
+                    .unwrap_or_default(),
+                _ => token("rag")?,
+            };
+            Box::new(rag::Rag::new(&dsn, &key, &setup)?)
         }
         other => bail!(
             "enx has no built-in MCP server `{other}` (built in: {})",

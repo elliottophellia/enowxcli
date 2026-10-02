@@ -36,6 +36,11 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
             "Overrides the detected values. Empty uses the catalogue or the id.".into(),
             format!("EDIT {}", app.settings.model.to_uppercase()),
         ),
+        Modal::Rag => (
+            "Tab field · ←→ choose · Enter save · Esc chat",
+            "Keys and the database go to ~/.enx/auth.json; blank keeps what is stored.".into(),
+            "RAG · CODE SEARCH".into(),
+        ),
         Modal::BuiltinMcp => (
             "Tab field · Enter save and turn on · Esc back",
             "Kept in ~/.enx/. The token or password goes to auth.json, for you alone.".into(),
@@ -173,6 +178,17 @@ fn placeholder(app: &App, field: SettingsField) -> &'static str {
     match field {
         SettingsField::Name => "e.g. My gateway",
         SettingsField::BaseUrl => "https://host/v1",
+        SettingsField::ApiKey if app.modal == Modal::Rag => {
+            use enowx_core::builtin_mcp::rag::Provider;
+            match Provider::parse(&app.settings.rag_provider) {
+                Provider::Voyage => "Voyage AI key (blank keeps the stored one)",
+                Provider::OpenAi => "OpenAI key (blank keeps the stored one)",
+                Provider::Custom => "optional for a local endpoint",
+            }
+        }
+        SettingsField::Dsn if app.modal == Modal::Rag => {
+            "postgres://localhost/enx or a cloud URL (blank keeps the stored one)"
+        }
         SettingsField::ApiKey if stored => "(stored; type to replace it)",
         SettingsField::ApiKey => "(empty)",
         SettingsField::ModelsUrl => "https://host/v1/models",
@@ -186,6 +202,15 @@ fn placeholder(app: &App, field: SettingsField) -> &'static str {
         SettingsField::Dsn => {
             "postgres://localhost/enx (local) or a cloud URL with ?sslmode=require"
         }
+        SettingsField::EmbedUrl => "http://localhost:11434/v1 (Ollama), or any /v1 base",
+        SettingsField::EmbedModelText => "e.g. nomic-embed-text, jina-embeddings-v3",
+        SettingsField::DimensionText => "the width the model returns, e.g. 768",
+        SettingsField::RerankText => "blank: none (needs a /rerank endpoint)",
+        SettingsField::RagEnabled
+        | SettingsField::RagProvider
+        | SettingsField::EmbedModel
+        | SettingsField::Dimension
+        | SettingsField::Rerank => "←→ to choose",
         SettingsField::KeyFile => "~/.ssh/id_ed25519 (blank: ssh-agent, ~/.ssh keys)",
         SettingsField::Passphrase | SettingsField::Password => "(blank keeps what is stored)",
     }

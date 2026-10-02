@@ -41,7 +41,7 @@ after v0.1.0.
 
 - **Chat and Settings tabs at the top right.** Settings takes the whole main
   column in place of the chat: its sections (Models, Providers, Agents, MCP,
-  Skills, Sessions, Theme) are listed on the left and the chosen one is
+  RAG, Skills, Sessions, Theme) are listed on the left and the chosen one is
   beside them. `Ctrl+P` switches between Chat and Settings, `Left` moves to
   the section list, `Up`/`Down` pick a section, `Right` goes back in, `Esc`
   returns to the chat; a click does the same. The searchable command list
@@ -107,13 +107,17 @@ after v0.1.0.
   keyboard-interactive answered with the stored password. A failed sign-in
   says what was tried and why each was refused, and a prompt for a one-time
   code is reported rather than answered.
-- **Built-in code search (`rag`).** Indexes the workspace into Postgres with
-  pgvector, local or cloud, embedded with Voyage AI (`voyage-code-3`), and
-  searches it with dense and keyword matches fused, then reranked. Indexing is
+- **Built-in code search (`rag`), with a Settings section of its own.**
+  Indexes the workspace into Postgres with pgvector, local or cloud, and
+  searches it with dense and keyword matches fused, then reranked. Settings
+  > RAG (or `/rag`) turns it on and picks the database and the embeddings:
+  Voyage AI, OpenAI, or any OpenAI-compatible endpoint (Ollama, LM Studio,
+  Jina, a gateway), with the model, the vector width and the reranker.
+  `enx mcp set rag` takes the same as flags. A change of model makes the
+  next `index` embed the project again rather than mix vectors. Indexing is
   incremental and honours `.gitignore`; secrets and lockfiles are never
-  indexed. Off by default: set it up with
-  `enx mcp set rag --dsn postgres://... --token <voyage key>` or `c` in
-  `/mcp`. Its skill reaches the agents only while the server is on.
+  indexed. Off by default, and its skill reaches the agents only while it is
+  on.
 
 ### Skills
 
@@ -144,6 +148,8 @@ after v0.1.0.
 - **The session resource card counts only enx's real descendants**, not
   unrelated processes caught by macOS recycling a pid.
 - **`/resume` lists conversations only**, never a delegation's transcript.
+- **Enter saves a built-in MCP server's setup form.** It did nothing before;
+  only the CLI could save one.
 - **The `write` tool refuses an empty write** with a message telling the
   model to send the file in parts, instead of silently creating an empty file
   when a long reply was cut off.

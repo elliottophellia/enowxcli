@@ -47,6 +47,9 @@ pub enum Modal {
     McpForm,
     /// Configure a built-in MCP server (coolify, dokploy, or a VPS).
     BuiltinMcp,
+    /// Settings > RAG: code search on or off, its database, and where its
+    /// embeddings come from.
+    Rag,
     /// Ctrl+C in an empty composer: confirm before quitting.
     QuitConfirm,
     /// `/handoff`: carry on in a fresh session, keeping or deleting this
@@ -80,6 +83,7 @@ impl Modal {
             | Modal::ModelManual
             | Modal::ModelEdit
             | Modal::BuiltinMcp
+            | Modal::Rag
             | Modal::ProviderKey => "",
         }
     }
@@ -95,6 +99,7 @@ impl Modal {
                 | Modal::TypeSafeKey
                 | Modal::McpForm
                 | Modal::BuiltinMcp
+                | Modal::Rag
         )
     }
 }
@@ -122,6 +127,25 @@ pub enum SettingsField {
     Passphrase,
     /// A VPS's SSH password. Masked; kept in the `api_key` draft.
     Password,
+    /// RAG on or off.
+    RagEnabled,
+    /// Where RAG's embeddings come from: Voyage, OpenAI, or a custom
+    /// OpenAI-compatible endpoint.
+    RagProvider,
+    /// The embedding model, picked from the provider's.
+    EmbedModel,
+    /// The embedding model, typed: a custom endpoint's.
+    EmbedModelText,
+    /// The vector width, picked from what the model offers.
+    Dimension,
+    /// The vector width, typed.
+    DimensionText,
+    /// The reranker, picked (or off).
+    Rerank,
+    /// The reranker, typed; blank for none.
+    RerankText,
+    /// A custom endpoint's base URL. Kept in the `base_url` draft.
+    EmbedUrl,
 }
 
 impl SettingsField {
@@ -144,6 +168,12 @@ impl SettingsField {
             SettingsField::KeyFile => "Key file (optional)",
             SettingsField::Passphrase => "Key passphrase (if it has one)",
             SettingsField::Password => "Password (optional)",
+            SettingsField::RagEnabled => "Code search (RAG)",
+            SettingsField::RagProvider => "Embedding provider",
+            SettingsField::EmbedModel | SettingsField::EmbedModelText => "Embedding model",
+            SettingsField::Dimension | SettingsField::DimensionText => "Dimension (vector width)",
+            SettingsField::Rerank | SettingsField::RerankText => "Reranker",
+            SettingsField::EmbedUrl => "Base URL (OpenAI-compatible)",
         }
     }
 
@@ -161,7 +191,16 @@ impl SettingsField {
     /// A cycled choice (Left/Right picks a value) rather than a text field.
     /// Its draft string holds the chosen value or is empty for the default.
     pub fn is_choice(self) -> bool {
-        matches!(self, SettingsField::Effort | SettingsField::Vision)
+        matches!(
+            self,
+            SettingsField::Effort
+                | SettingsField::Vision
+                | SettingsField::RagEnabled
+                | SettingsField::RagProvider
+                | SettingsField::EmbedModel
+                | SettingsField::Dimension
+                | SettingsField::Rerank
+        )
     }
 }
 
@@ -209,6 +248,41 @@ pub fn builtin_mcp_fields(server: &str) -> &'static [SettingsField] {
     }
 }
 
+/// The fields of Settings > RAG for a provider: a known provider's models,
+/// widths and rerankers are picked; a custom endpoint's are typed.
+pub fn rag_fields(provider: &str) -> &'static [SettingsField] {
+    use enowx_core::builtin_mcp::rag::Provider;
+    match Provider::parse(provider) {
+        Provider::Voyage => &[
+            SettingsField::RagEnabled,
+            SettingsField::Dsn,
+            SettingsField::RagProvider,
+            SettingsField::ApiKey,
+            SettingsField::EmbedModel,
+            SettingsField::Dimension,
+            SettingsField::Rerank,
+        ],
+        Provider::OpenAi => &[
+            SettingsField::RagEnabled,
+            SettingsField::Dsn,
+            SettingsField::RagProvider,
+            SettingsField::ApiKey,
+            SettingsField::EmbedModel,
+            SettingsField::Dimension,
+        ],
+        Provider::Custom => &[
+            SettingsField::RagEnabled,
+            SettingsField::Dsn,
+            SettingsField::RagProvider,
+            SettingsField::EmbedUrl,
+            SettingsField::ApiKey,
+            SettingsField::EmbedModelText,
+            SettingsField::DimensionText,
+            SettingsField::RerankText,
+        ],
+    }
+}
+
 /// What the provider and model forms are editing.
 #[derive(Clone, Default)]
 pub struct SettingsDraft {
@@ -232,6 +306,13 @@ pub struct SettingsDraft {
     /// A VPS's key file and its passphrase.
     pub key_file: String,
     pub passphrase: String,
+    /// Settings > RAG: "on" or "off", the provider's id, the vector width
+    /// (empty for the model's default) and the reranker (empty for the
+    /// provider's default, "off" for none). The model is in `model`.
+    pub rag_enabled: String,
+    pub rag_provider: String,
+    pub dimension: String,
+    pub rerank: String,
     /// The efforts this model offers, to cycle through on the Effort field.
     pub efforts: Vec<String>,
 }
@@ -271,6 +352,12 @@ impl SettingsDraft {
             SettingsField::KeyFile => &self.key_file,
             SettingsField::Passphrase => &self.passphrase,
             SettingsField::Password => &self.api_key,
+            SettingsField::RagEnabled => &self.rag_enabled,
+            SettingsField::RagProvider => &self.rag_provider,
+            SettingsField::EmbedModel | SettingsField::EmbedModelText => &self.model,
+            SettingsField::Dimension | SettingsField::DimensionText => &self.dimension,
+            SettingsField::Rerank | SettingsField::RerankText => &self.rerank,
+            SettingsField::EmbedUrl => &self.base_url,
         }
     }
 
@@ -293,6 +380,29 @@ impl SettingsDraft {
             SettingsField::KeyFile => &mut self.key_file,
             SettingsField::Passphrase => &mut self.passphrase,
             SettingsField::Password => &mut self.api_key,
+            SettingsField::RagEnabled => &mut self.rag_enabled,
+            SettingsField::RagProvider => &mut self.rag_provider,
+            SettingsField::EmbedModel | SettingsField::EmbedModelText => &mut self.model,
+            SettingsField::Dimension | SettingsField::DimensionText => &mut self.dimension,
+            SettingsField::Rerank | SettingsField::RerankText => &mut self.rerank,
+            SettingsField::EmbedUrl => &mut self.base_url,
+        }
+    }
+
+    /// The RAG setup this draft describes.
+    pub fn rag_setup(&self) -> enowx_core::builtin_mcp::rag::RagSetup {
+        use enowx_core::builtin_mcp::rag::{Provider, RagSetup};
+        let provider = Provider::parse(&self.rag_provider);
+        RagSetup {
+            provider: provider.id().to_owned(),
+            base_url: if provider == Provider::Custom {
+                self.base_url.trim().to_owned()
+            } else {
+                String::new()
+            },
+            model: self.model.trim().to_owned(),
+            dimension: self.dimension.trim().parse().unwrap_or(0),
+            rerank: self.rerank.trim().to_owned(),
         }
     }
 
@@ -313,6 +423,21 @@ impl SettingsDraft {
                 "no" => "no".into(),
                 _ => "default".into(),
             },
+            SettingsField::RagEnabled => {
+                if self.rag_enabled == "on" {
+                    "on".into()
+                } else {
+                    "off".into()
+                }
+            }
+            SettingsField::RagProvider => {
+                enowx_core::builtin_mcp::rag::Provider::parse(&self.rag_provider)
+                    .label()
+                    .into()
+            }
+            SettingsField::EmbedModel => self.rag_setup().model(),
+            SettingsField::Dimension => self.rag_setup().dimension().to_string(),
+            SettingsField::Rerank => self.rag_setup().reranker().unwrap_or_else(|| "off".into()),
             _ => self.value(field).to_owned(),
         }
     }
@@ -327,6 +452,75 @@ impl SettingsDraft {
                 let len = options.len() as i32;
                 let next = (((here as i32 + delta) % len) + len) % len;
                 self.effort = options[next as usize].clone();
+            }
+            SettingsField::RagEnabled => {
+                self.rag_enabled = if self.rag_enabled == "on" {
+                    "off"
+                } else {
+                    "on"
+                }
+                .into();
+            }
+            // A new provider starts on its own defaults: another provider's
+            // model, width or reranker means nothing there.
+            SettingsField::RagProvider => {
+                use enowx_core::builtin_mcp::rag::Provider;
+                let all = Provider::ALL;
+                let here = all
+                    .iter()
+                    .position(|p| *p == Provider::parse(&self.rag_provider))
+                    .unwrap_or(0) as i32;
+                let len = all.len() as i32;
+                let next = (((here + delta) % len) + len) % len;
+                self.rag_provider = all[next as usize].id().into();
+                self.model.clear();
+                self.dimension.clear();
+                self.rerank.clear();
+                self.base_url.clear();
+            }
+            SettingsField::EmbedModel => {
+                let setup = self.rag_setup();
+                let models: Vec<&str> = setup.provider().models().iter().map(|(m, _)| *m).collect();
+                if models.is_empty() {
+                    return;
+                }
+                let here = models.iter().position(|m| *m == setup.model()).unwrap_or(0) as i32;
+                let len = models.len() as i32;
+                let next = (((here + delta) % len) + len) % len;
+                self.model = models[next as usize].into();
+                self.dimension.clear();
+            }
+            SettingsField::Dimension => {
+                let setup = self.rag_setup();
+                let model = setup.model();
+                let Some((_, dims)) = setup.provider().models().iter().find(|(m, _)| *m == model)
+                else {
+                    return;
+                };
+                let mut dims = dims.to_vec();
+                dims.sort_unstable();
+                let here = dims
+                    .iter()
+                    .position(|d| *d == setup.dimension())
+                    .unwrap_or(0) as i32;
+                let len = dims.len() as i32;
+                let next = (((here + delta) % len) + len) % len;
+                self.dimension = dims[next as usize].to_string();
+            }
+            SettingsField::Rerank => {
+                let setup = self.rag_setup();
+                let mut options: Vec<String> = setup
+                    .provider()
+                    .rerankers()
+                    .iter()
+                    .map(|r| (*r).to_owned())
+                    .collect();
+                options.push("off".into());
+                let current = setup.reranker().unwrap_or_else(|| "off".into());
+                let here = options.iter().position(|o| *o == current).unwrap_or(0) as i32;
+                let len = options.len() as i32;
+                let next = (((here + delta) % len) + len) % len;
+                self.rerank = options[next as usize].clone();
             }
             SettingsField::Vision => {
                 let options = ["", "yes", "no"];

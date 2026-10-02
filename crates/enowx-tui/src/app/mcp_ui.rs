@@ -154,6 +154,11 @@ impl App {
 
     fn open_builtin_mcp(&mut self, name: &str) {
         use enowx_core::builtin_mcp::BuiltinConfig;
+        // RAG has a section of its own, with more to set than a form here.
+        if name == "rag" {
+            let _ = self.open_page(crate::app::pages::Page::Rag);
+            return;
+        }
         let config = BuiltinConfig::load().unwrap_or_default();
         let mut draft = crate::modal::SettingsDraft {
             provider_id: name.to_owned(),

@@ -164,3 +164,57 @@ fn a_provider_with_no_list_offers_to_add_a_model_by_hand() {
         "{rows:#?}"
     );
 }
+
+/// In `/agent`, `m` chooses the selected agent's own model and `d` drops
+/// it. The conversation's model stays as it was.
+#[test]
+fn an_agent_gets_a_model_of_its_own_from_the_roster() {
+    let mut app = two_providers();
+    app.run_command("/agent").expect("roster");
+    while app.modal_cursor() > 0 {
+        app.press_key(KeyCode::Up).expect("up");
+    }
+    while app.selected_agent_row().as_deref() != Some("fe") {
+        let before = app.modal_cursor();
+        app.press_key(KeyCode::Down).expect("down");
+        assert_ne!(app.modal_cursor(), before, "fe is in the roster");
+    }
+    app.press_key(KeyCode::Char('m')).expect("m");
+    let screen = app.render_to_text(120, 40).join("\n");
+    assert!(screen.contains("MODEL FOR FRONTEND"), "{screen}");
+    app.type_keys("v4-pro");
+    app.press_key(KeyCode::Enter).expect("pick");
+    assert_eq!(
+        app.agent_own_model("fe").as_deref(),
+        Some("deepseek/deepseek-v4-pro")
+    );
+    assert_eq!(
+        app.active_model(),
+        "enowx/cbc/glm-5",
+        "the conversation keeps its model"
+    );
+    assert_eq!(
+        app.selected_agent_row().as_deref(),
+        Some("fe"),
+        "back on the roster, on fe"
+    );
+    let screen = app.render_to_text(120, 60).join("\n");
+    assert!(screen.contains("deepseek/deepseek-v4-pro"), "{screen}");
+
+    app.press_key(KeyCode::Char('d')).expect("d");
+    assert_eq!(app.agent_own_model("fe"), None);
+}
+
+/// Esc from the model list while choosing for an agent goes back to the
+/// roster and changes nothing.
+#[test]
+fn leaving_an_agents_model_list_changes_nothing() {
+    let mut app = two_providers();
+    app.run_command("/agent").expect("roster");
+    let agent = app.selected_agent_row().expect("a row");
+    app.press_key(KeyCode::Char('m')).expect("m");
+    app.press_key(KeyCode::Esc).expect("esc");
+    assert_eq!(app.selected_agent_row(), Some(agent.clone()));
+    assert_eq!(app.agent_own_model(&agent), None);
+    assert_eq!(app.active_model(), "enowx/cbc/glm-5");
+}

@@ -2,7 +2,10 @@ pub(crate) const COMMANDS: [(&str, &str); 22] = [
     ("help", "Show every command"),
     ("new", "Start a fresh session"),
     ("resume", "Reopen a saved session in this workspace"),
-    ("agent", "Show the roster or switch agent"),
+    (
+        "agent",
+        "Show the roster, switch agent, or give one its own model (m)",
+    ),
     ("model", "Discover or enter a model"),
     ("effort", "Choose how hard the model thinks"),
     ("provider", "Edit provider settings"),

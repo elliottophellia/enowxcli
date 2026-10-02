@@ -49,6 +49,8 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
     let body = (app.modal_items.len() as u16 * per_row).min(cap);
     let hint = if app.modal == Modal::Providers {
         "Enter connect · d disconnect · Esc close"
+    } else if app.modal == Modal::Agents {
+        "Enter switch · m model · d default model · Esc"
     } else {
         LIST_HINT
     };
@@ -165,7 +167,15 @@ fn draw_model_picker(frame: &mut Frame, app: &mut App, width: u16) {
     } else {
         "Enter use · ^F favourite · ^N add · ^E edit · ^R refresh · Esc"
     };
-    let (_, content) = overlay(frame, app, width, body, app.modal.title(), hint);
+    // Choosing for one agent, the title says whose model it is.
+    let title = match &app.picking_for_agent {
+        Some(agent) => format!(
+            " MODEL FOR {} ",
+            enowx_core::agent_def::display_name(agent).to_uppercase()
+        ),
+        None => app.modal.title().to_owned(),
+    };
+    let (_, content) = overlay(frame, app, width, body, &title, hint);
     if content.height < 3 {
         return;
     }

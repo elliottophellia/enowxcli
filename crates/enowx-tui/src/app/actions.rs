@@ -501,6 +501,73 @@ impl App {
             .collect();
     }
 
+    /// `m` in the roster: choose the selected agent's own model from the
+    /// model list. The conversation's model is left as it is.
+    pub(crate) fn pick_agent_model(&mut self) {
+        let Some((agent, _)) = self.modal_items.get(self.modal_cursor).cloned() else {
+            return;
+        };
+        let current = self.config.agent.models.get(&agent).cloned();
+        self.open_model_picker(None);
+        if self.modal != Modal::Models {
+            return;
+        }
+        self.picking_for_agent = Some(agent);
+        if let Some(current) = current {
+            let rows = self.picker_rows();
+            if let Some(index) = rows.iter().position(|row| {
+                matches!(row, super::model_picker::PickerRow::Model { model, .. } if *model == current)
+            }) {
+                self.modal_cursor = index;
+            }
+        }
+    }
+
+    /// Give `agent` the model `model`, or none of its own (`None`): it runs on
+    /// its tier's model, or the conversation's.
+    pub(crate) fn set_agent_model(&mut self, agent: &str, model: Option<&str>) -> Result<()> {
+        let mut next = self.config.clone();
+        match model {
+            Some(model) => {
+                next.agent.models.insert(agent.to_owned(), model.to_owned());
+            }
+            None => {
+                next.agent.models.remove(agent);
+            }
+        }
+        next.save()?;
+        self.adopt(next);
+        let name = enowx_core::agent_def::display_name(agent);
+        self.status = match model {
+            Some(model) => format!("{name} runs on {model}"),
+            None => format!("{name} runs on the default model again"),
+        };
+        Ok(())
+    }
+
+    /// `d` in the roster: the selected agent drops its own model.
+    pub(crate) fn clear_agent_model(&mut self) -> Result<()> {
+        let Some((agent, _)) = self.modal_items.get(self.modal_cursor).cloned() else {
+            return Ok(());
+        };
+        if !self.config.agent.models.contains_key(&agent) {
+            self.status = format!(
+                "{} has no model of its own",
+                enowx_core::agent_def::display_name(&agent)
+            );
+            return Ok(());
+        }
+        self.set_agent_model(&agent, None)
+    }
+
+    /// Back to the roster, on `agent`, after choosing its model.
+    pub(crate) fn return_to_agents(&mut self, agent: &str) {
+        self.open_agents();
+        if let Some(index) = self.modal_items.iter().position(|(name, _)| name == agent) {
+            self.modal_cursor = index;
+        }
+    }
+
     /// The roster as a picker. `compactor` is left out: it is machinery the
     /// session runs on its own, not something to hand a request to.
     pub(crate) fn open_agents(&mut self) {

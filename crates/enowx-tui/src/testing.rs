@@ -522,6 +522,19 @@ impl TestApp {
             .insert(agent.to_owned(), model.to_owned());
     }
 
+    /// The model `agent` has of its own in the config, if any.
+    pub fn agent_own_model(&self, agent: &str) -> Option<String> {
+        self.inner.config.agent.models.get(agent).cloned()
+    }
+
+    /// The roster row the cursor is on, by agent id.
+    pub fn selected_agent_row(&self) -> Option<String> {
+        self.inner
+            .modal_items
+            .get(self.inner.modal_cursor)
+            .map(|(id, _)| id.clone())
+    }
+
     pub fn agent_for_new_session(&self) -> Option<String> {
         self.inner.agent_for_new_session()
     }

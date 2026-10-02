@@ -222,6 +222,9 @@ pub(crate) struct App {
     /// The `/model` list: each connected provider's models, and the
     /// recent and favourite picks.
     pub(crate) picker: model_picker::ModelPicker,
+    /// The agent the model list is choosing for (`m` in `/agent`), rather
+    /// than the conversation's model.
+    pub(crate) picking_for_agent: Option<String>,
     /// The provider id on each row of `/provider`, in order; the row after
     /// them adds a new one.
     pub(crate) provider_ids: Vec<String>,
@@ -393,6 +396,7 @@ impl App {
             last_answer: None,
             field_cursor: 0,
             picker: model_picker::ModelPicker::default(),
+            picking_for_agent: None,
             provider_ids: Vec::new(),
             modal_error: String::new(),
             activity: Activity::Idle,

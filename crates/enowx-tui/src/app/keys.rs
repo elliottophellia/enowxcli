@@ -105,6 +105,10 @@ impl App {
                         if self.modal_search.is_empty() {
                             self.modal = Modal::None;
                             self.picker.events = None;
+                            // Choosing for an agent: back to the roster.
+                            if let Some(agent) = self.picking_for_agent.take() {
+                                self.return_to_agents(&agent);
+                            }
                         } else {
                             self.search_models(String::clear);
                         }
@@ -112,6 +116,7 @@ impl App {
                     KeyCode::Char('c') if control => {
                         self.modal = Modal::None;
                         self.picker.events = None;
+                        self.picking_for_agent = None;
                     }
                     KeyCode::Char('f') if control => self.toggle_favorite_model()?,
                     KeyCode::Up => self.move_picker(-1),
@@ -292,6 +297,9 @@ impl App {
                     self.modal_cursor += 1
                 }
                 KeyCode::Enter => self.accept_modal()?,
+                // The roster: the selected agent's own model, or none.
+                KeyCode::Char('m') if self.modal == Modal::Agents => self.pick_agent_model(),
+                KeyCode::Char('d') if self.modal == Modal::Agents => self.clear_agent_model()?,
                 _ => {}
             }
             return Ok(());

@@ -393,6 +393,14 @@ impl App {
             "{} is not connected: add its key in /provider",
             connection.name
         );
+        // Chosen for one agent from `/agent`: its own model, not the
+        // conversation's, and not a recent pick.
+        if let Some(agent) = self.picking_for_agent.take() {
+            self.modal_search.clear();
+            self.set_agent_model(&agent, Some(&model.to_string()))?;
+            self.return_to_agents(&agent);
+            return Ok(());
+        }
         let mut next = self.config.clone();
         next.use_model(&model.to_string());
         let mut state = ModelState::load();
@@ -432,7 +440,7 @@ impl App {
         Ok(())
     }
 
-    /// F5: ask every provider for its list again.
+    /// Ctrl+R: ask every provider for its list again.
     pub(crate) fn refresh_models(&mut self) {
         let connected = self.config.connected();
         for provider in &mut self.picker.providers {

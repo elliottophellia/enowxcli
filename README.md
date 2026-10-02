@@ -215,6 +215,10 @@ Other MCP clients can run them too: the command is `enx mcp serve coolify`
 `/theme` `/typesafe` `/skills` `/mcp` `/compact` `/sidebar` `/reasoning`
 `/tools` `/preview` `/status` `/clear` `/stop` `/retry` `/quit`
 
+`/agent` lists the roster: `Enter` switches to the selected agent, `m` gives
+it a model of its own from the model list (saved as `agent.models.<agent>`,
+shown beside its name), and `d` puts it back on the default model.
+
 `/effort` chooses how hard the model thinks, from the levels models.dev lists
 for it (`/effort high` picks one directly). The level shows beside the model,
 under the composer and in the status bar, or `effort default` while the model
@@ -295,7 +299,7 @@ with the old file kept as `config.toml.before-providers.bak`.
 | `provider.<id>.models_url` | Where its model list is read |
 | `provider.<id>.name` | Its name in the interface |
 | `provider.<id>.models.<model>.context_window` | A window for one model, over what the provider or catalogue says |
-| `agent.models.<agent>` | A model of its own for one agent, on any connected provider |
+| `agent.models.<agent>` | A model of its own for one agent, on any connected provider (or `m` on the agent in `/agent`) |
 | `agent.max_steps` | Hard cap on model calls per turn |
 | `agent.workspace` | Directory the file and shell tools are rooted in |
 | `agent.shell_timeout_secs` | Kill a shell command after this long |

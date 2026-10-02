@@ -116,6 +116,12 @@ pub enum SettingsField {
     Port,
     /// A Postgres connection string. Masked: it carries the password.
     Dsn,
+    /// A VPS's private key file.
+    KeyFile,
+    /// That key file's passphrase. Masked.
+    Passphrase,
+    /// A VPS's SSH password. Masked; kept in the `api_key` draft.
+    Password,
 }
 
 impl SettingsField {
@@ -135,12 +141,21 @@ impl SettingsField {
             SettingsField::User => "SSH user",
             SettingsField::Port => "SSH port",
             SettingsField::Dsn => "Database (postgres://user:pass@host:5432/db)",
+            SettingsField::KeyFile => "Key file (optional)",
+            SettingsField::Passphrase => "Key passphrase (if it has one)",
+            SettingsField::Password => "Password (optional)",
         }
     }
 
     /// Typed hidden, shown as dots: a key, a password, a connection string.
     pub fn is_secret(self) -> bool {
-        matches!(self, SettingsField::ApiKey | SettingsField::Dsn)
+        matches!(
+            self,
+            SettingsField::ApiKey
+                | SettingsField::Dsn
+                | SettingsField::Passphrase
+                | SettingsField::Password
+        )
     }
 
     /// A cycled choice (Left/Right picks a value) rather than a text field.
@@ -175,7 +190,8 @@ pub fn form_fields(modal: Modal) -> &'static [SettingsField] {
 }
 
 /// The fields for configuring a built-in MCP server: coolify and dokploy take
-/// a URL and a token; a VPS takes host, user, port and a password.
+/// a URL and a token; a VPS takes host, user and port, and any of a key file,
+/// its passphrase and a password (with none, ssh-agent and `~/.ssh` keys).
 pub fn builtin_mcp_fields(server: &str) -> &'static [SettingsField] {
     match server {
         "vps" => &[
@@ -183,7 +199,9 @@ pub fn builtin_mcp_fields(server: &str) -> &'static [SettingsField] {
             SettingsField::Host,
             SettingsField::User,
             SettingsField::Port,
-            SettingsField::ApiKey,
+            SettingsField::KeyFile,
+            SettingsField::Passphrase,
+            SettingsField::Password,
         ],
         // A Postgres with pgvector, local or in the cloud, and a Voyage key.
         "rag" => &[SettingsField::Dsn, SettingsField::ApiKey],
@@ -211,6 +229,9 @@ pub struct SettingsDraft {
     pub price_output: String,
     /// A database connection string, for the RAG server.
     pub dsn: String,
+    /// A VPS's key file and its passphrase.
+    pub key_file: String,
+    pub passphrase: String,
     /// The efforts this model offers, to cycle through on the Effort field.
     pub efforts: Vec<String>,
 }
@@ -247,6 +268,9 @@ impl SettingsDraft {
             SettingsField::User => &self.models_url,
             SettingsField::Port => &self.context_window,
             SettingsField::Dsn => &self.dsn,
+            SettingsField::KeyFile => &self.key_file,
+            SettingsField::Passphrase => &self.passphrase,
+            SettingsField::Password => &self.api_key,
         }
     }
 
@@ -266,6 +290,9 @@ impl SettingsDraft {
             SettingsField::User => &mut self.models_url,
             SettingsField::Port => &mut self.context_window,
             SettingsField::Dsn => &mut self.dsn,
+            SettingsField::KeyFile => &mut self.key_file,
+            SettingsField::Passphrase => &mut self.passphrase,
+            SettingsField::Password => &mut self.api_key,
         }
     }
 

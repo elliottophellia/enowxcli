@@ -102,22 +102,31 @@ enum McpCommand {
 
 #[derive(Debug, Subcommand)]
 enum VpsCommand {
-    /// Add or update a VPS. Without --key, its password is asked for and
-    /// kept in auth.json.
+    /// Add or update a VPS. It signs in like OpenSSH: the key file given,
+    /// then ssh-agent, the keys in ~/.ssh/config or the default ~/.ssh/id_*
+    /// keys, then the password. Secrets are kept in auth.json.
     Add {
         name: String,
+        /// The address, or an alias from ~/.ssh/config. Defaults to the name.
         #[arg(long)]
-        host: String,
+        host: Option<String>,
+        /// Defaults to the User in ~/.ssh/config, or the local user.
         #[arg(long)]
-        user: String,
+        user: Option<String>,
         #[arg(long, default_value_t = 22)]
         port: u16,
-        /// A private key file to sign in with instead of a password.
+        /// A private key file (OpenSSH, PEM or PuTTY .ppk).
         #[arg(long)]
         key: Option<String>,
+        /// The key file's passphrase, when it has one; asked for if needed.
+        #[arg(long)]
+        passphrase: Option<String>,
         /// The password. Given here it is not prompted for.
         #[arg(long)]
         password: Option<String>,
+        /// Do not ask for a password: sign in with keys and ssh-agent only.
+        #[arg(long)]
+        no_password: bool,
     },
     #[command(alias = "ls")]
     List,
@@ -196,8 +205,19 @@ async fn main() -> Result<()> {
                 user,
                 port,
                 key,
+                passphrase,
                 password,
-            } => mcp::vps_add(&name, &host, &user, port, key, password),
+                no_password,
+            } => mcp::vps_add(mcp::VpsAdd {
+                name,
+                host,
+                user,
+                port,
+                key,
+                passphrase,
+                password,
+                no_password,
+            }),
             VpsCommand::List => mcp::vps_list(),
             VpsCommand::Remove { name } => mcp::vps_remove(&name),
         },

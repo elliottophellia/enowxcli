@@ -177,6 +177,7 @@ impl App {
                     draft.base_url = host.host.clone();
                     draft.models_url = host.user.clone();
                     draft.context_window = host.port.to_string();
+                    draft.key_file = host.key_path.clone().unwrap_or_default();
                 }
             }
             _ => {}
@@ -258,17 +259,52 @@ impl App {
                 let vps_name = self.settings.name.trim().to_owned();
                 let host = self.settings.base_url.trim().to_owned();
                 let user = self.settings.models_url.trim().to_owned();
-                if !vps::valid_name(&vps_name) || host.is_empty() || user.is_empty() {
-                    self.modal_error = "a name, host and user are required".into();
+                if !vps::valid_name(&vps_name) || host.is_empty() {
+                    self.modal_error = "a name and a host are required".into();
                     return Ok(());
                 }
                 let port: u16 = self.settings.context_window.trim().parse().unwrap_or(22);
-                let had = auth.key(&vps::password_id(&vps_name), &[]).is_some();
-                if token.is_empty() && !had {
-                    self.modal_error =
-                        "a password is required (or add a key with `enx vps add`)".into();
-                    return Ok(());
+                // A key file is checked now: one that is encrypted needs a
+                // passphrase that opens it.
+                let key_file = self.settings.key_file.trim().to_owned();
+                let passphrase = self.settings.passphrase.clone();
+                if !key_file.is_empty() {
+                    let path = match key_file.strip_prefix("~/") {
+                        Some(rest) => std::path::PathBuf::from(
+                            std::env::var("HOME")
+                                .or_else(|_| std::env::var("USERPROFILE"))
+                                .unwrap_or_default(),
+                        )
+                        .join(rest),
+                        None => std::path::PathBuf::from(&key_file),
+                    };
+                    match vps::key_is_encrypted(&path) {
+                        Err(error) => {
+                            self.modal_error = format!("the key file: {error:#}");
+                            return Ok(());
+                        }
+                        Ok(false) => {
+                            auth.forget(&vps::passphrase_id(&vps_name))?;
+                        }
+                        Ok(true) => {
+                            let had = auth.key(&vps::passphrase_id(&vps_name), &[]).is_some();
+                            if passphrase.is_empty() && !had {
+                                self.modal_error =
+                                    "that key is encrypted: enter its passphrase".into();
+                                return Ok(());
+                            }
+                            if !passphrase.is_empty() {
+                                if !vps::key_opens(&path, &passphrase) {
+                                    self.modal_error =
+                                        "that passphrase does not open the key".into();
+                                    return Ok(());
+                                }
+                                auth.store(&vps::passphrase_id(&vps_name), &passphrase)?;
+                            }
+                        }
+                    }
                 }
+                // No password is fine: ssh-agent and ~/.ssh keys are tried.
                 if !token.is_empty() {
                     auth.store(&vps::password_id(&vps_name), &token)?;
                 }
@@ -278,7 +314,7 @@ impl App {
                         host,
                         port,
                         user,
-                        key_path: None,
+                        key_path: Some(key_file).filter(|k| !k.is_empty()),
                     },
                 );
             }

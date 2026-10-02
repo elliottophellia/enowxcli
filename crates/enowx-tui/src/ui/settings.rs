@@ -180,11 +180,13 @@ fn placeholder(app: &App, field: SettingsField) -> &'static str {
         SettingsField::ContextWindow => "e.g. 200000",
         SettingsField::Effort | SettingsField::Vision => "←→ to choose",
         SettingsField::PriceInput | SettingsField::PriceOutput => "e.g. 3.0 (blank = unknown)",
-        SettingsField::Host => "203.0.113.5 or a hostname",
-        SettingsField::User => "root",
+        SettingsField::Host => "203.0.113.5, a hostname, or a ~/.ssh/config alias",
+        SettingsField::User => "root (blank: from ~/.ssh/config)",
         SettingsField::Port => "22",
         SettingsField::Dsn => {
             "postgres://localhost/enx (local) or a cloud URL with ?sslmode=require"
         }
+        SettingsField::KeyFile => "~/.ssh/id_ed25519 (blank: ssh-agent, ~/.ssh keys)",
+        SettingsField::Passphrase | SettingsField::Password => "(blank keeps what is stored)",
     }
 }

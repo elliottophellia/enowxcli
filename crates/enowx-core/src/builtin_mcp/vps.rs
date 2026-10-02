@@ -1,7 +1,14 @@
 //! The user's VPSes over SSH: run a command on one, or read its state.
 //!
-//! Each host signs in with a private key file or a password kept in
-//! `auth.json`. A host's key is recorded the first time enx connects
+//! A host signs in the way OpenSSH would, trying in turn: the key file it
+//! was given (decrypted with its stored passphrase), the keys in ssh-agent
+//! (Pageant or the OpenSSH agent on Windows), the `IdentityFile`s from
+//! `~/.ssh/config` or else the default `~/.ssh/id_*` keys, the stored
+//! password, and keyboard-interactive answered with that password. A host
+//! may also be an alias from `~/.ssh/config`, whose `HostName`, `User` and
+//! `Port` are used. Secrets live in `auth.json`.
+//!
+//! A host's key is recorded the first time enx connects
 //! (`~/.enx/vps_known_hosts`) and a later connection to a different key is
 //! refused, as OpenSSH does, so a hijacked address never sees a password.
 
@@ -9,8 +16,11 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{bail, Context as _, Result};
 use russh::{
-    client,
-    keys::{load_secret_key, HashAlg, PrivateKeyWithHashAlg},
+    client::{self, KeyboardInteractiveAuthResponse},
+    keys::{
+        agent::{client::AgentClient, AgentIdentity},
+        load_secret_key, HashAlg, PrivateKeyWithHashAlg,
+    },
     ChannelMsg,
 };
 use serde::{Deserialize, Serialize};
@@ -23,11 +33,15 @@ use crate::{auth::Auth, config::home_dir};
 /// under [`password_id`].
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Host {
+    /// An address, or an alias from `~/.ssh/config`.
     pub host: String,
     #[serde(default = "default_port")]
     pub port: u16,
+    /// Empty: the `User` from `~/.ssh/config`, or the local user name.
+    #[serde(default)]
     pub user: String,
-    /// A private key file. None: sign in with the stored password.
+    /// A private key file. None: ssh-agent, the keys `~/.ssh/config` names
+    /// or the default ones, then the stored password.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key_path: Option<String>,
 }
@@ -39,6 +53,11 @@ fn default_port() -> u16 {
 /// Where `name`'s password is kept in `auth.json`.
 pub fn password_id(name: &str) -> String {
     secret_id(&format!("vps-{name}"))
+}
+
+/// Where the passphrase of `name`'s key file is kept in `auth.json`.
+pub fn passphrase_id(name: &str) -> String {
+    secret_id(&format!("vps-{name}-passphrase"))
 }
 
 /// A VPS name as `enx vps add` accepts it.
@@ -111,6 +130,379 @@ pub struct Output {
     pub exit: Option<u32>,
 }
 
+/// What `~/.ssh/config` says about one host alias.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct SshEntry {
+    pub host_name: Option<String>,
+    pub user: Option<String>,
+    pub port: Option<u16>,
+    pub identity_files: Vec<String>,
+}
+
+/// Read the settings `text` (an ssh_config) gives `alias`. Like OpenSSH,
+/// the first value found for a keyword wins and `IdentityFile`s add up;
+/// `Match` blocks are skipped, since they test things enx cannot know.
+pub fn ssh_config_entry(text: &str, alias: &str) -> SshEntry {
+    let mut entry = SshEntry::default();
+    let mut active = true;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (key, value) = match line.find(|c: char| c.is_whitespace() || c == '=') {
+            Some(at) => (
+                &line[..at],
+                line[at..]
+                    .trim_start_matches(|c: char| c.is_whitespace() || c == '=')
+                    .trim(),
+            ),
+            None => (line, ""),
+        };
+        let value = value.trim_matches('"');
+        match key.to_ascii_lowercase().as_str() {
+            "host" => {
+                let patterns: Vec<&str> = value.split_whitespace().collect();
+                let negated = patterns
+                    .iter()
+                    .filter_map(|p| p.strip_prefix('!'))
+                    .any(|p| glob(p, alias));
+                active = !negated
+                    && patterns
+                        .iter()
+                        .filter(|p| !p.starts_with('!'))
+                        .any(|p| glob(p, alias));
+            }
+            "match" => active = false,
+            _ if !active => {}
+            "hostname" if entry.host_name.is_none() => {
+                entry.host_name = Some(value.replace("%h", alias));
+            }
+            "user" if entry.user.is_none() => entry.user = Some(value.to_owned()),
+            "port" if entry.port.is_none() => entry.port = value.parse().ok(),
+            "identityfile" => entry.identity_files.push(value.to_owned()),
+            _ => {}
+        }
+    }
+    entry
+}
+
+/// An ssh_config host pattern: `*` any run, `?` one character.
+fn glob(pattern: &str, text: &str) -> bool {
+    fn go(p: &[char], t: &[char]) -> bool {
+        match p.split_first() {
+            None => t.is_empty(),
+            Some(('*', rest)) => (0..=t.len()).any(|i| go(rest, &t[i..])),
+            Some(('?', rest)) => !t.is_empty() && go(rest, &t[1..]),
+            Some((c, rest)) => {
+                t.first().is_some_and(|f| f.eq_ignore_ascii_case(c)) && go(rest, &t[1..])
+            }
+        }
+    }
+    let p: Vec<char> = pattern.chars().collect();
+    let t: Vec<char> = text.chars().collect();
+    go(&p, &t)
+}
+
+/// The user's home: `HOME`, or `USERPROFILE` on Windows.
+fn user_home() -> PathBuf {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_default()
+}
+
+/// Where a host is reached and as whom, once `~/.ssh/config` is applied.
+struct Target {
+    host: String,
+    port: u16,
+    user: String,
+    /// Key files to try after the agent: the config's, or the defaults.
+    identity_files: Vec<PathBuf>,
+}
+
+fn resolve(host: &Host) -> Target {
+    let text = std::fs::read_to_string(user_home().join(".ssh").join("config")).unwrap_or_default();
+    let entry = ssh_config_entry(&text, &host.host);
+    let user = if host.user.trim().is_empty() {
+        entry.user.clone().unwrap_or_else(|| {
+            std::env::var("USER")
+                .or_else(|_| std::env::var("USERNAME"))
+                .unwrap_or_else(|_| "root".into())
+        })
+    } else {
+        host.user.clone()
+    };
+    let identity_files = if entry.identity_files.is_empty() {
+        ["id_ed25519", "id_ecdsa", "id_rsa"]
+            .iter()
+            .map(|f| user_home().join(".ssh").join(f))
+            .collect()
+    } else {
+        entry
+            .identity_files
+            .iter()
+            .map(|f| expand_home(f))
+            .collect()
+    };
+    Target {
+        host: entry.host_name.unwrap_or_else(|| host.host.clone()),
+        // An explicit port wins; 22 is the default and yields to the config.
+        port: if host.port != 22 {
+            host.port
+        } else {
+            entry.port.unwrap_or(22)
+        },
+        user,
+        identity_files,
+    }
+}
+
+/// How a host will sign in, for `list` and `enx vps list`. No secrets.
+pub fn sign_in_summary(name: &str, host: &Host, auth: &Auth) -> String {
+    let mut ways = Vec::new();
+    if let Some(key) = &host.key_path {
+        ways.push(format!("key {key}"));
+    }
+    ways.push("ssh-agent and ~/.ssh keys".to_owned());
+    if auth.key(&password_id(name), &[]).is_some() {
+        ways.push("password".to_owned());
+    }
+    ways.join(", then ")
+}
+
+/// The running ssh-agent, if there is one.
+async fn agent(
+) -> Option<AgentClient<Box<dyn russh::keys::agent::client::AgentStream + Send + Unpin>>> {
+    let connect = async {
+        #[cfg(unix)]
+        {
+            AgentClient::connect_env().await.ok().map(|a| a.dynamic())
+        }
+        #[cfg(windows)]
+        {
+            if let Ok(a) = AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await {
+                return Some(a.dynamic());
+            }
+            AgentClient::connect_pageant()
+                .await
+                .ok()
+                .map(|a| a.dynamic())
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            None
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(3), connect)
+        .await
+        .ok()
+        .flatten()
+}
+
+/// Whether a keyboard-interactive prompt asks for the account password,
+/// rather than a one-time code enx has no way to give.
+fn asks_for_password(prompt: &russh::client::Prompt) -> bool {
+    let text = prompt.prompt.to_lowercase();
+    !prompt.echo
+        && ![
+            "code",
+            "otp",
+            "token",
+            "verification",
+            "2fa",
+            "authenticator",
+            "yubikey",
+        ]
+        .iter()
+        .any(|w| text.contains(w))
+}
+
+/// Servers drop the connection after a handful of refused keys
+/// (`MaxAuthTries`, 6 by default), before the password gets its turn.
+const MAX_KEYS: usize = 4;
+
+/// Sign in the ways OpenSSH would, stopping at the first that works.
+/// On failure, says what was tried and why each was refused.
+async fn sign_in(
+    session: &mut client::Handle<Verifier>,
+    name: &str,
+    host: &Host,
+    target: &Target,
+    auth: &Auth,
+) -> Result<()> {
+    let user = target.user.as_str();
+    let password = auth.key(&password_id(name), &[]).map(|(k, _)| k.to_owned());
+    let passphrase = auth
+        .key(&passphrase_id(name), &[])
+        .map(|(k, _)| k.to_owned());
+    let hash = session.best_supported_rsa_hash().await?.flatten();
+    let mut tried: Vec<String> = Vec::new();
+    let mut offered = 0;
+    let mut seen = std::collections::HashSet::new();
+
+    // 1. The key file it was given.
+    let explicit = host.key_path.as_deref().map(expand_home);
+    if let Some(path) = &explicit {
+        match load_key(path, passphrase.as_deref()) {
+            Ok(key) => {
+                seen.insert(key.public_key().to_bytes().unwrap_or_default());
+                offered += 1;
+                let key = PrivateKeyWithHashAlg::new(Arc::new(key), hash);
+                if session.authenticate_publickey(user, key).await?.success() {
+                    return Ok(());
+                }
+                tried.push(format!("key {} refused", path.display()));
+            }
+            Err(why) => tried.push(format!("key {}: {why}", path.display())),
+        }
+    }
+
+    // 2. ssh-agent.
+    if let Some(mut agent) = agent().await {
+        let identities = agent.request_identities().await.unwrap_or_default();
+        let mut refused = 0;
+        for identity in identities {
+            if offered >= MAX_KEYS {
+                break;
+            }
+            let AgentIdentity::PublicKey { key, .. } = identity else {
+                continue;
+            };
+            if !seen.insert(key.to_bytes().unwrap_or_default()) {
+                continue;
+            }
+            offered += 1;
+            match session
+                .authenticate_publickey_with(user, key, hash, &mut agent)
+                .await
+            {
+                Ok(result) if result.success() => return Ok(()),
+                Ok(_) => refused += 1,
+                Err(error) => tried.push(format!("ssh-agent: {error:?}")),
+            }
+        }
+        if refused > 0 {
+            tried.push(format!("{refused} ssh-agent key(s) refused"));
+        }
+    }
+
+    // 3. The config's key files, or the default ones.
+    for path in &target.identity_files {
+        if offered >= MAX_KEYS || explicit.as_ref() == Some(path) || !path.is_file() {
+            continue;
+        }
+        let key = match load_key(path, passphrase.as_deref()) {
+            Ok(key) => key,
+            Err(why) => {
+                tried.push(format!("key {}: {why}", path.display()));
+                continue;
+            }
+        };
+        if !seen.insert(key.public_key().to_bytes().unwrap_or_default()) {
+            continue;
+        }
+        offered += 1;
+        let key = PrivateKeyWithHashAlg::new(Arc::new(key), hash);
+        if session.authenticate_publickey(user, key).await?.success() {
+            return Ok(());
+        }
+        tried.push(format!("key {} refused", path.display()));
+    }
+
+    // 4. The password, then keyboard-interactive answered with it: servers
+    // that turn off plain password sign-in often still ask this way.
+    if let Some(password) = &password {
+        if session
+            .authenticate_password(user, password.clone())
+            .await?
+            .success()
+        {
+            return Ok(());
+        }
+        tried.push("password refused".into());
+        let mut reply = session
+            .authenticate_keyboard_interactive_start(user, None)
+            .await?;
+        let mut answered = 0;
+        loop {
+            match reply {
+                KeyboardInteractiveAuthResponse::Success => return Ok(()),
+                KeyboardInteractiveAuthResponse::Failure { .. } => break,
+                KeyboardInteractiveAuthResponse::InfoRequest { prompts, .. } => {
+                    if let Some(other) = prompts.iter().find(|p| !asks_for_password(p)) {
+                        tried.push(format!(
+                            "keyboard-interactive asked {:?}, which enx cannot answer; sign in with a key instead",
+                            other.prompt.trim()
+                        ));
+                        break;
+                    }
+                    if !prompts.is_empty() {
+                        answered += 1;
+                    }
+                    // The same password twice is the wrong password.
+                    if answered > 1 {
+                        tried.push("keyboard-interactive refused the password".into());
+                        break;
+                    }
+                    let answers = prompts.iter().map(|_| password.clone()).collect();
+                    reply = session
+                        .authenticate_keyboard_interactive_respond(answers)
+                        .await?;
+                }
+            }
+        }
+    }
+
+    if tried.is_empty() {
+        bail!(
+            "{name}: nothing to sign in to {}@{} with: no key file, no ssh-agent key, no ~/.ssh key and no password. \
+             Run `enx vps add {name} --key <file>` or `--password <password>`.",
+            user,
+            target.host
+        );
+    }
+    bail!(
+        "{name}: {}@{}:{} refused every way enx tried: {}",
+        user,
+        target.host,
+        target.port,
+        tried.join("; ")
+    )
+}
+
+/// Whether a key file is encrypted; an error if it is not a key enx reads.
+pub fn key_is_encrypted(path: &std::path::Path) -> Result<bool> {
+    match load_secret_key(path, None) {
+        Ok(_) => Ok(false),
+        Err(russh::keys::Error::KeyIsEncrypted) => Ok(true),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Whether `passphrase` opens the key file.
+pub fn key_opens(path: &std::path::Path, passphrase: &str) -> bool {
+    load_secret_key(path, Some(passphrase)).is_ok()
+}
+
+/// A key file, decrypted with `passphrase` when it is encrypted.
+fn load_key(
+    path: &std::path::Path,
+    passphrase: Option<&str>,
+) -> Result<russh::keys::PrivateKey, String> {
+    match load_secret_key(path, None) {
+        Ok(key) => Ok(key),
+        Err(russh::keys::Error::KeyIsEncrypted) => match passphrase {
+            Some(passphrase) => load_secret_key(path, Some(passphrase))
+                .map_err(|_| "the stored passphrase does not open it".to_owned()),
+            None => {
+                Err("encrypted, and no passphrase stored (enx vps add ... --passphrase)".into())
+            }
+        },
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 /// Run `command` on `host` and collect its output, within `limit`.
 pub async fn run(
     name: &str,
@@ -119,7 +511,8 @@ pub async fn run(
     command: &str,
     limit: Duration,
 ) -> Result<Output> {
-    let address = format!("{}:{}", host.host, host.port);
+    let target = resolve(host);
+    let address = format!("{}:{}", target.host, target.port);
     let mismatch = Arc::new(std::sync::Mutex::new(None));
     let config = Arc::new(client::Config {
         inactivity_timeout: Some(limit + Duration::from_secs(5)),
@@ -129,7 +522,7 @@ pub async fn run(
         address: address.clone(),
         mismatch: mismatch.clone(),
     };
-    let connecting = client::connect(config, (host.host.as_str(), host.port), verifier);
+    let connecting = client::connect(config, (target.host.as_str(), target.port), verifier);
     let mut session = match tokio::time::timeout(Duration::from_secs(20), connecting).await {
         Err(_) => bail!("{name}: no answer from {address} within 20 seconds"),
         Ok(Err(error)) => {
@@ -140,40 +533,7 @@ pub async fn run(
         }
         Ok(Ok(session)) => session,
     };
-    let signed_in = match &host.key_path {
-        Some(path) => {
-            let path = expand_home(path);
-            let key = load_secret_key(&path, None)
-                .with_context(|| format!("{name}: reading the key {}", path.display()))?;
-            let hash = session.best_supported_rsa_hash().await?.flatten();
-            session
-                .authenticate_publickey(&host.user, PrivateKeyWithHashAlg::new(Arc::new(key), hash))
-                .await?
-                .success()
-        }
-        None => {
-            let (password, _) = auth.key(&password_id(name), &[]).with_context(|| {
-                format!(
-                    "{name}: no key file and no password stored; run `enx vps add {name}` again"
-                )
-            })?;
-            session
-                .authenticate_password(&host.user, password)
-                .await?
-                .success()
-        }
-    };
-    if !signed_in {
-        bail!(
-            "{name}: {address} refused {} as {}",
-            if host.key_path.is_some() {
-                "the key"
-            } else {
-                "the password"
-            },
-            host.user
-        );
-    }
+    sign_in(&mut session, name, host, &target, auth).await?;
     let mut channel = session.channel_open_session().await?;
     channel.exec(true, command).await?;
     let collect = async {
@@ -205,11 +565,8 @@ pub async fn run(
 }
 
 fn expand_home(path: &str) -> PathBuf {
-    match path.strip_prefix("~/") {
-        Some(rest) => std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_default()
-            .join(rest),
+    match path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
+        Some(rest) => user_home().join(rest),
         None => PathBuf::from(path),
     }
 }
@@ -293,7 +650,7 @@ impl Server for Vps {
                             "name": name,
                             "address": format!("{}:{}", host.host, host.port),
                             "user": host.user,
-                            "signs_in_with": if host.key_path.is_some() { "key file" } else { "password" },
+                            "signs_in_with": sign_in_summary(name, host, &self.auth),
                         })
                     })
                     .collect(),
@@ -306,12 +663,22 @@ impl Server for Vps {
                 } else {
                     let seconds = args
                         .get("timeout")
-                        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+                        .and_then(|v| {
+                            v.as_u64()
+                                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+                        })
                         .unwrap_or(60)
                         .clamp(1, 600);
                     (arg(args, "command")?, seconds)
                 };
-                let output = run(name, host, &self.auth, command, Duration::from_secs(seconds)).await?;
+                let output = run(
+                    name,
+                    host,
+                    &self.auth,
+                    command,
+                    Duration::from_secs(seconds),
+                )
+                .await?;
                 let mut text = tail(&output.stdout, 40_000);
                 if !output.stderr.trim().is_empty() {
                     text.push_str(&format!("\n[stderr]\n{}", tail(&output.stderr, 10_000)));
@@ -355,11 +722,88 @@ mod tests {
         let vps = Vps::new(hosts, Auth::default());
         let listed = vps.call("list", &json!({})).await.unwrap();
         assert!(listed.contains("203.0.113.5:22"), "{listed}");
-        assert!(listed.contains("password"), "{listed}");
+        assert!(listed.contains("ssh-agent"), "{listed}");
         assert!(vps
             .call("exec", &json!({"host":"nope","command":"ls"}))
             .await
             .is_err());
+    }
+
+    const CONFIG: &str = "
+Host *.internal !secret.internal
+    User ops
+Host prod web-?
+    HostName 203.0.113.9
+    User deploy
+    Port 2222
+    IdentityFile ~/.ssh/prod_ed25519
+Match host foo
+    User nobody
+Host *
+    User fallback
+    IdentityFile ~/.ssh/id_rsa
+";
+
+    #[test]
+    fn an_ssh_config_alias_is_resolved() {
+        let prod = ssh_config_entry(CONFIG, "prod");
+        assert_eq!(prod.host_name.as_deref(), Some("203.0.113.9"));
+        assert_eq!(prod.user.as_deref(), Some("deploy"), "the first User wins");
+        assert_eq!(prod.port, Some(2222));
+        assert_eq!(
+            prod.identity_files,
+            ["~/.ssh/prod_ed25519", "~/.ssh/id_rsa"],
+            "IdentityFiles add up"
+        );
+        assert_eq!(ssh_config_entry(CONFIG, "web-1").port, Some(2222));
+        assert_eq!(
+            ssh_config_entry(CONFIG, "web-10").port,
+            None,
+            "? is one character"
+        );
+        assert_eq!(
+            ssh_config_entry(CONFIG, "db.internal").user.as_deref(),
+            Some("ops")
+        );
+        assert_eq!(
+            ssh_config_entry(CONFIG, "secret.internal").user.as_deref(),
+            Some("fallback"),
+            "a negated pattern excludes"
+        );
+        assert_eq!(
+            ssh_config_entry(CONFIG, "foo").user.as_deref(),
+            Some("fallback"),
+            "Match is skipped"
+        );
+    }
+
+    #[test]
+    fn key_value_with_equals_and_quotes() {
+        let entry = ssh_config_entry("Host x\n  HostName=\"10.0.0.1\"\n  Port = 2200\n", "x");
+        assert_eq!(entry.host_name.as_deref(), Some("10.0.0.1"));
+        assert_eq!(entry.port, Some(2200));
+    }
+
+    #[test]
+    fn a_one_time_code_is_not_answered_with_the_password() {
+        let ask = |prompt: &str, echo| russh::client::Prompt {
+            prompt: prompt.into(),
+            echo,
+        };
+        assert!(asks_for_password(&ask("Password: ", false)));
+        assert!(asks_for_password(&ask("root@host's password:", false)));
+        assert!(!asks_for_password(&ask("Verification code: ", false)));
+        assert!(!asks_for_password(&ask("Username: ", true)));
+    }
+
+    /// A throwaway ed25519 key made for this test, encrypted with `hunter2`.
+    #[test]
+    fn an_encrypted_key_needs_its_passphrase() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/encrypted_ed25519");
+        assert!(load_key(&path, None).unwrap_err().contains("passphrase"));
+        assert!(load_key(&path, Some("wrong")).is_err());
+        assert!(load_key(&path, Some("hunter2")).is_ok());
     }
 
     #[test]

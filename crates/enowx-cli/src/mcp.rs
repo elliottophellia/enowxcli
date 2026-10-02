@@ -185,51 +185,111 @@ pub fn uninstall(name: &str) -> Result<()> {
 }
 
 /// `enx vps add`: a VPS signing in with a key file, or a password typed now.
-pub fn vps_add(
-    name: &str,
-    host: &str,
-    user: &str,
-    port: u16,
-    key: Option<String>,
-    password: Option<String>,
-) -> Result<()> {
+pub struct VpsAdd {
+    pub name: String,
+    pub host: Option<String>,
+    pub user: Option<String>,
+    pub port: u16,
+    pub key: Option<String>,
+    pub passphrase: Option<String>,
+    pub password: Option<String>,
+    pub no_password: bool,
+}
+
+pub fn vps_add(add: VpsAdd) -> Result<()> {
+    let VpsAdd {
+        name,
+        host,
+        user,
+        port,
+        key,
+        passphrase,
+        password,
+        no_password,
+    } = add;
+    let name = name.as_str();
     anyhow::ensure!(
         vps::valid_name(name),
         "a VPS name is letters, digits, - and _ (at most 40)"
     );
-    anyhow::ensure!(!host.trim().is_empty(), "--host is required");
-    anyhow::ensure!(!user.trim().is_empty(), "--user is required");
+    let host = host
+        .map(|h| h.trim().to_owned())
+        .filter(|h| !h.is_empty())
+        .unwrap_or_else(|| name.to_owned());
+    let user = user.map(|u| u.trim().to_owned()).unwrap_or_default();
     let mut auth = Auth::load()?;
+    let shown = if user.is_empty() {
+        host.clone()
+    } else {
+        format!("{user}@{host}")
+    };
+    // A key file, checked now rather than on the first connection: one that
+    // is encrypted needs its passphrase, kept beside the password.
     let key_path = match key {
         Some(path) => {
-            let expanded = path.replacen('~', &std::env::var("HOME").unwrap_or_default(), 1);
-            anyhow::ensure!(
-                std::path::Path::new(&expanded).is_file(),
-                "no key file at {path}"
-            );
-            auth.forget(&vps::password_id(name))?;
+            let expanded = if let Some(rest) = path.strip_prefix("~/") {
+                std::path::PathBuf::from(
+                    std::env::var("HOME")
+                        .or_else(|_| std::env::var("USERPROFILE"))
+                        .unwrap_or_default(),
+                )
+                .join(rest)
+            } else {
+                std::path::PathBuf::from(&path)
+            };
+            anyhow::ensure!(expanded.is_file(), "no key file at {path}");
+            match russh_key_needs_passphrase(&expanded)? {
+                false => {
+                    auth.forget(&vps::passphrase_id(name))?;
+                }
+                true => {
+                    let passphrase = match passphrase {
+                        Some(p) => p,
+                        None => read_key(&format!("Passphrase for {path}: "))?,
+                    };
+                    anyhow::ensure!(
+                        enowx_core::builtin_mcp::vps::key_opens(&expanded, &passphrase),
+                        "that passphrase does not open {path}; nothing saved"
+                    );
+                    auth.store(&vps::passphrase_id(name), &passphrase)
+                        .context("storing the passphrase")?;
+                }
+            }
             Some(path)
         }
+        None => None,
+    };
+    // A password is the last way in; with a key, ssh-agent or a host from
+    // ~/.ssh/config there is often no need for one.
+    let password = match password {
+        Some(password) => Some(password),
+        None if no_password || key_path.is_some() => None,
+        None if !std::io::stdin().is_terminal() => None,
         None => {
-            let password = match password {
-                Some(password) => password,
-                None => read_key(&format!("Password for {user}@{host}: "))?,
-            };
-            anyhow::ensure!(!password.is_empty(), "no password entered; nothing saved");
-            auth.store(&vps::password_id(name), &password)
-                .context("storing the password")?;
-            None
+            let typed = read_key(&format!(
+                "Password for {shown} (Enter to sign in with ssh keys or ssh-agent only): "
+            ))?;
+            Some(typed).filter(|p| !p.is_empty())
         }
     };
+    match &password {
+        Some(password) => auth
+            .store(&vps::password_id(name), password)
+            .context("storing the password")?,
+        None if no_password || key_path.is_some() => {
+            auth.forget(&vps::password_id(name))?;
+        }
+        None => {}
+    }
     let mut config = BuiltinConfig::load()?;
     let replaced = config
         .vps
         .insert(
             name.to_owned(),
             vps::Host {
-                host: host.trim().to_owned(),
+                host: host.clone(),
                 port,
-                user: user.trim().to_owned(),
+                user: user.clone(),
                 key_path,
             },
         )
@@ -237,28 +297,38 @@ pub fn vps_add(
     config.save()?;
     // A configured VPS turns the vps server on.
     enowx_core::persist::set_mcp_enabled("vps", true)?;
+    let saved = config.vps.get(name).expect("just inserted");
     println!(
-        "{} VPS {name} ({user}@{host}:{port}) and turned the vps server on. Its host key is recorded on the first connection.",
-        if replaced { "Updated" } else { "Added" }
+        "{} VPS {name} ({shown}:{port}) and turned the vps server on. Signs in with: {}. Its host key is recorded on the first connection.",
+        if replaced { "Updated" } else { "Added" },
+        vps::sign_in_summary(name, saved, &Auth::load()?)
     );
     Ok(())
 }
 
+/// Whether a key file is encrypted. One that cannot be read at all is an
+/// error now, not on the first connection.
+fn russh_key_needs_passphrase(path: &std::path::Path) -> Result<bool> {
+    enowx_core::builtin_mcp::vps::key_is_encrypted(path)
+        .with_context(|| format!("reading the key {}", path.display()))
+}
+
 pub fn vps_list() -> Result<()> {
     let config = BuiltinConfig::load()?;
+    let auth = Auth::load()?;
     if config.vps.is_empty() {
-        println!("No VPS set up. Add one: enx vps add <name> --host <address> --user <user> [--key <file>]");
+        println!("No VPS set up. Add one: enx vps add <name> --host <address or ~/.ssh/config alias> [--user <user>] [--key <file>]");
     }
     for (name, host) in &config.vps {
+        let who = if host.user.is_empty() {
+            host.host.clone()
+        } else {
+            format!("{}@{}", host.user, host.host)
+        };
         println!(
-            "{name:16} {}@{}:{}   {}",
-            host.user,
-            host.host,
+            "{name:16} {who}:{}   {}",
             host.port,
-            host.key_path
-                .as_deref()
-                .map(|k| format!("key {k}"))
-                .unwrap_or_else(|| "password".into())
+            vps::sign_in_summary(name, host, &auth)
         );
     }
     Ok(())
@@ -269,7 +339,9 @@ pub fn vps_remove(name: &str) -> Result<()> {
     if config.vps.remove(name).is_none() {
         bail!("no VPS named {name}");
     }
-    Auth::load()?.forget(&vps::password_id(name))?;
+    let mut auth = Auth::load()?;
+    auth.forget(&vps::password_id(name))?;
+    auth.forget(&vps::passphrase_id(name))?;
     config.save()?;
     println!("Removed VPS {name}");
     Ok(())

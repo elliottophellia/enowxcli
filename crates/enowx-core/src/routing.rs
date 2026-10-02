@@ -255,6 +255,17 @@ pub fn report_message(agent: &str, summary: &str) -> String {
     format!("[delegation to `{agent}` finished]\n{summary}")
 }
 
+/// A delegation's report as its caller reads it. One that finished with its
+/// report has had its transcript cleared, so it is told without a session to
+/// resume; one that did not finish names the session that holds its work.
+pub fn report_message_of(report: &crate::event::DelegationReport, kept: bool) -> String {
+    if kept {
+        report_message_for(&report.agent, &report.session_id, &report.summary)
+    } else {
+        report_message(&report.agent, &report.summary)
+    }
+}
+
 /// A report with the session it came from, so the orchestrator can have the
 /// same specialist continue rather than start over.
 pub fn report_message_for(agent: &str, session_id: &str, summary: &str) -> String {

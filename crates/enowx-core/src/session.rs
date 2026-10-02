@@ -461,6 +461,8 @@ impl SessionStore {
     }
 
     /// Newest first; malformed files are reported instead of silently hidden.
+    /// The conversations, newest first: sessions the user talked in, not
+    /// the transcripts of delegations.
     pub fn list(&self, limit: usize) -> Result<Vec<SessionMeta>> {
         let mut out = Vec::new();
         let entries = match std::fs::read_dir(&self.root) {
@@ -478,6 +480,12 @@ impl SessionStore {
             let mut lines = text.lines();
             let header: Header = serde_json::from_str(lines.next().unwrap_or(""))
                 .with_context(|| format!("parsing {}", path.display()))?;
+            // A delegation's transcript belongs to the conversation that
+            // started it, which `branches_of` reaches; it is not one to
+            // resume on its own.
+            if header.parent.is_some() {
+                continue;
+            }
             let message_count = lines.filter(|line| !line.trim().is_empty()).count();
             out.push(SessionMeta {
                 id: header.id,
@@ -580,6 +588,19 @@ mod tests {
     fn temp_store() -> (SessionStore, PathBuf) {
         let dir = std::env::temp_dir().join(format!("enx-sessions-{}", uuid::Uuid::new_v4()));
         (SessionStore::new(dir.clone()), dir)
+    }
+
+    /// `/resume` lists conversations, not the transcripts of delegations.
+    #[test]
+    fn delegations_are_not_listed_as_conversations() {
+        let (store, dir) = temp_store();
+        let parent = Session::new(Role::Orchestrator);
+        let child = parent.branch("fe");
+        store.save(&parent).unwrap();
+        store.save(&child).unwrap();
+        let listed: Vec<String> = store.list(10).unwrap().into_iter().map(|m| m.id).collect();
+        assert_eq!(listed, vec![parent.id.clone()]);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// Deleting a session takes its delegations with it, at any depth, and

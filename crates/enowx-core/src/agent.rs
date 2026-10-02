@@ -1128,6 +1128,14 @@ impl Agent {
             if let Ok(branch) = self.store.load(&report.session_id) {
                 parent.absorb_usage(&branch.usage);
             }
+            // Finished with its report: the report stays in the caller's
+            // conversation, and the transcript behind it (and any delegation
+            // under it) is cleared rather than left to fill the disk. One
+            // that failed, stopped short or is still at work is kept, so it
+            // can be resumed.
+            if !is_kept(report) {
+                let _ = self.store.delete_family(&report.session_id);
+            }
             if let Some(record) = parent
                 .delegations
                 .iter_mut()
@@ -1201,11 +1209,7 @@ impl Agent {
         for report in &reports {
             session.push(Message {
                 role: MessageRole::User,
-                content: crate::routing::report_message_for(
-                    &report.agent,
-                    &report.session_id,
-                    &report.summary,
-                ),
+                content: crate::routing::report_message_of(report, is_kept(report)),
                 reasoning: None,
                 tool_calls: Vec::new(),
                 attachments: Vec::new(),
@@ -2095,10 +2099,9 @@ impl Agent {
                             }
                             Err(report) => session.push(Message {
                                 role: MessageRole::User,
-                                content: crate::routing::report_message_for(
-                                    &report.agent,
-                                    &report.session_id,
-                                    &report.summary,
+                                content: crate::routing::report_message_of(
+                                    &report,
+                                    is_kept(&report),
                                 ),
                                 reasoning: None,
                                 tool_calls: Vec::new(),
@@ -2148,11 +2151,7 @@ impl Agent {
                 for report in reports {
                     session.push(Message {
                         role: MessageRole::User,
-                        content: crate::routing::report_message_for(
-                            &report.agent,
-                            &report.session_id,
-                            &report.summary,
-                        ),
+                        content: crate::routing::report_message_of(&report, is_kept(&report)),
                         reasoning: None,
                         tool_calls: Vec::new(),
                         attachments: Vec::new(),
@@ -2351,6 +2350,13 @@ fn persist_interrupted(
         message_id: Some(message_id.to_string()),
     });
     store.save(session)
+}
+
+/// Whether a delegation's transcript is kept after it reports: only one
+/// that finished with its report is cleared. A failure, a stop short (no
+/// report) or a branch still at work keeps its session to be resumed.
+fn is_kept(report: &crate::event::DelegationReport) -> bool {
+    report.failed || !report.summary.starts_with("DONE:")
 }
 
 /// What a finished branch reports back: the specialist's own last word.

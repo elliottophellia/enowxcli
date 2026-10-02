@@ -301,6 +301,10 @@ async fn the_parent_session_records_its_delegation() {
         }],
         "the parent should name the branch it delegated to"
     );
-    let branch = store.load(&branch).expect("the branch is saved");
-    assert_eq!(branch.parent.as_deref(), Some(parent.as_str()));
+    // It finished with its report, which is in the parent's conversation; the
+    // transcript behind it is cleared rather than left on disk.
+    assert!(
+        store.load(&branch).is_err(),
+        "a delegation that reported has its transcript cleared"
+    );
 }

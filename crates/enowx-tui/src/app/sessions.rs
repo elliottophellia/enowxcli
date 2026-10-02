@@ -315,7 +315,15 @@ impl App {
             // conversation is never overwritten by another branch.
             self.leave_delegation();
         }
-        let branch = self.store.load(&delegation.session_id)?;
+        // A delegation that finished with its report has had its transcript
+        // cleared; its report is in the conversation.
+        let Ok(branch) = self.store.load(&delegation.session_id) else {
+            self.status = format!(
+                "{}'s transcript was cleared when it finished; its report is in the conversation",
+                enowx_core::agent_def::display_name(&delegation.agent)
+            );
+            return Ok(());
+        };
         let blocks_at_open = self.blocks.len();
         let reports_at_open = crate::app::reports_in(&self.blocks);
         let saved = crate::app::Viewing {

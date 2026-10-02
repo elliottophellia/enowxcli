@@ -202,7 +202,12 @@ async fn a_part_that_stopped_short_is_continued_in_its_own_session() {
     run.await.unwrap().unwrap();
     assert_eq!(started.len(), 2, "started, then continued");
     assert_eq!(started[0], started[1], "continued in the same session");
-    assert_eq!(store.branches_of(&session).len(), 1, "no second branch");
+    // Continued, then finished with its report: no second branch was made,
+    // and the one there was is cleared.
+    assert!(
+        store.branches_of(&session).is_empty(),
+        "no branch left behind"
+    );
     assert!(said.contains("All done"), "{said}");
     let _ = std::fs::remove_dir_all(&dir);
 }

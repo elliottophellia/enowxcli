@@ -152,7 +152,7 @@ fn session_rows(app: &App, width: usize) -> Vec<Line<'static>> {
     rows.push(Line::from(tools));
     // What the session costs the machine: enx and the processes it started,
     // and the history on disk, which `/handoff` can clear.
-    let usage = app.resources.usage;
+    let usage = app.resources.usage();
     if usage.own_memory > 0 {
         let mut memory = vec![
             label("memory"),

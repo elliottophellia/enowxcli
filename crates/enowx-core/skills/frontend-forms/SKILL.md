@@ -32,7 +32,7 @@ look is `ui-part-forms`, the page `ui-page-form`, the whole frontend
 | Street address | `autocomplete="address-line1"` and `address-line2` (or `street-address` on one textarea) |
 | City, region | `autocomplete="address-level2"`, `address-level1` |
 | Postcode | `autocomplete="postal-code"`, plain text (many countries use letters) |
-| Country | `<select autocomplete="country">` |
+| Country | a searchable combobox (`ui-part-choices`) whose input has `autocomplete="country-name"` |
 | Card number, expiry, CVC | `inputmode="numeric"` with `autocomplete="cc-number"`, `cc-exp`, `cc-csc` |
 | One-time code | `inputmode="numeric" autocomplete="one-time-code"`, one field that takes a paste |
 | New password (sign-up, change) | `type="password" autocomplete="new-password"` |

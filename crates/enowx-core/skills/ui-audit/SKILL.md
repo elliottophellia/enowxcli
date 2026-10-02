@@ -108,6 +108,20 @@ usually shows.
 - A second job stacked under the first: another kind of record managed in a
   section below the list.
 - A "Reload" or "Refresh" button beside the primary action.
+- Layout by hand: `float:`, `display: inline-block` rows, `position:
+  absolute` placing content (not an overlay), `<br>` or empty `div`s for
+  space, `margin-(left|right|top): -` hacks, `&nbsp;` runs.
+- Gaps faked with margins: children with `margin-bottom`/`mb-*` inside a
+  grid or flex row instead of the container's `gap`; gaps that differ
+  between rows of one grid.
+- Cards of one grid in different shapes: a `width`/`w-*` on a card, images
+  without a fixed `aspect-ratio`, a fixed `height`/`h-*` on cards, actions
+  not pushed down (`mt-auto`), so buttons sit at different heights.
+- Controls of different heights side by side: an input, a select and a
+  button in one row with different heights or padding.
+- Native dropdowns: `<select` (or a `Select` from no component library)
+  outside a phone-first form. They render differently on every OS; use a
+  custom select (`ui-part-choices`, section 7).
 
 ## 3. Judging a finding
 

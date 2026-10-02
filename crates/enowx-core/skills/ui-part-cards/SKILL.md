@@ -83,6 +83,16 @@ states, accessibility) are in the `ui` skill, the measures in `ui-layout`.
 - Titles, prices and buttons on one line across cards: each card spans the
   rows it holds and sets `grid-template-rows: subgrid`.
 - Never pad a grid with invented items to fill the last row.
+- One size for the cards of a grid: the width comes from the grid's tracks
+  (never a `width` on the card), and every card has the same padding,
+  radius, border and media box (`aspect-ratio: 16 / 9` or `4 / 3` on the
+  image wrapper, `object-fit: cover` on the image), so a tall photo or a
+  long title never makes one card a different shape.
+- The card is a flex column (`display: flex; flex-direction: column; gap:
+  8px`); its action or price sits at the bottom with `margin-top: auto`, so
+  they line up across the row whatever the text above them.
+- The gap between cards is the grid's `gap`, 16px or 24px, the same both
+  ways; never margins on the cards.
 
 ## 6. States
 

@@ -20,7 +20,7 @@ the form around them in `ui-part-forms`.
 | The choice | Control |
 |---|---|
 | One of 2 to 6, worth seeing all at once | radio group |
-| One of 7 to about 15 known options | native `select` |
+| One of 7 to about 15 known options | custom select (button and listbox, section 7) |
 | One of many (people, products, countries), found by typing | combobox with search |
 | Any number of a few | checkboxes |
 | Any number of many | multi-select combobox with chips, or checkboxes in a searchable list |
@@ -30,7 +30,7 @@ the form around them in `ui-part-forms`.
 | A visual pick: a plan, a theme, a layout | choice cards, radios underneath |
 
 - In short: radios for one choice from up to five or six, visible at once;
-  a native `select` for a longer list; a searchable combobox for long
+  a custom select for a longer list; a searchable combobox for long
   lists; checkboxes for any number of choices; a switch only for a setting
   that applies immediately.
 - A dropdown with two options is a pair of radios or a segmented control. A
@@ -86,10 +86,12 @@ the form around them in `ui-part-forms`.
   does not change with the state. It applies at once, shows that it saved,
   and turns back with a message when saving fails. Never inside a form
   that applies on submit.
-- Native `select`: phones open their own picker, which is the right one.
-  Style the closed field; where supported (Chromium, since 2025),
-  `appearance: base-select` lets the open list be styled, and other
-  browsers keep their native list.
+- Select: a custom one, not the native `select`, whose open list is drawn
+  by the OS and differs on every system and browser. A button showing the
+  current value and a chevron opens a listbox under it; section 7 has the
+  keyboard, ARIA and code. Use the stack's component when there is one.
+  The native `select` stays only where phones are the main audience (their
+  own picker is right there), styled closed to match the other fields.
 - Combobox (APG combobox with a listbox): Down opens and moves, Up moves,
   Enter picks, Escape closes then clears, typing filters; the input keeps
   focus and `aria-activedescendant` points at the highlighted option.
@@ -185,3 +187,98 @@ built from `div`s; a radio group with no legend; a hand-rolled combobox
 without its keyboard pattern; options disabled with no reason; "Select an
 option" as the only label; a segmented control used as tabs, or tabs used
 as a filter.
+
+## 7. A custom select
+
+Built when the stack has no select component. Same height, border, radius
+and padding as the text fields beside it; the open list is a surface one
+step up, as wide as the button (or wider for long labels), 8px from it,
+with at most about 8 options shown before it scrolls.
+
+```html
+<div class="select" data-select>
+  <span class="select__label" id="size-label">Size</span>
+  <button type="button" class="select__button" aria-haspopup="listbox"
+          aria-expanded="false" aria-labelledby="size-label size-value">
+    <span id="size-value">Medium</span>
+    <svg class="select__chevron" aria-hidden="true" viewBox="0 0 16 16"><path d="M4 6l4 4 4-4" /></svg>
+  </button>
+  <ul class="select__list" role="listbox" aria-labelledby="size-label" tabindex="-1" hidden>
+    <li role="option" id="size-s" aria-selected="false">Small</li>
+    <li role="option" id="size-m" aria-selected="true">Medium</li>
+    <li role="option" id="size-l" aria-selected="false">Large</li>
+  </ul>
+</div>
+```
+
+```css
+.select { position: relative; display: grid; gap: 6px; }
+.select__button {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  height: var(--control-h, 40px); padding: 0 12px; width: 100%;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text); font: inherit; text-align: left;
+}
+.select__button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.select__chevron { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.select__list {
+  position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 20;
+  max-height: calc(8 * 36px); overflow-y: auto; margin: 0; padding: 4px; list-style: none;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-raised); box-shadow: var(--shadow-sm);
+}
+.select__list [role="option"] { display: flex; align-items: center; min-height: 36px; padding: 0 8px; border-radius: 4px; cursor: pointer; }
+.select__list [role="option"].is-active { background: var(--surface-hover); }
+.select__list [aria-selected="true"] { font-weight: 600; }
+```
+
+```js
+for (const root of document.querySelectorAll("[data-select]")) {
+  const button = root.querySelector("button");
+  const list = root.querySelector("[role=listbox]");
+  const options = [...list.querySelectorAll("[role=option]")];
+  const value = root.querySelector("#" + button.getAttribute("aria-labelledby").split(" ")[1]);
+  let active = Math.max(0, options.findIndex((o) => o.getAttribute("aria-selected") === "true"));
+  const show = (i) => {
+    options.forEach((o, k) => o.classList.toggle("is-active", k === i));
+    list.setAttribute("aria-activedescendant", options[i].id);
+    options[i].scrollIntoView({ block: "nearest" });
+    active = i;
+  };
+  const open = () => { list.hidden = false; button.setAttribute("aria-expanded", "true"); list.focus(); show(active); };
+  const close = (focus = true) => { list.hidden = true; button.setAttribute("aria-expanded", "false"); if (focus) button.focus(); };
+  const pick = (i) => {
+    options.forEach((o, k) => o.setAttribute("aria-selected", String(k === i)));
+    value.textContent = options[i].textContent;
+    root.dispatchEvent(new CustomEvent("change", { detail: options[i].textContent }));
+    close();
+  };
+  button.addEventListener("click", () => (list.hidden ? open() : close()));
+  button.addEventListener("keydown", (e) => { if (["ArrowDown", "ArrowUp", "Enter", " "].includes(e.key)) { e.preventDefault(); open(); } });
+  list.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); show(Math.min(active + 1, options.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); show(Math.max(active - 1, 0)); }
+    else if (e.key === "Home") { e.preventDefault(); show(0); }
+    else if (e.key === "End") { e.preventDefault(); show(options.length - 1); }
+    else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(active); }
+    else if (e.key === "Escape") { e.preventDefault(); close(); }
+    else if (e.key === "Tab") { close(false); }
+    else if (e.key.length === 1) {
+      const i = options.findIndex((o) => o.textContent.trim().toLowerCase().startsWith(e.key.toLowerCase()));
+      if (i >= 0) show(i);
+    }
+  });
+  options.forEach((o, i) => { o.addEventListener("click", () => pick(i)); o.addEventListener("mousemove", () => show(i)); });
+  document.addEventListener("pointerdown", (e) => { if (!root.contains(e.target) && !list.hidden) close(false); });
+}
+```
+
+- Keyboard (APG select-only combobox): Down, Up, Enter or Space open it;
+  in the list the arrows move, Home and End jump, a letter jumps to the
+  first match, Enter or Space picks, Escape closes and returns focus, Tab
+  closes and moves on. A click outside closes it.
+- The list opens upward when there is no room below it; on a phone it can
+  open as a bottom sheet with the same options.
+- In a form, a hidden `input` with the field's `name` carries the value, so
+  the form submits it like any other field.
+

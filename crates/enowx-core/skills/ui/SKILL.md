@@ -128,6 +128,42 @@ page:
   and so none. In tables, choose columns from that decision, put the deciding
   field first, left-align text and right-align numbers.
 
+### Layout mechanics (not optional)
+
+A page built from hand-placed boxes drifts: a card a few pixels taller than
+its neighbour, a gap that differs by row, a control that renders one way on
+macOS and another on Windows. These rules keep it tidy everywhere; check
+them before anything else.
+
+- **Every layout is flexbox or grid.** Grid for anything with rows and
+  columns (card grids, forms in two columns, a page with a sidebar,
+  dashboards); flexbox for one line of things (a toolbar, a nav, a button
+  row, a card's own stack). No floats, no `inline-block` rows, no
+  `position: absolute` to place content, no `<br>` or empty `div`s for
+  space, no margins on children to fake a gap. `ui-layout-grid` has the
+  recipes.
+- **Space between items is the container's `gap`**, from the spacing scale:
+  one gap per grid or row, 16 or 24px between cards, 8 to 12px between the
+  parts inside one. Never a different margin on the first or last item.
+- **Items in one group are one size.** Cards in a grid share column width
+  (the grid's tracks, never a width on the card), padding, radius, border,
+  media aspect ratio (`aspect-ratio` on the image box) and title size. The
+  odd one out needs a reason (a featured item spans two columns, on
+  purpose).
+- **Items in one row are one height.** Grid and flex rows stretch their
+  items (`align-items: stretch`, the default); the card is a flex column
+  with its action pushed to the bottom (`margin-top: auto`), so buttons and
+  prices line up across the row. Heights are never set by hand to match.
+- **Controls are one height too.** An input, a select and a button side by
+  side share a height token (40px, or 36px dense; 44px on touch) and
+  align their centres (`align-items: center` on the row).
+- **Dropdowns are custom, never the bare OS one.** A native `select` looks
+  different on every OS and browser and cannot be styled open. Use the
+  stack's component (shadcn/Radix `Select`, Headless UI `Listbox`, React
+  Aria `Select`, Bits UI, Melt) or the plain listbox in `ui-part-choices`
+  section 7. The exception: a form meant mainly for phones may keep the
+  native one, styled closed.
+
 ## 3. Spacing and sizing
 
 - A spacing scale as tokens, on a 4px base (4, 8, 12, 16, 24, 32, 48, 64,

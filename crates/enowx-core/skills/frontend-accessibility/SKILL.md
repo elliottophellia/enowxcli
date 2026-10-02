@@ -163,9 +163,11 @@ you must build one, follow the WAI-ARIA Authoring Practices pattern:
 
 - A `menu` is for application commands. Site navigation with sub-pages is a
   disclosure holding links, not a menu.
-- Native first again: `<select>` before a custom listbox, `<input
-  type="range">` before a custom slider, `<details>` before a hand-made
-  disclosure. A table people only read is a `table`, not a `grid`.
+- Native first again: `<input type="range">` before a custom slider, `<details>` before a hand-made
+  disclosure. A table people only read is a `table`, not a `grid`. The
+  exception is the dropdown: the native `select` renders differently on
+  every OS, so it is a custom listbox built to the APG select pattern
+  (`ui-part-choices`, section 7) or the stack's accessible component.
 - Tooltips hold no links or buttons (use a popover or dialog), and are
   never the only place a control's name lives.
 

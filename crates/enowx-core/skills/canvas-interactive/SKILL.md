@@ -87,8 +87,10 @@ form.addEventListener("submit", (e) => {
 
 Everything usable with a mouse is usable with a keyboard.
 
-- Use real `<button>`, `<a>`, `<input>`, `<select>` elements: they are
-  focusable and keyboard-operable for free. A `<div>` with a click handler is
+- Use real `<button>`, `<a>`, `<input>` elements: they are focusable and
+  keyboard-operable for free. A dropdown is the custom select in
+  `ui-part-choices` section 7 (a native `<select>` opens differently on
+  every OS). A `<div>` with a click handler is
   not; avoid it, or add `tabindex="0"`, a `role`, and Enter/Space handling.
 - A visible focus style on every interactive element
   (`:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }`).

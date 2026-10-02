@@ -364,6 +364,8 @@ impl App {
                 // else the first queued message, stopping the turn. Idle, it
                 // inserts a newline. Many terminals report it as Ctrl+J, so
                 // both reach the same handler.
+                // Nothing is sent from a sub-agent's read-only transcript.
+                KeyCode::Enter | KeyCode::Char('j') if self.viewing.is_some() => {}
                 KeyCode::Enter | KeyCode::Char('j') if self.busy => self.send_now(),
                 KeyCode::Enter | KeyCode::Char('j') => {
                     self.input.insert(self.cursor, '\n');
@@ -396,6 +398,26 @@ impl App {
                 }
                 _ => {}
             }
+        }
+
+        // A sub-agent's transcript is read only, with no composer: Esc goes
+        // back, the page keys scroll, and nothing else is typed or sent.
+        if self.viewing.is_some() {
+            match key.code {
+                KeyCode::Esc => self.leave_delegation(),
+                KeyCode::PageUp | KeyCode::Up => {
+                    self.auto_scroll = false;
+                    let step = if key.code == KeyCode::Up { 1 } else { 10 };
+                    self.scroll = self.scroll.saturating_sub(step);
+                }
+                KeyCode::PageDown | KeyCode::Down => {
+                    let step = if key.code == KeyCode::Down { 1 } else { 10 };
+                    self.scroll = self.scroll.saturating_add(step).min(self.max_scroll);
+                    self.auto_scroll = self.scroll == self.max_scroll;
+                }
+                _ => {}
+            }
+            return Ok(());
         }
 
         // A question from the agent takes Enter, the arrows and the digits

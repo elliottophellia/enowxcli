@@ -12,8 +12,19 @@ pub(super) fn draw_main_column(frame: &mut Frame, app: &mut App, area: Rect) {
     // One row of text by default, growing to eight so a pasted block stays
     // readable, and never past half the column so the chat keeps its space.
     let cap = (area.height / 2).clamp(FRAME + 1, 10);
-    let ih = (input.len().clamp(1, 8) as u16 + FRAME).min(cap);
-    let matches = app.command_matches();
+    // A sub-agent's transcript is read only: no composer, one line saying
+    // so and how to go back.
+    let viewing = app.viewing.as_ref().map(|v| v.agent.clone());
+    let ih = if viewing.is_some() {
+        1
+    } else {
+        (input.len().clamp(1, 8) as u16 + FRAME).min(cap)
+    };
+    let matches = if viewing.is_some() {
+        Vec::new()
+    } else {
+        app.command_matches()
+    };
     // The palette is a box of its own between the chat and the composer, so
     // opening it shortens the chat box rather than painting over its rows.
     // It never takes the chat below three rows, and it needs at least one
@@ -34,7 +45,7 @@ pub(super) fn draw_main_column(frame: &mut Frame, app: &mut App, area: Rect) {
     let qh = question_height(app, area.width).min(area.height.saturating_sub(ih + 3));
     // Messages waiting their turn sit right above the composer: a header
     // with the send-now button, then one line each, three at most.
-    let uh = if app.queued.is_empty() {
+    let uh = if app.queued.is_empty() || viewing.is_some() {
         0
     } else {
         (app.queued.len().min(3) as u16 + 1).min(area.height.saturating_sub(ih + qh + ph + 3))
@@ -78,6 +89,23 @@ pub(super) fn draw_main_column(frame: &mut Frame, app: &mut App, area: Rect) {
             app,
             Rect::new(area.x, area.y + chat_h + ph + qh + uh + ih, area.width, wh),
         );
+    }
+    if let Some(agent) = viewing {
+        let t = app.theme;
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::raw(" ".repeat((1 + PAD_X) as usize)),
+                Span::styled(
+                    format!(
+                        "{}'s work · read only · Esc returns",
+                        enowx_core::agent_def::display_name(&agent)
+                    ),
+                    Style::default().fg(t.muted),
+                ),
+            ])),
+            Rect::new(area.x, area.y + chat_h + ph + qh + uh, area.width, ih),
+        );
+        return;
     }
     // While questions wait, the panel above has the keyboard.
     let look = ComposerLook {

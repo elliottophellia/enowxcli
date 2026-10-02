@@ -483,3 +483,29 @@ fn watching_a_sub_agent_does_not_inflate_the_tool_count() {
         "and the card must not show the inflated figure: {side}"
     );
 }
+
+/// A sub-agent's transcript is read only: no composer, nothing typed or
+/// sent from it, and Esc goes back.
+#[test]
+fn a_sub_agents_transcript_is_read_only() {
+    let mut app = TestApp::new();
+    app.add_delegation(
+        "fe",
+        "write the HTML",
+        &[("user", "write it"), ("assistant", "WROTE-INDEX-HTML")],
+    );
+    app.open_delegation(0).expect("open it");
+    let screen = app.render_to_text(110, 30).join("\n");
+    assert!(screen.contains("read only · Esc returns"), "{screen}");
+    assert!(!screen.contains("Ask, or type"), "no composer: {screen}");
+    app.type_keys("hello");
+    app.press_key(KeyCode::Enter).expect("enter");
+    assert_eq!(app.composer_text(), "", "nothing is typed into it");
+    assert_eq!(
+        app.viewing_agent().as_deref(),
+        Some("fe"),
+        "and nothing sent"
+    );
+    app.press_key(KeyCode::Esc).expect("esc");
+    assert_eq!(app.viewing_agent(), None, "Esc goes back");
+}

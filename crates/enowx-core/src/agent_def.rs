@@ -95,6 +95,7 @@ const LOOP_ONLY: &[&str] = &["compactor"];
 pub fn display_name(name: &str) -> String {
     let known = match canonical_name(name) {
         "orchestrator" => "Orchestrator",
+        "maestro" => "Maestro",
         "fe" => "Frontend",
         "motion" => "Motion",
         "canvas" => "Canvas",
@@ -144,7 +145,7 @@ pub fn roster_group(name: &str) -> &'static str {
         return "SECURITY";
     }
     match name {
-        "orchestrator" => "LEAD",
+        "orchestrator" | "maestro" => "LEAD",
         "fe" | "motion" | "canvas" | "be" | "db" | "devops" | "mobile" | "systems" => "BUILD",
         _ => "SUPPORT",
     }
@@ -507,6 +508,10 @@ pub fn builtin_agents() -> Vec<AgentDef> {
         &security_family,
         &performance,
     ]);
+    // The all-rounder leads like the orchestrator and builds like a
+    // specialist: the planning skills and every family the reviewer carries,
+    // so whatever it takes on itself, it has the guidance for.
+    let maestro = join(&[&brainstorm, &["orchestration"], &review]);
     // Work that fits no specialist reads the root of whichever family is
     // closest.
     let general = join(&[&[
@@ -561,6 +566,35 @@ pub fn builtin_agents() -> Vec<AgentDef> {
             Delegation::Orchestrator,
             &orchestrator,
             ORCHESTRATOR_PROMPT,
+        ),
+        // The all-rounder: leads like the orchestrator, but carries every
+        // tool and may do the work itself rather than only delegating it.
+        make(
+            "maestro",
+            "an all-rounder with every tool that both builds and delegates: use it for a              task that mixes doing and handing out, or to drive a whole job single-handed",
+            &[
+                "read",
+                "write",
+                "edit",
+                "multi_edit",
+                "edit_lines",
+                "diagnostics",
+                "lsp",
+                "glob",
+                "grep",
+                "bash",
+                "fetch",
+                "todo",
+                "ui_check",
+                "icon",
+                "preview",
+                "skill_bind",
+                "plan_write",
+            ],
+            Tier::Strong,
+            Delegation::Orchestrator,
+            &maestro,
+            MAESTRO_PROMPT,
         ),
         // Domain: which part of the stack.
         make(
@@ -1867,6 +1901,41 @@ on each other, never for running parallel work in series.
 /// Used both for periodic compaction and for writing a handover when one
 /// specialist takes over from another. The job is the same: condense without
 /// losing the thread.
+const MAESTRO_PROMPT: &str = "\
+You are the all-rounder: you lead a task and you may carry it out yourself. \
+You have the orchestrator's reach, delegate and handoff, and a specialist's \
+full tools: you read, write and edit code, run commands, check interfaces \
+and build and test. Use whichever fits the moment, and prefer the one that \
+gets the user a correct result with the least ceremony.
+
+WHEN TO DO IT YOURSELF, WHEN TO DELEGATE
+- Do it yourself when the work is small, when it is faster than briefing \
+someone, or when it is spread thin across areas so no one specialist owns it: \
+a focused fix, a few files, a quick script, wiring parts together.
+- Delegate when the work is large or splits cleanly into parts that can run \
+at once (a build across several areas, a redesign, a new project): brief each \
+part fully and run them together, exactly as the orchestrator does. Several \
+specialists at once beat you doing it all in sequence.
+- Mixed work is normal: delegate the parallel parts, do the glue yourself, \
+and keep moving. Do not hand out a task just to avoid the work, and do not \
+grind through serial work alone when it could have been split.
+
+HOW YOU WORK
+- You change files, so the rules for that hold: read before you edit, verify \
+with the project's own build, typecheck and tests, and report what you ran \
+and what it showed, not what you expect. A change you cannot verify is said \
+to be unverified.
+- Read the skill for the work before you do it, the same families a \
+specialist reads; read `orchestration` before delegating a task across \
+several areas, and write the plan documents the user chose with `plan_write` \
+first. Pick a specialist by what its description matches, not the words.
+- You hold the user's conversation: answer them directly, ask when a \
+decision is theirs, and hand a request that is squarely one specialist's \
+over to it when that serves the user better than doing it yourself.
+
+Be decisive. The point of this role is to remove the back-and-forth: take the \
+shortest honest path to a correct, verified result.";
+
 const COMPACTOR_PROMPT: &str = "\
 You compact a coding-agent conversation so it fits the model's context window \
 while remaining usable on the next turn.
@@ -1943,6 +2012,23 @@ mod tests {
         assert!(!Delegation::None.may_hand_off_to(ORCHESTRATOR));
     }
 
+    /// The all-rounder leads like the orchestrator but, unlike it, carries
+    /// the full build tools and may change files.
+    #[test]
+    fn the_all_rounder_leads_and_builds() {
+        let maestro = by_name("maestro");
+        assert_eq!(maestro.delegation, Delegation::Orchestrator);
+        assert_eq!(super::roster_group("maestro"), "LEAD");
+        assert!(maestro.is_routable());
+        for tool in ["write", "edit", "bash"] {
+            assert!(maestro.tools.iter().any(|t| t == tool), "carries {tool}");
+        }
+        assert!(
+            !by_name(ORCHESTRATOR).tools.iter().any(|t| t == "write"),
+            "the orchestrator still does not write"
+        );
+    }
+
     #[test]
     fn the_compactor_is_not_routable() {
         assert!(!by_name("compactor").is_routable());
@@ -1951,10 +2037,12 @@ mod tests {
     }
 
     #[test]
-    fn only_the_orchestrator_may_delegate_freely() {
+    fn only_the_leads_may_delegate_freely() {
         for agent in roster() {
             match agent.name.as_str() {
-                ORCHESTRATOR => assert_eq!(agent.delegation, Delegation::Orchestrator),
+                // Both leads reach anyone: the orchestrator, and the
+                // all-rounder that may also do the work itself.
+                ORCHESTRATOR | "maestro" => assert_eq!(agent.delegation, Delegation::Orchestrator),
                 // The security lead reaches its own team and nothing else.
                 "security" => assert_eq!(agent.delegation, Delegation::Lead),
                 // Read-only gatherers and the compactor are leaves.

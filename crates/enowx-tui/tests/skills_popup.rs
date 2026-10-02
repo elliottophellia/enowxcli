@@ -12,8 +12,10 @@ fn a_builtin_skill_says_which_agents_carry_it() {
         .iter()
         .find(|row| row.contains(" ui ") && row.contains("built-in"))
         .unwrap_or_else(|| panic!("the ui row: {rows:#?}"));
+    // Trimmed to the part that is not cut off by the column: maestro carries
+    // the reviewer's skills, so it joins the list between general and mobile.
     assert!(
-        ui.contains("built-in for canvas, fe, general, mobile, motion"),
+        ui.contains("built-in for canvas, fe, general, maestro"),
         "{ui}"
     );
     let writing = rows

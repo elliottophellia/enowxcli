@@ -125,6 +125,10 @@ and a call that arrives anyway is refused before dispatch.
 
 The orchestrator hands work to a roster of specialists, grouped in the sidebar:
 
+- **LEAD**: `orchestrator` (the default: answers quick questions, delegates the
+  rest, never edits files) and `maestro`, an all-rounder with every tool that
+  both builds and delegates, for a job that mixes doing and handing out. Pick
+  it with `/agent maestro`.
 - **BUILD**: `fe` (frontend/interface), `motion`, `canvas` (standalone
   single-file HTML pages and tools), `be` (backend), `db`,
   `devops`, `mobile`, `systems`.

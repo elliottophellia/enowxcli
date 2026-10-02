@@ -249,7 +249,7 @@ lets agents search it by meaning. It has a section of its own in Settings
 | Embedding model | picked from the provider's (`voyage-code-3`, `voyage-3.5`, `text-embedding-3-small`, ...), typed for a custom endpoint |
 | Dimension | picked from the widths the model offers, typed for a custom endpoint |
 | Reranker | `rerank-2.5`, `rerank-2.5-lite` or off for Voyage; for a custom endpoint, a model its `/rerank` serves, or blank for none |
-| Index automatically | on (the default): the workspace is indexed when a session starts, then whatever changed every half minute and before each search |
+| Index automatically | on (the default): the workspace is indexed when a session starts, a file an agent writes or edits is indexed at once, other changes every half minute, and everything before each search |
 
 The same from the CLI, which an agent can run for you:
 
@@ -268,6 +268,10 @@ is cut at its headings, other text at its paragraphs; nothing is cut
 mid-line. Each chunk records where it sits (`in impl Store`, `in Install >
 macOS`) and what it defines, and a search shows both. Code that only moved
 keeps its embedding and gets its new line numbers.
+
+Indexing runs at low priority (nice 10 on Linux and macOS, below normal on
+Windows) and holds its full scan of the workspace while a turn is running;
+the files the turn edits are still indexed at once.
 
 Chunks go to a table per width (`enx_rag_chunks_1024`, ...) and record the
 model that embedded them: after a change of model or width, the next `index`

@@ -101,8 +101,11 @@ after v0.1.0.
   to `auth.json`; secret fields and environment values are redacted from tool
   output; a VPS host key is pinned on first connection.
 - **RAG indexes by itself and cuts code along its syntax.** The workspace
-  is indexed when a session starts, then whatever changed every half minute
-  and right before each search, so agents no longer call `index` first.
+  is indexed when a session starts, a file an agent writes or edits is
+  indexed the moment the tool returns, other changes every half minute, and
+  everything right before each search, so agents no longer call `index`
+  first. Indexing runs at low OS priority and holds its full scan while a
+  turn runs.
   Chunks follow the syntax tree: a function, type, method or config key is
   whole, with its comments, and carries where it sits and what it defines;
   only an item over about 4,000 characters is split, along its own body.

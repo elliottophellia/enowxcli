@@ -28,10 +28,11 @@ Its tools are `mcp__rag__index`, `mcp__rag__search`, `mcp__rag__status` and
 
 ## 2. The index keeps itself fresh
 
-- The workspace is indexed when the session starts, then whatever changed
-  (your edits, the user's, a `git pull`) every half minute and again right
-  before each search. You do not need to call `index` before searching or
-  after editing.
+- The workspace is indexed when the session starts. A file you or another
+  agent write or edit is indexed again the moment the tool returns; other
+  changes (the user's, a `git pull`) are picked up every half minute, and
+  everything is checked again right before each search. You do not need to
+  call `index` before searching or after editing.
 - Only new or changed code is embedded; code that only moved keeps its
   embedding. Removed code leaves the index.
 - Call `index` yourself only for another folder (`path`), when a search

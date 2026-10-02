@@ -223,7 +223,14 @@ impl McpClient {
         }
     }
 
-    async fn notify(&self, method: &str, params: Value) -> Result<()> {
+    /// The server's name, as declared.
+    pub fn server(&self) -> &str {
+        &self.server
+    }
+
+    /// Send a notification: no reply is awaited, so it never blocks on a
+    /// busy server.
+    pub async fn notify(&self, method: &str, params: Value) -> Result<()> {
         let frame = json!({"jsonrpc": "2.0", "method": method, "params": params});
         self.write_frame(&frame).await
     }

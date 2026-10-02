@@ -277,6 +277,35 @@ fn estimate_session_tokens(session: &crate::session::Session) -> f32 {
     (chars as f32) / 4.0
 }
 
+/// One running turn, counted for the rag server: the first to begin tells
+/// it the session is busy, the last to end that it is idle again.
+struct TurnMark<'a>(&'a Agent);
+
+impl<'a> TurnMark<'a> {
+    fn begin(agent: &'a Agent) -> Self {
+        use std::sync::atomic::Ordering;
+        if agent.turns_running.fetch_add(1, Ordering::AcqRel) == 0 {
+            agent.tell_rag(
+                "notifications/enx/turn",
+                serde_json::json!({ "busy": true }),
+            );
+        }
+        Self(agent)
+    }
+}
+
+impl Drop for TurnMark<'_> {
+    fn drop(&mut self) {
+        use std::sync::atomic::Ordering;
+        if self.0.turns_running.fetch_sub(1, Ordering::AcqRel) == 1 {
+            self.0.tell_rag(
+                "notifications/enx/turn",
+                serde_json::json!({ "busy": false }),
+            );
+        }
+    }
+}
+
 pub struct Agent {
     config: Config,
     tools: Arc<tokio::sync::RwLock<ToolRegistry>>,
@@ -297,6 +326,9 @@ pub struct Agent {
     mcp_started_at: Arc<std::sync::OnceLock<std::time::Instant>>,
     /// Why each server that did not start failed, by name.
     mcp_failures: Arc<std::sync::Mutex<std::collections::BTreeMap<String, String>>>,
+    /// Turns running now; the rag server holds its background scans while
+    /// any is.
+    turns_running: Arc<std::sync::atomic::AtomicUsize>,
     /// `None` unless a TypeSafe key is configured, in which case small typed
     /// judgements are available to the harness.
     system_one: Option<crate::systemone::SystemOne>,
@@ -398,6 +430,7 @@ impl Agent {
             mcp_warmed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             mcp_done: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             mcp_ready: Arc::new(tokio::sync::Notify::new()),
+            turns_running: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             mcp_started_at: Arc::new(std::sync::OnceLock::new()),
             mcp_failures: Arc::new(std::sync::Mutex::new(std::collections::BTreeMap::new())),
             system_one,
@@ -551,6 +584,26 @@ impl Agent {
             return;
         };
         let _ = tokio::time::timeout(left, notified).await;
+    }
+
+    /// Send the built-in rag server a notification, if it is running. Fire
+    /// and forget: the turn never waits on the index.
+    fn tell_rag(&self, method: &'static str, params: serde_json::Value) {
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let clients = self.mcp_clients.clone();
+        runtime.spawn(async move {
+            let rag = clients
+                .lock()
+                .await
+                .iter()
+                .find(|client| client.server() == "rag")
+                .cloned();
+            if let Some(rag) = rag {
+                let _ = rag.notify(method, params).await;
+            }
+        });
     }
 
     /// Whether the MCP servers are still starting.
@@ -775,6 +828,11 @@ impl Agent {
         events: mpsc::Sender<Event>,
         cancel: CancellationToken,
     ) -> Result<()> {
+        // The rag server indexes in the background; while a turn runs it
+        // keeps to the files the turn changed and leaves the full scan for
+        // later, so it does not compete with the turn for CPU and network.
+        // A guard, so a turn dropped mid-way still says it ended.
+        let _turn = TurnMark::begin(self);
         let outcome = self.run_inner(request, &events, cancel).await;
         // The run is over and every agent in it has finished, unless some
         // still work in the background and hold files on the board.
@@ -1991,6 +2049,13 @@ impl Agent {
                             args.get("path").and_then(|p| p.as_str()).map(str::to_owned)
                         })
                     {
+                        // The hook that indexes an edit at once: the rag
+                        // server re-embeds this file now, not at its next
+                        // scan, so a search a moment later already sees it.
+                        self.tell_rag(
+                            "notifications/enx/changed",
+                            serde_json::json!({ "files": [path.clone()] }),
+                        );
                         if !touched.contains(&path) {
                             touched.push(path);
                         }

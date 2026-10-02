@@ -267,6 +267,18 @@ pub struct Rag {
     seen: Mutex<HashMap<PathBuf, BTreeMap<String, Stamp>>>,
     /// The last background sync's failure, for `status`.
     last_error: std::sync::Mutex<Option<String>>,
+    /// Folders synced in full this run: until then a refresh is a full
+    /// sync, which also drops what was deleted while enx was closed.
+    full: Mutex<std::collections::HashSet<PathBuf>>,
+    /// Files the session changed, relative to the workspace, to index at
+    /// once (the hook after `write` and `edit`).
+    queued: std::sync::Mutex<std::collections::BTreeSet<String>>,
+    /// Wakes the background loop for queued files or the end of a turn.
+    wake: tokio::sync::Notify,
+    /// Since when a turn has been running, as the client says. The full
+    /// scan waits while one does; a claim older than 20 minutes is taken
+    /// for a client that went away without saying so.
+    busy_since: std::sync::Mutex<Option<std::time::Instant>>,
 }
 
 /// What tells a file changed without reading it: its size and mtime.
@@ -312,6 +324,10 @@ impl Rag {
             syncing: Mutex::new(()),
             seen: Mutex::new(HashMap::new()),
             last_error: std::sync::Mutex::new(None),
+            full: Mutex::new(std::collections::HashSet::new()),
+            queued: std::sync::Mutex::new(std::collections::BTreeSet::new()),
+            wake: tokio::sync::Notify::new(),
+            busy_since: std::sync::Mutex::new(None),
         })
     }
 
@@ -511,7 +527,10 @@ impl Rag {
         };
         let listing = tokio::task::spawn_blocking({
             let root = root.to_path_buf();
-            move || files(&root)
+            move || {
+                lower_priority();
+                files(&root)
+            }
         })
         .await?;
         let targets: Vec<String> = match &only {
@@ -525,7 +544,10 @@ impl Rag {
                 .filter(|rel| listing.contains_key(*rel))
                 .cloned()
                 .collect();
-            move || chunks_of(&root, &present)
+            move || {
+                lower_priority();
+                chunks_of(&root, &present)
+            }
         })
         .await?;
         report.files = chunks
@@ -625,6 +647,9 @@ impl Rag {
                 .await? as usize;
         }
 
+        if only.is_none() {
+            self.full.lock().await.insert(root.to_path_buf());
+        }
         // What was synced is what the next refresh compares against.
         let mut seen = self.seen.lock().await;
         let stamps = seen.entry(root.to_path_buf()).or_default();
@@ -655,13 +680,22 @@ impl Rag {
     /// first time, then only files whose size or mtime moved, or that
     /// appeared or went. Cheap when nothing changed: a walk and a stat.
     async fn refresh(&self, root: &Path) -> Result<Option<Synced>> {
-        let previous = self.seen.lock().await.get(root).cloned();
-        let Some(previous) = previous else {
+        if !self.full.lock().await.contains(root) {
             return self.sync(root, None).await.map(Some);
-        };
+        }
+        let previous = self
+            .seen
+            .lock()
+            .await
+            .get(root)
+            .cloned()
+            .unwrap_or_default();
         let listing = tokio::task::spawn_blocking({
             let root = root.to_path_buf();
-            move || files(&root)
+            move || {
+                lower_priority();
+                files(&root)
+            }
         })
         .await?;
         let mut changed: Vec<String> = listing
@@ -679,6 +713,36 @@ impl Rag {
             return Ok(None);
         }
         self.sync(root, Some(changed)).await.map(Some)
+    }
+
+    /// Whether a turn is running, by the client's last word.
+    fn busy(&self) -> bool {
+        self.busy_since
+            .lock()
+            .ok()
+            .and_then(|since| *since)
+            .is_some_and(|since| since.elapsed() < Duration::from_secs(20 * 60))
+    }
+
+    /// A path the agent wrote, relative to the workspace with `/`, or None
+    /// when it lies outside. A deleted file is placed by its folder.
+    fn relative(&self, path: &str) -> Option<String> {
+        let path = Path::new(path);
+        let absolute = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.workspace.join(path)
+        };
+        let canonical = std::fs::canonicalize(&absolute).ok().or_else(|| {
+            let folder = std::fs::canonicalize(absolute.parent()?).ok()?;
+            Some(folder.join(absolute.file_name()?))
+        })?;
+        let relative = canonical
+            .strip_prefix(&self.workspace)
+            .ok()?
+            .to_string_lossy()
+            .replace('\\', "/");
+        (!relative.is_empty()).then_some(relative)
     }
 
     async fn index(&self, args: &Value) -> Result<String> {
@@ -851,6 +915,7 @@ impl Rag {
             "reranker": self.setup.reranker().unwrap_or_else(|| "off".into()),
             "auto_index": self.setup.auto_index(),
             "indexing_now": self.syncing.try_lock().is_err(),
+            "session_busy": self.busy(),
             "last_auto_index_error": self.last_error.lock().ok().and_then(|e| e.clone()),
         })))
     }
@@ -1112,6 +1177,31 @@ fn wanted(path: &Path) -> bool {
 
 /// Every chunk of every wanted file under `root`, in the order git would see
 /// the files (`.gitignore` and hidden files skipped).
+/// Lower the priority of indexing so it yields the CPU to the session and
+/// the rest of the machine. On Linux a thread's niceness is its own, so this
+/// runs on each thread that walks and cuts files; on macOS it covers the
+/// process; on Windows the process drops to below-normal.
+fn lower_priority() {
+    #[cfg(unix)]
+    {
+        // SAFETY: setpriority only reads its arguments; it changes this
+        // process's (or thread's) scheduling priority and nothing in memory.
+        unsafe {
+            nix::libc::setpriority(nix::libc::PRIO_PROCESS, 0, 10);
+        }
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::Threading::{
+            GetCurrentProcess, SetPriorityClass, BELOW_NORMAL_PRIORITY_CLASS,
+        };
+        // SAFETY: the pseudo-handle of the current process is always valid.
+        unsafe {
+            SetPriorityClass(GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS);
+        }
+    }
+}
+
 pub fn collect(root: &Path) -> Result<Vec<Chunk>> {
     let rels: Vec<String> = files(root).into_keys().collect();
     Ok(chunks_of(root, &rels))
@@ -1177,15 +1267,82 @@ impl Server for Rag {
         if !self.setup.auto_index() {
             return;
         }
+        lower_priority();
         tokio::spawn(async move {
+            let mut first = true;
             loop {
-                let outcome = self.refresh(&self.workspace).await;
+                if !first {
+                    tokio::select! {
+                        _ = self.wake.notified() => {
+                            // Edits come in bursts (a multi-file change):
+                            // gathered, they are one sync, not several.
+                            tokio::time::sleep(Duration::from_millis(500)).await;
+                        }
+                        _ = tokio::time::sleep(Duration::from_secs(30)) => {}
+                    }
+                }
+                first = false;
+                let mut outcome = Ok(());
+                // What the session just changed goes first, turn or not:
+                // one file is cheap, and the next search should see it.
+                let queued: Vec<String> = self
+                    .queued
+                    .lock()
+                    .map(|mut q| std::mem::take(&mut *q).into_iter().collect())
+                    .unwrap_or_default();
+                if !queued.is_empty() {
+                    outcome = self.sync(&self.workspace, Some(queued)).await.map(|_| ());
+                }
+                // The full scan (a walk of every file) waits for the turn to
+                // end; a search still refreshes on its own before it answers.
+                if !self.busy() {
+                    let scanned = self.refresh(&self.workspace).await.map(|_| ());
+                    outcome = outcome.and(scanned);
+                }
                 if let Ok(mut last) = self.last_error.lock() {
                     *last = outcome.err().map(|e| format!("{e:#}"));
                 }
-                tokio::time::sleep(Duration::from_secs(30)).await;
             }
         });
+    }
+
+    /// `notifications/enx/changed` with `files` (paths as the agent wrote
+    /// them): index those now. `notifications/enx/turn` with `busy`: a turn
+    /// began or ended.
+    fn notified(&self, method: &str, params: &Value) {
+        match method {
+            "notifications/enx/changed" => {
+                let files: Vec<String> = params
+                    .get("files")
+                    .and_then(Value::as_array)
+                    .map(|files| {
+                        files
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .filter_map(|path| self.relative(path))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                if files.is_empty() || !self.setup.auto_index() {
+                    return;
+                }
+                if let Ok(mut queued) = self.queued.lock() {
+                    queued.extend(files);
+                }
+                self.wake.notify_one();
+            }
+            "notifications/enx/turn" => {
+                let busy = params.get("busy").and_then(Value::as_bool).unwrap_or(false);
+                if let Ok(mut since) = self.busy_since.lock() {
+                    *since = busy.then(std::time::Instant::now);
+                }
+                if !busy {
+                    // The scan put off during the turn runs now.
+                    self.wake.notify_one();
+                }
+            }
+            _ => {}
+        }
     }
 
     fn tools(&self) -> Vec<ToolSpec> {
@@ -1235,6 +1392,54 @@ impl Server for Rag {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn rag_in(workspace: &Path) -> Rag {
+        let mut rag = Rag::new("postgres://localhost/none", "", &RagSetup::default()).unwrap();
+        rag.workspace = std::fs::canonicalize(workspace).unwrap();
+        rag
+    }
+
+    /// The hook after `write`/`edit`: a changed file is queued by its path
+    /// relative to the workspace, however the agent wrote it, and wakes the
+    /// background loop. A path outside the workspace is not.
+    #[test]
+    fn a_changed_file_is_queued_relative_to_the_workspace() {
+        let dir = std::env::temp_dir().join(format!("enx-rag-hook-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(dir.join("src/a.rs"), "fn a() {}\n").unwrap();
+        let rag = rag_in(&dir);
+        let absolute = dir.join("src/a.rs").to_string_lossy().into_owned();
+        rag.notified(
+            "notifications/enx/changed",
+            &json!({ "files": [absolute, "src/gone.rs", "/elsewhere/x.rs"] }),
+        );
+        let queued: Vec<String> = rag.queued.lock().unwrap().iter().cloned().collect();
+        assert_eq!(queued, ["src/a.rs", "src/gone.rs"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_turn_marks_the_session_busy_until_it_ends() {
+        let rag = rag_in(&std::env::temp_dir());
+        assert!(!rag.busy());
+        rag.notified("notifications/enx/turn", &json!({ "busy": true }));
+        assert!(rag.busy());
+        rag.notified("notifications/enx/turn", &json!({ "busy": false }));
+        assert!(!rag.busy());
+    }
+
+    #[test]
+    fn with_auto_index_off_nothing_is_queued() {
+        let dir = std::env::temp_dir();
+        let setup = RagSetup {
+            auto_index: Some(false),
+            ..Default::default()
+        };
+        let mut rag = Rag::new("postgres://localhost/none", "", &setup).unwrap();
+        rag.workspace = std::fs::canonicalize(&dir).unwrap();
+        rag.notified("notifications/enx/changed", &json!({ "files": ["x.rs"] }));
+        assert!(rag.queued.lock().unwrap().is_empty());
+    }
 
     #[test]
     fn each_provider_has_its_defaults() {

@@ -162,6 +162,8 @@ pub struct ToolSpec {
 pub trait Server: Send + Sync {
     /// Work the server does by itself once it runs, beside the calls.
     fn start(self: std::sync::Arc<Self>) {}
+    /// A notification from the client: no reply is sent.
+    fn notified(&self, _method: &str, _params: &Value) {}
     fn tools(&self) -> Vec<ToolSpec>;
     /// The tool's text result. An error is reported to the model as a
     /// failed call, not as a protocol error.
@@ -238,6 +240,14 @@ pub async fn serve(name: &str) -> Result<()> {
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
+        // A notification (no id) gets no reply; the server may act on it.
+        if message.get("id").is_none() {
+            if let Some(method) = message.get("method").and_then(Value::as_str) {
+                let params = message.get("params").cloned().unwrap_or(Value::Null);
+                server.notified(method, &params);
+            }
+            continue;
+        }
         if let Some(reply) = answer(name, server.as_ref(), &message).await {
             stdout.write_all(format!("{reply}\n").as_bytes()).await?;
             stdout.flush().await?;

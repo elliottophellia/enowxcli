@@ -5,6 +5,7 @@ pub mod agent;
 pub mod agent_def;
 pub mod ask;
 pub mod auth;
+pub mod builtin_mcp;
 pub mod catalog;
 pub mod compact;
 pub mod config;

@@ -26,6 +26,7 @@ toml.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 which = "8.0.6"
+russh = { version = "0.63", default-features = false, features = ["ring", "rsa", "flate2"] }
 tree-sitter = "0.27.0"
 tree-sitter-rust = "0.24.2"
 tree-sitter-typescript = "0.23.2"

@@ -52,6 +52,14 @@ pub fn collect(workspace: &Path, discovery: &mut Discovery) {
         &mut claimed,
     );
 
+    // The built-in servers enx serves itself, once installed. One the user
+    // declared under the same name elsewhere keeps the name.
+    for server in crate::builtin_mcp::installed_servers() {
+        if claimed.insert(server.name.clone()) {
+            discovery.mcp_servers.push(server);
+        }
+    }
+
     // Overlay disables/re-enables discovered servers without touching source.
     apply_overrides(discovery);
 }

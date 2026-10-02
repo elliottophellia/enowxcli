@@ -176,6 +176,39 @@ fix. The distinct `security` audit remains as the `security` skill family, which
 reads code rather than testing a running target. This is for assessing systems
 you are authorized to test, such as your own project before release.
 
+## Built-in MCP servers
+
+enx ships three MCP servers of its own, served by the `enx` binary (no Node
+or Python needed). An agent is offered one only after it is installed; until
+then it is not listed anywhere.
+
+| Server | Gives agents | Install |
+|---|---|---|
+| `coolify` | Applications, servers, databases, services and projects; deploy, start, stop, restart; logs; deployments; env var names | `enx mcp install coolify` |
+| `dokploy` | Projects with their applications, compose stacks and databases; deploy, redeploy, start, stop; logs; deployments; servers; containers | `enx mcp install dokploy` |
+| `vps` | Your VPSes over SSH: run a command, or a read-only status (load, disk, memory, Docker) | `enx vps add <name> --host <address> --user <user> [--key <file>]` |
+
+```sh
+enx mcp install coolify --url https://coolify.example.com   # then paste an API token
+enx vps add prod --host 203.0.113.5 --user root --key ~/.ssh/id_ed25519
+enx vps add db --host 203.0.113.6 --user root               # asks for the password
+enx mcp list                                                # what is installed
+enx vps list
+enx vps remove db
+enx mcp uninstall dokploy
+```
+
+URLs, hosts and users are kept in `~/.enx/builtin-mcp.json`; tokens and VPS
+passwords in `~/.enx/auth.json` (readable by you alone), never in the
+transcript. Secret-looking fields and environment variable values are
+redacted from what the tools return. A VPS's host key is recorded on the
+first connection (`~/.enx/vps_known_hosts`) and a different key later is
+refused before any password is sent. A server you declared yourself under
+the same name (for example in `~/.claude/mcp.json`) keeps the name.
+
+Other MCP clients can run them too: the command is `enx mcp serve coolify`
+(or `dokploy`, `vps`) over stdio.
+
 ## Terminal commands
 
 `/help` `/new` `/resume` `/agent` `/model` `/effort` `/provider` `/attach`

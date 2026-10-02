@@ -256,7 +256,7 @@ pub fn logout(config: &mut Config, provider: &str) -> Result<()> {
 }
 
 /// A line from stdin when it is piped, or typed at a prompt with no echo.
-fn read_key(prompt: &str) -> Result<String> {
+pub(crate) fn read_key(prompt: &str) -> Result<String> {
     if !std::io::stdin().is_terminal() {
         let mut line = String::new();
         std::io::stdin().lock().read_line(&mut line)?;

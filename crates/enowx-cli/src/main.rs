@@ -6,6 +6,7 @@ use enowx_core::Config;
 
 mod auth;
 mod dev;
+mod mcp;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -41,6 +42,17 @@ enum Command {
         #[command(subcommand)]
         command: ConfigCommand,
     },
+    /// The MCP servers built into enx (coolify, dokploy, vps): install them
+    /// to offer them to agents.
+    Mcp {
+        #[command(subcommand)]
+        command: McpCommand,
+    },
+    /// The VPSes the built-in `vps` MCP server reaches over SSH.
+    Vps {
+        #[command(subcommand)]
+        command: VpsCommand,
+    },
     /// Provider keys, kept in ~/.enx/auth.json.
     Auth {
         #[command(subcommand)]
@@ -57,6 +69,46 @@ enum AuthCommand {
     Login { provider: String },
     /// Remove a provider's stored API key.
     Logout { provider: String },
+}
+
+#[derive(Debug, Subcommand)]
+enum McpCommand {
+    /// Each built-in server and whether it is installed.
+    #[command(alias = "ls")]
+    List,
+    /// Set up coolify or dokploy: its URL, then an API token at a prompt.
+    Install {
+        name: String,
+        #[arg(long)]
+        url: Option<String>,
+    },
+    /// Remove a built-in server's setup and stored secrets.
+    Uninstall { name: String },
+    /// Run a built-in server over stdio, as an MCP client starts it.
+    #[command(hide = true)]
+    Serve { name: String },
+}
+
+#[derive(Debug, Subcommand)]
+enum VpsCommand {
+    /// Add or update a VPS. Without --key, its password is asked for and
+    /// kept in auth.json.
+    Add {
+        name: String,
+        #[arg(long)]
+        host: String,
+        #[arg(long)]
+        user: String,
+        #[arg(long, default_value_t = 22)]
+        port: u16,
+        /// A private key file to sign in with instead of a password.
+        #[arg(long)]
+        key: Option<String>,
+    },
+    #[command(alias = "ls")]
+    List,
+    #[command(alias = "rm")]
+    Remove { name: String },
 }
 
 #[derive(Debug, Subcommand)]
@@ -106,6 +158,23 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
+        Command::Mcp { command } => match command {
+            McpCommand::List => mcp::list(),
+            McpCommand::Install { name, url } => mcp::install(&name, url),
+            McpCommand::Uninstall { name } => mcp::uninstall(&name),
+            McpCommand::Serve { name } => enowx_core::builtin_mcp::serve(&name).await,
+        },
+        Command::Vps { command } => match command {
+            VpsCommand::Add {
+                name,
+                host,
+                user,
+                port,
+                key,
+            } => mcp::vps_add(&name, &host, &user, port, key),
+            VpsCommand::List => mcp::vps_list(),
+            VpsCommand::Remove { name } => mcp::vps_remove(&name),
+        },
         Command::Auth { command } => {
             let mut config = Config::load()?;
             match command {

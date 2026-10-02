@@ -25,10 +25,11 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
             72
         },
     );
-    let per_row = if matches!(
+    let per_row = if app.modal == Modal::Agents {
+        3
+    } else if matches!(
         app.modal,
-        Modal::Agents
-            | Modal::Message
+        Modal::Message
             | Modal::TypeSafe
             | Modal::Providers
             | Modal::Themes
@@ -105,19 +106,16 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
                         Style::default().fg(t.faint),
                     ));
                 }
-                // An agent on a model of its own says which beside its name.
-                if let Some(model) = own_model(app, id) {
-                    let used: usize = name.iter().map(|span| span.content.chars().count()).sum();
-                    let room = text_width.saturating_sub(used + 2);
-                    name.push(Span::styled(
-                        format!("  {}", trim(&model, room)),
-                        Style::default().fg(t.muted),
-                    ));
-                }
-                Text::from(vec![
+                let mut lines = vec![
                     Line::from(name),
                     Line::styled(trim(description, text_width), Style::default().fg(t.muted)),
-                ])
+                ];
+                // Under each agent, the model it runs on: its own, or the
+                // default one everyone else shares.
+                if app.modal == Modal::Agents {
+                    lines.push(model_line(app, id, text_width));
+                }
+                Text::from(lines)
             };
             heights.push(text.lines.len() as u16);
             ListItem::new(text)
@@ -126,6 +124,33 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
     let mut state = ListState::default().with_selected(Some(app.modal_cursor));
     frame.render_stateful_widget(selectable(List::new(items), &t), content, &mut state);
     register_list_rows(app, content, state.offset(), &heights);
+}
+
+/// The agent list's third line: `model  <id>`, in the text colour when the
+/// agent has a model of its own, muted with `· default` when it shares the
+/// active one.
+fn model_line(app: &App, name: &str, width: usize) -> Line<'static> {
+    let t = app.theme;
+    let label = Span::styled("model  ", Style::default().fg(t.faint));
+    let room = width.saturating_sub(7);
+    match own_model(app, name) {
+        Some(model) => Line::from(vec![
+            label,
+            Span::styled(trim(&model, room), Style::default().fg(t.text)),
+        ]),
+        None => {
+            let active = app.config.model.active.trim();
+            let shown = if active.is_empty() {
+                "default (none chosen yet)".to_owned()
+            } else {
+                format!("{active} · default")
+            };
+            Line::from(vec![
+                label,
+                Span::styled(trim(&shown, room), Style::default().fg(t.muted)),
+            ])
+        }
+    }
 }
 
 /// The model `name` runs on in the agent list, when it is not the active

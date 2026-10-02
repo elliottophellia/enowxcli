@@ -204,14 +204,25 @@ enx mcp set coolify --url https://coolify.example.com --token <token>
 enx mcp set dokploy --url https://dokploy.example.com --token <token>
 enx vps add prod --host 203.0.113.5 --user root --key ~/.ssh/id_ed25519
 enx vps add db --host 203.0.113.6 --user root --password <password>
+enx vps add lab                     # an alias from ~/.ssh/config, keys or ssh-agent
 enx mcp list
 enx vps list
 enx vps remove db
 enx mcp clear dokploy        # forget its setup and turn it off
 ```
 
+A VPS signs in the way `ssh` would, trying in turn: the key file you gave
+it (OpenSSH, PEM or PuTTY `.ppk`; an encrypted one with its passphrase,
+asked for or given with `--passphrase`), the keys in ssh-agent (Pageant or
+the OpenSSH agent on Windows), the `IdentityFile`s from `~/.ssh/config` or
+else the default `~/.ssh/id_*` keys, the password, and keyboard-interactive
+answered with that password. `--host` may be an alias from `~/.ssh/config`,
+whose `HostName`, `User` and `Port` are used; `--user` defaults to the
+config's. A server that asks for a one-time code is reported, not answered:
+use a key there. In the TUI, `c` on the vps row has the same fields.
+
 URLs, hosts and users are kept in `~/.enx/builtin-mcp.json`; tokens and VPS
-passwords in `~/.enx/auth.json` (readable by you alone), never in the
+passwords and key passphrases in `~/.enx/auth.json` (readable by you alone), never in the
 transcript. Ask the agent to set one up ("connect my Coolify at … with this
 token") and it runs `enx mcp set` for you, then the server is live without a
 restart. Secret-looking fields and environment variable values are
@@ -260,9 +271,10 @@ read every two seconds: the memory of enx and the processes it started (MCP
 servers, language servers, the preview browser), their CPU, and the history
 on disk with its delegations.
 
-`/agent` lists the roster: `Enter` switches to the selected agent, `m` gives
-it a model of its own from the model list (saved as `agent.models.<agent>`,
-shown beside its name), and `d` puts it back on the default model.
+`/agent` lists the roster with the model each agent runs on under it (its
+own, or the shared default marked `· default`). `Enter` switches to the
+selected agent, `m` gives it a model of its own from the model list (saved
+as `agent.models.<agent>`), and `d` puts it back on the default model.
 
 `/effort` chooses how hard the model thinks, from the levels models.dev lists
 for it (`/effort high` picks one directly). The level shows beside the model,

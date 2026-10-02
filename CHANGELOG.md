@@ -35,6 +35,7 @@ after v0.1.0.
   reason, and treat inconsistency as a finding rather than a nit to drop.
 - **Give an agent its own model from the roster.** In `/agent`, `m` opens the
   model list for the selected agent and `d` puts it back on the default.
+  Every agent shows the model it runs on under its description.
 
 ### Interface
 
@@ -99,6 +100,13 @@ after v0.1.0.
   no restart. `enx mcp clear <name>` forgets a setup. Tokens and passwords go
   to `auth.json`; secret fields and environment values are redacted from tool
   output; a VPS host key is pinned on first connection.
+- **`vps` signs in the way `ssh` does.** Encrypted key files (with their
+  passphrase), PuTTY `.ppk` keys, ssh-agent (Pageant and the OpenSSH agent on
+  Windows), hosts written as `~/.ssh/config` aliases (their `HostName`,
+  `User`, `Port` and `IdentityFile`), the default `~/.ssh/id_*` keys, and
+  keyboard-interactive answered with the stored password. A failed sign-in
+  says what was tried and why each was refused, and a prompt for a one-time
+  code is reported rather than answered.
 - **Built-in code search (`rag`).** Indexes the workspace into Postgres with
   pgvector, local or cloud, embedded with Voyage AI (`voyage-code-3`), and
   searches it with dense and keyword matches fused, then reranked. Indexing is

@@ -109,3 +109,21 @@ fn an_agent_on_its_own_model_says_which_in_the_list() {
         .count();
     assert_eq!(marked, 1, "only fe runs on it: {screen}");
 }
+
+/// Under every agent in the list, the model it runs on: its own, or the
+/// shared default, marked as such.
+#[test]
+fn each_agent_shows_its_model_under_it() {
+    let mut app = TestApp::new();
+    app.set_agent_model("orchestrator", "deepseek/deepseek-flash");
+    app.run_command("/agent").expect("/agent");
+    let screen = app.render_to_text(150, 60).join("\n");
+    assert!(
+        screen.contains("model  deepseek/deepseek-flash"),
+        "{screen}"
+    );
+    assert!(
+        screen.contains("· default") || screen.contains("default (none"),
+        "{screen}"
+    );
+}

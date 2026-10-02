@@ -164,7 +164,7 @@ impl SettingsField {
             SettingsField::Host => "Host (address)",
             SettingsField::User => "SSH user",
             SettingsField::Port => "SSH port",
-            SettingsField::Dsn => "Database (postgres://user:pass@host:5432/db)",
+            SettingsField::Dsn => "Database (Postgres with pgvector)",
             SettingsField::KeyFile => "Key file (optional)",
             SettingsField::Passphrase => "Key passphrase (if it has one)",
             SettingsField::Password => "Password (optional)",

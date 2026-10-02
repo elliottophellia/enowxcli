@@ -60,14 +60,25 @@ impl Sampler {
             usage.own_memory = me.memory();
             usage.cpu = me.cpu_usage();
         }
-        // Every process whose chain of parents reaches enx.
-        for (pid, process) in self.system.processes() {
-            if *pid == self.me || !self.descends_from_me(process.parent()) {
-                continue;
+        // enx's descendants, found by walking DOWN from enx in this one
+        // snapshot: start at enx, then its children, then theirs. Walking UP
+        // from every process instead trusted each process's recorded parent,
+        // and macOS reuses a pid the moment a process dies, so an unrelated
+        // process whose parent pid had been recycled to enx's was counted as
+        // a helper. Here a process is a helper only if it is actually reached
+        // from enx now.
+        let mut frontier = vec![self.me];
+        let mut seen = std::collections::HashSet::new();
+        while let Some(parent) = frontier.pop() {
+            for (pid, process) in self.system.processes() {
+                if process.parent() != Some(parent) || !seen.insert(*pid) {
+                    continue;
+                }
+                usage.helpers += 1;
+                usage.helpers_memory += process.memory();
+                usage.cpu += process.cpu_usage();
+                frontier.push(*pid);
             }
-            usage.helpers += 1;
-            usage.helpers_memory += process.memory();
-            usage.cpu += process.cpu_usage();
         }
         if let Some(id) = session {
             let (bytes, branches) = on_disk(store, id);
@@ -75,18 +86,6 @@ impl Sampler {
             usage.branches = branches;
         }
         self.usage = usage;
-    }
-
-    fn descends_from_me(&self, mut parent: Option<Pid>) -> bool {
-        // Bounded: a parent loop in a racing process table must not hang.
-        for _ in 0..32 {
-            match parent {
-                Some(pid) if pid == self.me => return true,
-                Some(pid) => parent = self.system.process(pid).and_then(|p| p.parent()),
-                None => return false,
-            }
-        }
-        false
     }
 }
 

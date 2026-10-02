@@ -1507,6 +1507,10 @@ impl Agent {
         // How many times a delegated agent that stopped without its report
         // has been sent back to finish.
         let mut nudged = 0u32;
+        // Set for the last step of a branch that would not report: the model
+        // is offered no tools, so all it can do is write the report.
+        let mut report_only = false;
+        let no_tools: Vec<serde_json::Value> = Vec::new();
         while limit == 0 || step < limit {
             if cancel.is_cancelled() {
                 stop_reason = "aborted".into();
@@ -1578,7 +1582,7 @@ impl Agent {
                     as Box<dyn Fn(String, u32, u32) + Send + Sync>)
             };
             let completion = tokio::select! {
-                result = provider.complete_with_notice(&wire, &schemas, &chunk_tx, &notice_sink) => {
+                result = provider.complete_with_notice(&wire, if report_only { &no_tools } else { &schemas }, &chunk_tx, &notice_sink) => {
                     drop(chunk_tx);
                     let _ = forward.await;
                     match result {
@@ -1688,24 +1692,38 @@ impl Agent {
                     }
                 }
                 // A delegated agent owes its caller a report. One that stopped
-                // without it (a summary of its context, a sentence mid-task)
-                // is sent back to finish, twice at most, rather than ending
-                // with nothing the caller can use.
-                if session.parent.is_some()
-                    && nudged < 2
-                    && extract_report(completion.text.trim()).is_none()
-                    && completion.finish_reason == "stop"
-                {
-                    nudged += 1;
-                    session.push(Message::user(
-                        "[harness] You stopped without your report, and the work may not be \
-                         done. If what you just wrote is a summary of your progress, carry on \
-                         from it: do what is left with your tools. When the task is finished \
-                         (or cannot be), end with the report: DONE, CHANGED, VERIFIED, NEXT.",
-                    ));
-                    self.store.save(&session)?;
-                    step += 1;
-                    continue;
+                // without it (a summary of its context, a sentence mid-task, a
+                // reply cut off at the length limit) is sent back to finish,
+                // twice; then asked once more with no tools, so all it can do
+                // is write the report. Whatever it ends with, the caller still
+                // gets one: `branch_summary` builds it from what the branch did.
+                if session.parent.is_some() && extract_report(completion.text.trim()).is_none() {
+                    if nudged < 2 {
+                        nudged += 1;
+                        session.push(Message::user(
+                            "[harness] You stopped without your report, and the work may not be \
+                             done. If what you just wrote is a summary of your progress, carry on \
+                             from it: do what is left with your tools. When the task is finished \
+                             (or cannot be), end with the report: DONE, CHANGED, VERIFIED, NEXT.",
+                        ));
+                        self.store.save(&session)?;
+                        step += 1;
+                        continue;
+                    }
+                    if !report_only {
+                        report_only = true;
+                        session.push(Message::user(
+                            "[harness] Stop working now and write your report, nothing else. \
+                             Four lines, each starting with its field:\n\
+                             DONE: what you achieved, or what you could not\n\
+                             CHANGED: every file you created or edited, or `none`\n\
+                             VERIFIED: how you checked it and what you found, or `not verified`\n\
+                             NEXT: what the caller must know to carry on, or `nothing`",
+                        ));
+                        self.store.save(&session)?;
+                        step += 1;
+                        continue;
+                    }
                 }
                 stop_reason = completion.finish_reason;
                 break;
@@ -2301,15 +2319,12 @@ fn persist_interrupted(
 
 /// What a finished branch reports back: the specialist's own last word.
 ///
-/// The specialist has the whole context, so its closing message is the
-/// summary — no extra model call is needed to produce one.
-/// What the caller is told a delegation did.
-///
 /// The sub-agent is asked for a structured report, and usually gives one.
-/// When it does not — it ran out of steps, or stopped mid-sentence — its last
+/// When it does not (it ran out of steps, or stopped mid-sentence) its last
 /// message is narration rather than a result ("Now rewriting main.js"), and
-/// passing that up tells the caller nothing true. So a report is assembled
-/// from what the branch actually did instead.
+/// passing that up tells the caller nothing true. So the report is built
+/// from what the branch actually did instead, in the same four fields: the
+/// caller always gets a report it can read the same way.
 fn branch_summary(branch: &Session) -> String {
     let last = branch
         .turns
@@ -2321,13 +2336,17 @@ fn branch_summary(branch: &Session) -> String {
         .map(|t| t.message.content.trim().to_owned());
 
     if let Some(report) = last.as_deref().and_then(extract_report) {
-        return report.to_owned();
+        return report;
     }
 
     // No report. Say so plainly and give the facts, rather than passing off a
     // mid-task sentence as a result.
     let touched = files_touched(branch);
-    let mut out = String::from("NO REPORT — the sub-agent stopped without one.");
+    let commands = commands_run(branch);
+    let mut out = String::from(
+        "NO REPORT, the sub-agent stopped without one. Built from what it did:\n\
+         DONE: not reported; the work may be unfinished",
+    );
     out.push_str(&format!(
         "\nCHANGED: {}",
         if touched.is_empty() {
@@ -2336,24 +2355,116 @@ fn branch_summary(branch: &Session) -> String {
             touched.join(", ")
         }
     ));
-    if let Some(said) = last {
+    out.push_str(&format!(
+        "\nVERIFIED: not verified{}",
+        if commands.is_empty() {
+            String::new()
+        } else {
+            format!(" (it ran: {})", commands.join("; "))
+        }
+    ));
+    match last {
         // Its last words are still evidence of where it got to, as long as
         // they are not presented as a conclusion.
-        let said: String = said.chars().take(400).collect();
-        out.push_str(&format!("\nLAST SAID: {said}"));
+        Some(said) => {
+            let said: String = said.chars().take(300).collect();
+            out.push_str(&format!(
+                "\nNEXT: check the changed files before building on them. LAST SAID: {}",
+                said.replace('\n', " ")
+            ));
+        }
+        None => out.push_str("\nNEXT: check the changed files before building on them"),
     }
     out
 }
 
-/// The report block from a sub-agent's final message, if it wrote one.
-///
-/// Taken from `DONE:` onwards so any reasoning before it is dropped — the
-/// caller asked for a result, not a transcript.
-fn extract_report(text: &str) -> Option<&str> {
-    let start = text.find("DONE:")?;
-    let report = text[start..].trim();
+/// The report fields, in order.
+const REPORT_FIELDS: [&str; 4] = ["DONE", "CHANGED", "VERIFIED", "NEXT"];
+
+/// `line` as a report field and its value, however it is dressed:
+/// `DONE: x`, `**DONE:** x`, `## Done: x`, `- done - x`.
+fn report_field(line: &str) -> Option<(&'static str, String)> {
+    let bare = line.trim_start_matches(|c: char| c.is_whitespace() || "*#->_`".contains(c));
+    for field in REPORT_FIELDS {
+        let Some(head) = bare.get(..field.len()) else {
+            continue;
+        };
+        if !head.eq_ignore_ascii_case(field) {
+            continue;
+        }
+        let rest = bare[field.len()..].trim_start_matches(|c: char| "*_`".contains(c));
+        let rest = rest.trim_start();
+        let value = rest
+            .strip_prefix(':')
+            .or_else(|| rest.strip_prefix(" -"))
+            .or_else(|| rest.strip_prefix('-'))?;
+        let value = value
+            .trim()
+            .trim_start_matches(|c: char| "*_`".contains(c))
+            .trim();
+        return Some((field, value.to_owned()));
+    }
+    None
+}
+
+/// The report from a sub-agent's final message, if it wrote one: from its
+/// DONE line on, each field on its own line in plain form, so reasoning
+/// before it is dropped and markdown around the field names does not hide it.
+fn extract_report(text: &str) -> Option<String> {
+    let mut lines = text
+        .lines()
+        .skip_while(|line| !matches!(report_field(line), Some(("DONE", _))));
+    let (_, done) = report_field(lines.next()?)?;
+    let mut report = vec![("DONE", done)];
+    for line in lines {
+        match report_field(line) {
+            Some((field, value)) => report.push((field, value)),
+            None if !line.trim().is_empty() => {
+                if let Some((_, value)) = report.last_mut() {
+                    value.push('\n');
+                    value.push_str(line.trim());
+                }
+            }
+            None => {}
+        }
+    }
     // A bare "DONE:" with nothing under it is not a report.
-    report.len().gt(&6).then_some(report)
+    if report.len() == 1 && report[0].1.trim().is_empty() {
+        return None;
+    }
+    Some(
+        report
+            .into_iter()
+            .map(|(field, value)| format!("{field}: {}", value.trim()))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+}
+
+/// The shell commands a branch ran, the last few, for a report it did not
+/// write: what was tried is evidence, though not that it passed.
+fn commands_run(branch: &Session) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for turn in &branch.turns {
+        for call in &turn.message.tool_calls {
+            if call.name != "bash" {
+                continue;
+            }
+            if let Some(command) = serde_json::from_str::<serde_json::Value>(&call.arguments)
+                .ok()
+                .and_then(|args| {
+                    args.get("command")
+                        .and_then(|c| c.as_str())
+                        .map(str::to_owned)
+                })
+            {
+                let command: String = command.chars().take(80).collect();
+                out.push(format!("`{}`", command.replace('\n', " ")));
+            }
+        }
+    }
+    let skip = out.len().saturating_sub(5);
+    out.split_off(skip)
 }
 
 /// Files a branch changed, read from its tool calls.
@@ -2499,6 +2610,53 @@ mod report_tests {
         let summary = branch_summary(&branch);
         assert!(summary.starts_with("NO REPORT"), "{summary}");
         assert!(summary.contains("CHANGED: none"), "{summary}");
+    }
+
+    /// Models dress the fields in markdown or change their case; the
+    /// report is still a report, handed on in plain form.
+    #[test]
+    fn a_report_in_markdown_is_still_a_report() {
+        for text in [
+            "**DONE:** built the page\n**CHANGED:** page.html\n**VERIFIED:** npm run build passed\n**NEXT:** nothing",
+            "## Done: built the page\n## Changed: page.html\n## Verified: npm run build passed\n## Next: nothing",
+            "Some thoughts first.\n\n- DONE - built the page\n- CHANGED: page.html\n- VERIFIED: npm run build passed\n- NEXT: nothing",
+        ] {
+            let branch = branch_with(&[Message::assistant(text)]);
+            let summary = branch_summary(&branch);
+            assert_eq!(
+                summary,
+                "DONE: built the page\nCHANGED: page.html\nVERIFIED: npm run build passed\nNEXT: nothing",
+                "from: {text}"
+            );
+        }
+    }
+
+    /// Without a report the caller still gets all four fields, built from
+    /// what the branch did, and the commands it ran are named, not claimed
+    /// to have passed.
+    #[test]
+    fn a_missing_report_is_built_in_the_same_four_fields() {
+        let mut ran = Message::assistant("");
+        ran.tool_calls.push(crate::message::ToolCall {
+            id: "c1".into(),
+            name: "bash".into(),
+            arguments: r#"{"command":"npm run build"}"#.into(),
+        });
+        let branch = branch_with(&[
+            wrote("page.html"),
+            ran,
+            Message::assistant("Now fixing the layout."),
+        ]);
+        let summary = branch_summary(&branch);
+        for field in [
+            "DONE:",
+            "CHANGED: page.html",
+            "VERIFIED: not verified",
+            "NEXT:",
+        ] {
+            assert!(summary.contains(field), "{field} in {summary}");
+        }
+        assert!(summary.contains("`npm run build`"), "{summary}");
     }
 
     /// A bare marker with nothing under it is not a report.

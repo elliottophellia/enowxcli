@@ -240,14 +240,19 @@ fn draw_detail_card(frame: &mut Frame, app: &mut App, area: Rect) {
         slide_markers,
         list_span,
     } = detail_lines(app, body.width as usize);
+    // Scrolled by lines, not turned by pages: the wheel moves it a line a
+    // step, and it never scrolls past a full card.
     let page_size = body.height.max(1) as usize;
-    app.sidebar_pages = lines.len().div_ceil(page_size).max(1);
-    app.sidebar_page = app.sidebar_page.min(app.sidebar_pages - 1);
+    let total = lines.len();
+    let last = total.saturating_sub(page_size);
+    app.sidebar_view = page_size;
+    app.sidebar_pages = last + 1;
+    app.sidebar_page = app.sidebar_page.min(last);
     frame.render_widget(
         Paragraph::new(
             lines
                 .into_iter()
-                .skip(app.sidebar_page * page_size)
+                .skip(app.sidebar_page)
                 .take(page_size)
                 .collect::<Vec<_>>(),
         ),
@@ -257,7 +262,7 @@ fn draw_detail_card(frame: &mut Frame, app: &mut App, area: Rect) {
     // Markers are line indices into the whole tab; only the page on screen
     // can be clicked, so the rest are dropped rather than mapped to rows the
     // user cannot see. Two rows each: the name and the task under it.
-    let first = app.sidebar_page * page_size;
+    let first = app.sidebar_page;
     let row_of = |line: usize| -> Option<u16> {
         (line >= first && line < first + page_size).then(|| body.y + (line - first) as u16)
     };
@@ -290,12 +295,17 @@ fn draw_detail_card(frame: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
-    // The pager sits in the card's bottom edge, right-aligned, so paging costs
-    // no row of the card's content. A click on its left half goes back, on
-    // its right half forward.
+    // Where the card is scrolled to sits in its bottom edge, right-aligned,
+    // so it costs no row of the content. A click on its left half goes up a
+    // card's height, on its right half down.
     if app.sidebar_pages > 1 {
         let pager = Line::from(vec![Span::styled(
-            format!(" ◀ {}/{} ▶ ", app.sidebar_page + 1, app.sidebar_pages),
+            format!(
+                " ▲ {}-{}/{} ▼ ",
+                first + 1,
+                (first + page_size).min(total),
+                total
+            ),
             Style::default().fg(t.muted),
         )]);
         let width = pager.width() as u16;

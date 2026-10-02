@@ -135,11 +135,14 @@ fn the_pager_sits_in_the_detail_cards_bottom_edge() {
     let (side_x, side_y, ..) = app.side_area().expect("the side column");
     let last = side.last().expect("the side column's last row");
     assert!(last.starts_with('╰'), "the card's bottom edge: {last:?}");
-    assert!(last.contains("◀ 1/"), "carries the pager: {last:?}");
+    assert!(
+        last.contains("▲ 1-"),
+        "carries where it is scrolled: {last:?}"
+    );
 
     // The same background as a wall cell of the card, a few rows up.
     let pager_row = side_y + side.len() as u16 - 1;
-    let pager_col = (side_x as usize) + last.find('◀').map(|b| last[..b].chars().count()).unwrap();
+    let pager_col = (side_x as usize) + last.find('▲').map(|b| last[..b].chars().count()).unwrap();
     let pager_bg = app.row_backgrounds(W, H, pager_row)[pager_col].clone();
     let wall_bg = app.row_backgrounds(W, H, pager_row - 2)[side_x as usize].clone();
     assert_eq!(

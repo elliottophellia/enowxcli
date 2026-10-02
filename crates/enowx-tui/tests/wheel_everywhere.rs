@@ -1,4 +1,6 @@
-//! The mouse wheel works wherever the pointer is.
+//! The mouse wheel works wherever the pointer is, and scrolls what is under
+//! it a row a step: a list's view (not its selection), the side card, the
+//! transcript.
 //!
 //! It used to scroll the transcript whenever it was not over the skill or
 //! MCP list: with the command palette, a picker or the settings form open,
@@ -40,54 +42,87 @@ fn step(app: &mut TestApp, down: bool, column: u16, row: u16) {
     app.mouse(wheel(down, column, row)).expect("wheel");
 }
 
+/// The wheel scrolls the open window's list a row a step and leaves the
+/// selection where it is; the transcript behind does not move.
 #[test]
-fn the_wheel_moves_the_command_palette_not_the_transcript() {
+fn the_wheel_scrolls_the_command_palette_not_the_transcript() {
     let mut app = TestApp::new();
     app.set_max_scroll(20);
     app.run_command("/commands").expect("/commands");
     let _ = app.render_to_text(W, H);
     let first = app.palette_selection();
-    // Anywhere on screen: the open window has the focus.
+    // Anywhere on screen: the open window has the wheel.
     step(&mut app, true, 5, 5);
+    let _ = app.render_to_text(W, H);
     assert_eq!(app.scroll(), 0, "the transcript behind must not move");
-    assert_ne!(app.palette_selection(), first, "the selection moves");
+    assert_eq!(app.palette_selection(), first, "the selection stays");
+    assert_eq!(app.modal_offset(), 1, "the list moved a row");
     step(&mut app, false, 5, 5);
-    assert_eq!(app.palette_selection(), first, "and back");
+    let _ = app.render_to_text(W, H);
+    assert_eq!(app.modal_offset(), 0, "and back");
 }
 
+/// Every event of a trackpad flick is a row: the list scrolls smoothly,
+/// a row at a time, never a page.
 #[test]
-fn the_wheel_moves_a_picker() {
+fn a_burst_scrolls_a_list_row_by_row() {
+    let mut app = TestApp::new();
+    app.run_command("/commands").expect("/commands");
+    let _ = app.render_to_text(W, H);
+    for _ in 0..5 {
+        app.mouse(wheel(true, 5, 5)).expect("wheel");
+    }
+    let _ = app.render_to_text(W, H);
+    assert_eq!(app.modal_offset(), 5);
+    assert_eq!(app.palette_selection().as_deref(), Some("new"), "not moved");
+}
+
+/// After the wheel, a key moves the selection and the list follows it back
+/// into view.
+#[test]
+fn a_key_brings_the_selection_back_into_view() {
+    let mut app = TestApp::new();
+    app.run_command("/commands").expect("/commands");
+    let _ = app.render_to_text(W, H);
+    for _ in 0..8 {
+        app.mouse(wheel(true, 5, 5)).expect("wheel");
+    }
+    let _ = app.render_to_text(W, H);
+    assert!(app.modal_offset() > 0);
+    app.press_key(KeyCode::Down).expect("down");
+    let _ = app.render_to_text(W, H);
+    assert_eq!(app.palette_selection().as_deref(), Some("resume"));
+    assert!(
+        app.modal_offset() <= 2,
+        "back at the selection: {}",
+        app.modal_offset()
+    );
+}
+
+/// A list that fits does not scroll, and the selection stays.
+#[test]
+fn the_wheel_leaves_a_short_list_and_its_selection() {
     let mut app = TestApp::new();
     app.run_command("/theme").expect("/theme");
+    let _ = app.render_to_text(W, H);
     let first = app.modal_selection();
     step(&mut app, true, 60, 10);
-    assert_ne!(app.modal_selection(), first);
+    let _ = app.render_to_text(W, H);
+    assert_eq!(app.modal_selection(), first);
+    assert_eq!(app.modal_offset(), 0);
 }
 
 #[test]
-fn the_wheel_moves_between_settings_fields() {
+fn the_wheel_does_not_move_between_settings_fields() {
     let mut app = TestApp::new();
     app.open_custom_provider_form();
     let first = app.modal_cursor();
     step(&mut app, true, 60, 10);
-    assert_eq!(app.modal_cursor(), first + 1);
-}
-
-/// A burst of wheel events from one trackpad flick moves a list by one row,
-/// not by however many events the flick sent.
-#[test]
-fn a_burst_moves_a_list_one_row() {
-    let mut app = TestApp::new();
-    app.run_command("/commands").expect("/commands");
-    app.let_the_wheel_settle();
-    for _ in 0..5 {
-        app.mouse(wheel(true, 5, 5)).expect("wheel");
-    }
-    assert_eq!(app.palette_selection().as_deref(), Some("resume"));
+    assert_eq!(app.modal_cursor(), first);
 }
 
 #[test]
-fn the_wheel_pages_the_side_column() {
+fn the_wheel_scrolls_the_side_column_a_line_a_step() {
     let mut app = TestApp::in_conversation();
     for n in 0..80 {
         app.deliver_trimmed(&format!("tool-{n}"), 9000, 800);
@@ -95,14 +130,14 @@ fn the_wheel_pages_the_side_column() {
     app.select_sidebar_tab(3);
     let _ = app.render_to_text(W, H);
     let (page, pages) = app.sidebar_page();
-    assert!(pages > 1, "the log should need more than one page");
+    assert!(pages > 1, "the log should need scrolling");
     let (x, y, w, h) = app.side_area().expect("a side column");
     step(&mut app, true, x + w / 2, y + h - 3);
     let _ = app.render_to_text(W, H);
-    assert_eq!(app.sidebar_page().0, page + 1, "down turns the page");
+    assert_eq!(app.sidebar_page().0, page + 1, "down one line");
     step(&mut app, false, x + w / 2, y + h - 3);
     let _ = app.render_to_text(W, H);
-    assert_eq!(app.sidebar_page().0, page, "up turns it back");
+    assert_eq!(app.sidebar_page().0, page, "up one line");
 }
 
 #[test]

@@ -75,9 +75,8 @@ fn search_layout(content: Rect) -> (Rect, Rect) {
 
 /// Click targets for a list's visible rows: the whole row, and the first
 /// three columns where the on/off dot sits.
-fn register_rows(app: &mut App, list_area: Rect, count: usize) {
+fn register_rows(app: &mut App, list_area: Rect, count: usize, start: usize) {
     let visible = list_area.height as usize;
-    let start = app.modal_cursor.saturating_sub(visible.saturating_sub(1));
     for (offset, row_idx) in (start..(start + visible).min(count)).enumerate() {
         let y = list_area.y + offset as u16;
         let row_rect = Rect::new(list_area.x, y, list_area.width, 1);
@@ -169,9 +168,9 @@ fn draw_skills(frame: &mut Frame, app: &mut App) {
             ]))
         })
         .collect();
-    let mut state = ListState::default().with_selected(Some(app.modal_cursor));
+    let mut state = window_state(app, &vec![1; rows.len()], list_area.height);
     app.popup_body = Some(list_area);
-    register_rows(app, list_area, rows.len());
+    register_rows(app, list_area, rows.len(), state.offset());
     frame.render_stateful_widget(
         List::new(items).highlight_style(highlight_style(app)),
         list_area,
@@ -257,9 +256,9 @@ fn draw_mcp(frame: &mut Frame, app: &mut App) {
             ])),
         })
         .collect();
-    let mut state = ListState::default().with_selected(Some(app.modal_cursor));
+    let mut state = window_state(app, &vec![1; rows.len()], list_area.height);
     app.popup_body = Some(list_area);
-    register_rows(app, list_area, rows.len());
+    register_rows(app, list_area, rows.len(), state.offset());
     frame.render_stateful_widget(
         List::new(items).highlight_style(highlight_style(app)),
         list_area,
@@ -487,16 +486,25 @@ fn draw_commands(frame: &mut Frame, app: &mut App) {
     } else {
         at
     };
-    let mut offset = app
-        .palette_offset
-        .min(entries.len().saturating_sub(visible));
-    if top < offset {
-        offset = top;
+    // The wheel scrolls it on its own, as every list does.
+    let scrolled = app.modal_scrolled && app.modal_offset_for == app.modal;
+    let mut offset = if scrolled {
+        app.modal_offset
+    } else {
+        app.palette_offset
     }
-    if visible > 0 && at >= offset + visible {
-        offset = at + 1 - visible;
+    .min(entries.len().saturating_sub(visible));
+    if !scrolled {
+        if top < offset {
+            offset = top;
+        }
+        if visible > 0 && at >= offset + visible {
+            offset = at + 1 - visible;
+        }
     }
     app.palette_offset = offset;
+    app.modal_offset = offset;
+    app.modal_offset_for = app.modal;
 
     let label_width = rows.iter().map(|row| row.label.width()).max().unwrap_or(0);
     for (line, entry) in entries.iter().enumerate().skip(offset).take(visible) {

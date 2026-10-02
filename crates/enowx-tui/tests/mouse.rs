@@ -154,7 +154,7 @@ fn click_on_mcp_form_field_focuses_it() {
 }
 
 #[test]
-fn wheel_inside_popup_moves_cursor_not_transcript() {
+fn wheel_inside_popup_scrolls_it_not_the_transcript() {
     let mut app = TestApp::new_with_skills(&["a", "b", "c"]);
     app.set_popup_rows(vec![
         (Rect::new(10, 5, 70, 1), Rect::new(10, 5, 5, 1), 0),
@@ -173,7 +173,7 @@ fn wheel_inside_popup_moves_cursor_not_transcript() {
     );
     assert_eq!(
         app.modal_cursor(),
-        1,
-        "popup wheel-down advances the cursor"
+        0,
+        "the wheel scrolls the list and leaves the selection"
     );
 }

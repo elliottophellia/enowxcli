@@ -145,6 +145,63 @@ fn draw_page_tabs(frame: &mut Frame, app: &mut App) {
     }
 }
 
+/// Where a modal's list starts, and whether its selection is in view.
+///
+/// While the keys move the selection the list follows it, scrolling only as
+/// far as it takes to keep it on screen. After a wheel step it stays where
+/// the wheel put it (one row a step), the selection left where it was and
+/// shown only while it is in view; the next key brings it back. `heights`
+/// is each item's rows, `rows` the rows there are.
+pub(super) fn list_window(app: &mut App, heights: &[u16], rows: u16) -> (usize, bool) {
+    if app.modal_offset_for != app.modal {
+        app.modal_offset_for = app.modal;
+        app.modal_offset = 0;
+        app.modal_scrolled = false;
+    }
+    let count = heights.len();
+    if count == 0 {
+        app.modal_offset = 0;
+        return (0, false);
+    }
+    let rows = rows as u32;
+    // Past the last item that ends where everything fits.
+    let end_from = |start: usize| -> usize {
+        let mut used = 0u32;
+        let mut at = start;
+        while at < count && used + heights[at] as u32 <= rows {
+            used += heights[at] as u32;
+            at += 1;
+        }
+        at.max(start + 1).min(count)
+    };
+    let mut max_offset = count;
+    let mut used = 0u32;
+    while max_offset > 0 && used + heights[max_offset - 1] as u32 <= rows {
+        used += heights[max_offset - 1] as u32;
+        max_offset -= 1;
+    }
+    let cursor = app.modal_cursor.min(count - 1);
+    let mut offset = app.modal_offset.min(max_offset);
+    if !app.modal_scrolled {
+        if cursor < offset {
+            offset = cursor;
+        }
+        while offset < cursor && end_from(offset) <= cursor {
+            offset += 1;
+        }
+    }
+    app.modal_offset = offset;
+    (offset, cursor >= offset && cursor < end_from(offset))
+}
+
+/// A list's state from `list_window`.
+pub(super) fn window_state(app: &mut App, heights: &[u16], rows: u16) -> ListState {
+    let (offset, shown) = list_window(app, heights, rows);
+    ListState::default()
+        .with_offset(offset)
+        .with_selected(shown.then_some(app.modal_cursor))
+}
+
 /// Columns the Settings section list takes, its border included.
 const SETTINGS_NAV_WIDTH: u16 = 20;
 

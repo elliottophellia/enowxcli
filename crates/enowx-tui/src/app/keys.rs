@@ -3,6 +3,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 impl App {
     pub(crate) fn key(&mut self, key: KeyEvent) -> Result<()> {
+        // A key moves the selection, and the list follows it again.
+        self.modal_scrolled = false;
         // Stopping the model outranks whatever window happens to be in front
         // of it: a modal handler that ate this key left Ctrl+C doing nothing
         // while a turn ran.

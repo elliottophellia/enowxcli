@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
+pub(super) fn draw_settings(frame: &mut Frame, app: &mut App, area: Rect) {
     let fields = app.current_form_fields();
     let width = area.width.saturating_sub(2).min(72);
     // Content rows: each field is its label, its value and a gap; the note
@@ -78,7 +78,7 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
     );
     // The last field needs no gap below it.
     let visible = ((area.height + 1) / 3).max(1) as usize;
-    let start = app.modal_cursor.saturating_sub(visible - 1);
+    let (start, _) = list_window(app, &vec![3; fields.len()], area.height + 1);
     for (index, field) in fields.iter().copied().enumerate().skip(start).take(visible) {
         let active = index == app.modal_cursor;
         let raw = app.settings.value(field);

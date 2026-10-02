@@ -408,10 +408,11 @@ Themes are changed only through `/theme`: arrow keys preview, `Enter` saves,
 `Esc` cancels. Palettes: Obsidian Ice, Neo Acid, Chrome Void, OLED Stealth, and
 Classic Amber. `NO_COLOR` is respected; unset it to see palette colours.
 
-Mouse: drag over the transcript copies text to the clipboard on release, click
-on a rendered file path opens it with the OS default application, and the
-scroll wheel scrolls the transcript, popup selectors, or the composer field
-depending on where the pointer is.
+Mouse: drag over the transcript copies text to the clipboard on release,
+click on a rendered file path opens it with the OS default application, and
+the scroll wheel scrolls whatever is under the pointer a row a step: the
+transcript, the side card, or an open window's list, whose selection the
+wheel leaves where it is (the keys move it).
 
 `/provider` lists every provider with whether it is connected and whether the
 model in use is on it. Enter on a built-in provider asks for its key; a custom

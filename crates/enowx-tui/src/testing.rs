@@ -152,6 +152,11 @@ impl TestApp {
     pub fn modal_cursor(&self) -> usize {
         self.inner.modal_cursor
     }
+
+    /// The first row the open list shows (see `ui::list_window`).
+    pub fn modal_offset(&self) -> usize {
+        self.inner.modal_offset
+    }
     pub fn mcp_field(&self) -> usize {
         self.inner.mcp_field
     }

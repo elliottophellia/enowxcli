@@ -75,6 +75,12 @@ after v0.1.0.
   preview browser), and the history on disk.
 - **A sub-agent's transcript is read only.** Viewing a delegation shows no
   composer; nothing is typed or sent from it.
+- **The wheel scrolls, a row at a time, and never moves a selection.** In
+  any list (models, MCP, skills, sessions, the command list, a settings form)
+  the wheel scrolls the view and leaves the selection where it is; the next
+  key brings the view back to it. The side card scrolls by lines instead of
+  turning pages, its position shown as `▲ 21-40/69 ▼`. In Settings the wheel
+  over a section scrolls it at once, without Enter.
 - **Every shortcut works on Linux, macOS and Windows.** Each one has a form
   that reaches enx through the terminals that swallow the first:
   - `Ctrl+S` sends now where a terminal cannot tell `Ctrl+Enter` from Enter;

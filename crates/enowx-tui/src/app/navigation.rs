@@ -20,12 +20,16 @@ impl App {
         self.select_tab(next);
     }
 
+    /// A card's height down or up: Alt+arrows and the pager.
     pub(crate) fn page_sidebar(&mut self, next: bool) {
-        self.sidebar_page = if next {
-            (self.sidebar_page + 1).min(self.sidebar_pages.saturating_sub(1))
-        } else {
-            self.sidebar_page.saturating_sub(1)
-        };
+        let step = self.sidebar_view.saturating_sub(1).max(1) as isize;
+        self.scroll_sidebar(if next { step } else { -step });
+    }
+
+    /// `lines` down (or up, negative) in the side card.
+    pub(crate) fn scroll_sidebar(&mut self, lines: isize) {
+        let last = self.sidebar_pages.saturating_sub(1);
+        self.sidebar_page = self.sidebar_page.saturating_add_signed(lines).min(last);
     }
 
     pub(crate) fn toggle_sidebar(&mut self) -> Result<()> {
@@ -324,15 +328,29 @@ impl App {
                     if up { KeyCode::Up } else { KeyCode::Down },
                     KeyModifiers::NONE,
                 );
-                // An open window has the focus, so the wheel moves through
-                // it the way its arrow keys do, wherever the pointer is. It
-                // used to scroll the transcript hidden behind the window
-                // (every window but the skill and MCP lists).
+                // An open window has the wheel, wherever the pointer is: it
+                // scrolls the window's list a row a step, and leaves the
+                // selection where it is (the keys move that). In Settings it
+                // scrolls the section, going into it as a click would; over
+                // the section list it does nothing.
                 if self.modal != Modal::None {
-                    if self.wheel_throttled() {
-                        return Ok(());
+                    if self.tab() == crate::app::pages::Tab::Settings {
+                        if self
+                            .settings_sections
+                            .iter()
+                            .any(|(rect, _)| rect.contains(position))
+                        {
+                            return Ok(());
+                        }
+                        self.settings_nav = false;
                     }
-                    return self.key(arrow);
+                    self.modal_scrolled = true;
+                    self.modal_offset = if up {
+                        self.modal_offset.saturating_sub(1)
+                    } else {
+                        self.modal_offset.saturating_add(1)
+                    };
+                    return Ok(());
                 }
                 if self
                     .composer_palette
@@ -367,14 +385,12 @@ impl App {
                     }
                     return Ok(());
                 }
-                // The side column pages its card, which is how it scrolls.
+                // The side card scrolls a line a step, like everything else.
                 if self
                     .sidebar_area
                     .is_some_and(|rect| rect.contains(position))
                 {
-                    if !self.wheel_throttled() {
-                        self.page_sidebar(!up);
-                    }
+                    self.scroll_sidebar(if up { -1 } else { 1 });
                     return Ok(());
                 }
                 if up {

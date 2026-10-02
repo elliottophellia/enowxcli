@@ -209,3 +209,32 @@ fn esc_in_a_server_setup_goes_back_to_the_mcp_list() {
     app.press_key(KeyCode::Esc).unwrap();
     assert!(!app.is_modal_open());
 }
+
+/// The wheel needs no Enter: over a section it scrolls it and goes in, so
+/// the keys that follow move within the section, not between sections.
+#[test]
+fn the_wheel_over_a_section_goes_into_it() {
+    let mut app = chat();
+    app.run_command("/model").unwrap();
+    app.press_key(KeyCode::Esc).unwrap(); // to the section list
+    let rows = app.render_to_text(160, 40);
+    let (y, row) = rows
+        .iter()
+        .enumerate()
+        .find(|(_, r)| r.contains("MODELS"))
+        .expect("the section");
+    app.mouse(MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column: column_of(row, "MODELS") + 10,
+        row: y as u16 + 5,
+        modifiers: KeyModifiers::NONE,
+    })
+    .unwrap();
+    // Down now moves within Models, not to Providers.
+    app.press_key(KeyCode::Down).unwrap();
+    assert!(
+        app.modal_title().contains("MODELS"),
+        "{}",
+        app.modal_title()
+    );
+}

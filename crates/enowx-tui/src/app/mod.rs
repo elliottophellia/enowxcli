@@ -211,6 +211,13 @@ pub(crate) struct App {
     /// First line of the Ctrl+P palette on screen, kept between frames so
     /// the list scrolls rather than jumping to put the selection at an edge.
     pub(crate) palette_offset: usize,
+    /// The first row a modal list shows. It follows the selection while
+    /// the keys move it; the wheel moves it on its own (`modal_scrolled`),
+    /// one row at a time, and leaves the selection where it was.
+    pub(crate) modal_offset: usize,
+    pub(crate) modal_scrolled: bool,
+    /// The modal `modal_offset` belongs to: another one starts at its top.
+    pub(crate) modal_offset_for: Modal,
     /// The inline command list above the composer, and its rows, for the
     /// wheel and for clicks.
     pub(crate) composer_palette: Option<Rect>,
@@ -239,8 +246,13 @@ pub(crate) struct App {
     pub(crate) turn_started: Instant,
     pub(crate) theme: Theme,
     pub(crate) sidebar_tab: usize,
+    /// The first line of the side card on screen; it scrolls a line a
+    /// wheel step, or a card's height with Alt+arrows and the pager.
     pub(crate) sidebar_page: usize,
+    /// The positions it can scroll to: the lines past a full card, plus one.
     pub(crate) sidebar_pages: usize,
+    /// How many lines the card shows.
+    pub(crate) sidebar_view: usize,
     pub(crate) workspace: std::path::PathBuf,
     pub(crate) show_sidebar: bool,
     pub(crate) attachments: Vec<enowx_core::message::Attachment>,
@@ -423,6 +435,9 @@ impl App {
             modal_items: Vec::new(),
             palette_cursor: 0,
             palette_offset: 0,
+            modal_offset: 0,
+            modal_scrolled: false,
+            modal_offset_for: Modal::None,
             composer_palette: None,
             composer_palette_rows: Vec::new(),
             question: None,
@@ -440,6 +455,7 @@ impl App {
             sidebar_tab: 0,
             sidebar_page: 0,
             sidebar_pages: 1,
+            sidebar_view: 1,
             workspace,
             show_sidebar,
             tool_counts: HashMap::new(),

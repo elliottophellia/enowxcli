@@ -121,7 +121,7 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
             ListItem::new(text)
         })
         .collect();
-    let mut state = ListState::default().with_selected(Some(app.modal_cursor));
+    let mut state = window_state(app, &heights, content.height);
     frame.render_stateful_widget(selectable(List::new(items), &t), content, &mut state);
     register_list_rows(app, content, state.offset(), &heights);
 }
@@ -274,7 +274,7 @@ fn draw_model_picker(frame: &mut Frame, app: &mut App, width: u16) {
         })
         .collect();
     let count = items.len();
-    let mut state = ListState::default().with_selected(Some(app.modal_cursor));
+    let mut state = window_state(app, &vec![1; count], list.height);
     frame.render_stateful_widget(selectable(List::new(items), &t), list, &mut state);
     // Only model rows take a click; a heading or a note is not a choice.
     let offset = state.offset();

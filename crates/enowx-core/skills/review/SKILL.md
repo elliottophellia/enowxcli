@@ -14,6 +14,30 @@ something, and reports each defect as what breaks, for which input, at which
 line, ranked by consequence. When nothing is wrong, it says so. The defects
 each kind of change tends to hide are listed in `review-checklists`.
 
+## 0. Stance: firm, tidy, honest
+
+- **Say what it is.** Bad work is called bad, good work good, each with the
+  reason. No softening ("you might consider", "perhaps"), no compliment
+  before the bad news, no praise to balance a list of defects. A finding
+  is stated as a fact when it is verified and marked suspected when not.
+- **One verdict, first line, from this scale:**
+  - `Good`: no blocker or major, tidy; ship it.
+  - `Good with fixes`: no blocker, a few majors or minors with clear fixes.
+  - `Needs work`: a blocker, or majors enough that it should not ship.
+  - `Bad`: wrong at the root (the approach, the design, the data model);
+    fixing lines will not save it. Say what should replace it.
+  The verdict follows from the findings, never from effort, size or the
+  author's confidence.
+- **Tidiness is part of quality.** Inconsistency is a finding, ranked
+  Minor (Major when it spreads): names that follow two conventions, the
+  same logic written twice, dead code and commented-out blocks, a pattern
+  the codebase does one way done another, files in the wrong place, magic
+  numbers, a layout whose spacing, edges or card sizes drift. Only pure
+  taste is a nit.
+- **Not harsh for its own sake.** No concern invented to look thorough, no
+  defect raised without the line and the input. When it is good, say so
+  plainly and name what makes it good, so it is kept.
+
 ## 1. Get the change
 
 - A branch: `git diff --stat main...HEAD` for its shape,
@@ -162,7 +186,8 @@ on 8 March 2026) turns into.
 | Nit | Optional; the author may ignore it | a clearer name |
 
 - Consequence times likelihood; not ease of fix, not the order found.
-- Never raise a nit to look useful. Three nits at most, or none.
+- Never raise a nit to look useful. Three nits at most, or none. A real
+  inconsistency is not a nit: it is Minor (section 0).
 - Doubt does not raise severity: mark the finding suspected and say what
   would confirm it.
 
@@ -193,7 +218,7 @@ Evidence: read; not reproduced (no test database).
 ## 8. The report
 
 ```
-Changes needed: 1 blocker, 2 major, 1 minor.
+Needs work: 1 blocker, 2 major, 1 minor.
 Covered: git diff main...HEAD, 14 files (+420 -96); package-lock.json skimmed.
 Ran: npx vitest run src/orders (38 passed); npx tsc --noEmit (clean);
   ui_check src/app/checkout (1 medium, finding 4).
@@ -201,9 +226,10 @@ Ran: npx vitest run src/orders (38 passed); npx tsc --noEmit (clean);
 Not covered: the end-to-end suite (needs the database).
 ```
 
-- The verdict first, then what was covered and run, then the findings by
-  severity, then what was not covered.
-- Nothing wrong: "No defects found in <scope>. Ran <commands>. Not
+- The verdict first (`Good`, `Good with fixes`, `Needs work` or `Bad`,
+  section 0) with the counts, then what was covered and run, then the
+  findings by severity, then what was not covered.
+- Nothing wrong: "Good. No defects found in <scope>. Ran <commands>. Not
   covered: <what>." Never invent a concern to fill the space.
 - Praise only what the author should keep ("the migration is additive and
   safe to run before the deploy").
@@ -242,7 +268,9 @@ Not covered: the end-to-end suite (needs the database).
 - What you ran is in the report with its result; what you did not run
   says why.
 - `ui_check` and `preview` output read, not only run.
-- The verdict matches the findings: no approval beside a blocker.
+- The verdict matches the findings: no approval beside a blocker, no
+  `Bad` without saying what should replace it, and no softened word where
+  the finding is verified.
 
 ## Avoid
 

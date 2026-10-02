@@ -142,7 +142,14 @@ Rank what is left:
 
 ## 4. Reporting
 
-Report findings as a numbered list, highest first, each with the file and
+Open with one verdict, the same scale as `review`: `Good` (tidy, nothing
+generated-looking left), `Good with fixes`, `Needs work`, or `Bad` (the
+layout or direction is wrong at the root; say what should replace it). Say
+it plainly: an untidy screen is untidy, a good one is good, with the reason.
+Drifting spacing, cards of different sizes and controls of different
+heights are findings, never left out to be kind.
+
+Then report findings as a numbered list, highest first, each with the file and
 line, what it is, why it reads as generated or what breaks, and the fix in
 one line:
 

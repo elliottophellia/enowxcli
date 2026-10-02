@@ -1188,6 +1188,23 @@ impl TestApp {
 }
 
 impl TestApp {
+    /// The messages waiting in the queue, first first.
+    pub fn queued_texts(&self) -> Vec<String> {
+        self.inner.queued.iter().map(|q| q.text.clone()).collect()
+    }
+
+    /// One frame's look at the queue, as the runtime takes each frame.
+    pub fn tick_queue(&mut self) {
+        self.inner.tick_queue();
+    }
+
+    /// What the composer holds.
+    pub fn composer_text(&self) -> String {
+        self.inner.input.clone()
+    }
+}
+
+impl TestApp {
     pub fn is_busy(&self) -> bool {
         self.inner.busy
     }

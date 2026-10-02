@@ -12,6 +12,9 @@ impl App {
         if self.viewing.is_some() {
             self.leave_delegation();
         }
+        // A turn the user starts ends a pause they made by stopping one: the
+        // queue goes on once this turn is done.
+        self.queue_paused = false;
         // Attachments already live as inline `[Image N]` chips inside the
         // prompt; the transcript replays the same string, and the payload sent
         // to the provider strips the chips so only real prose reaches the model.
@@ -152,6 +155,9 @@ impl App {
             return;
         };
         cancel.cancel();
+        // Stopped on purpose: the queue waits for Ctrl+Enter instead of sending
+        // the next message at once.
+        self.queue_paused = true;
         // Stop being busy now rather than when the backend finishes tidying
         // up. It still has a partial reply to persist and a task to wind
         // down, and waiting for its `Done` left the composer locked and the

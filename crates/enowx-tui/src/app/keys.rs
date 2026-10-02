@@ -360,8 +360,11 @@ impl App {
                     self.log_detail = !self.log_detail;
                     self.select_tab(crate::ui::LOG_TAB);
                 }
-                // Ctrl+Enter inserts a newline; many terminals report it as
-                // Ctrl+J, so both reach the same handler.
+                // While a turn runs, Ctrl+Enter sends now: what is typed, or
+                // else the first queued message, stopping the turn. Idle, it
+                // inserts a newline. Many terminals report it as Ctrl+J, so
+                // both reach the same handler.
+                KeyCode::Enter | KeyCode::Char('j') if self.busy => self.send_now(),
                 KeyCode::Enter | KeyCode::Char('j') => {
                     self.input.insert(self.cursor, '\n');
                     self.cursor += 1;
@@ -372,6 +375,13 @@ impl App {
         }
         if key.modifiers.contains(KeyModifiers::ALT) {
             match key.code {
+                // A newline at any time, including while a turn runs, when
+                // Ctrl+Enter sends instead.
+                KeyCode::Enter => {
+                    self.input.insert(self.cursor, '\n');
+                    self.cursor += 1;
+                    return Ok(());
+                }
                 KeyCode::Char(c @ '1'..='4') => {
                     self.select_tab(c as usize - '1' as usize);
                     return Ok(());
@@ -429,7 +439,10 @@ impl App {
             KeyCode::Enter => {
                 let text = self.input.trim().to_string();
                 if self.busy && !text.starts_with('/') {
-                    self.status = "Still working; Ctrl+C interrupts".into();
+                    // Typed while the turn runs: it waits its turn.
+                    if !text.is_empty() {
+                        self.enqueue(text);
+                    }
                 } else if !text.is_empty() {
                     self.input.clear();
                     self.cursor = 0;
@@ -490,7 +503,9 @@ impl App {
             KeyCode::Home => self.cursor = line_start(&self.input, self.cursor),
             KeyCode::End => self.cursor = line_end(&self.input, self.cursor),
             KeyCode::Up => {
-                self.cursor = move_line(&self.input, self.cursor, -1);
+                if !self.unqueue_last() {
+                    self.cursor = move_line(&self.input, self.cursor, -1);
+                }
             }
             KeyCode::Down => {
                 self.cursor = move_line(&self.input, self.cursor, 1);

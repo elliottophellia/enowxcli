@@ -24,6 +24,7 @@ pub(crate) mod mcp_ui;
 pub(crate) mod model_picker;
 mod navigation;
 pub(crate) mod question;
+mod queue;
 mod sessions;
 mod settings_keys;
 pub(crate) mod skills;
@@ -239,6 +240,13 @@ pub(crate) struct App {
     pub(crate) workspace: std::path::PathBuf,
     pub(crate) show_sidebar: bool,
     pub(crate) attachments: Vec<enowx_core::message::Attachment>,
+    /// Messages sent while a turn ran, waiting their turn, first first.
+    pub(crate) queued: std::collections::VecDeque<queue::Queued>,
+    /// Set when the user stopped a turn: the queue waits for Ctrl+Enter rather
+    /// than sending the next message the moment the turn is gone.
+    pub(crate) queue_paused: bool,
+    /// Where the queue's "send now" button was drawn, for a click.
+    pub(crate) queue_send_button: Option<Rect>,
     pub(crate) attach_error: Option<String>,
     pub(crate) tool_counts: HashMap<String, usize>,
     pub(crate) context_tokens: u32,
@@ -410,6 +418,9 @@ impl App {
             show_sidebar,
             tool_counts: HashMap::new(),
             attachments: Vec::new(),
+            queued: std::collections::VecDeque::new(),
+            queue_paused: false,
+            queue_send_button: None,
             attach_error: None,
             sidebar_pages_area: None,
             sidebar_area: None,

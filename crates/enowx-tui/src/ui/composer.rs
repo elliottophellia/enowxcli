@@ -32,14 +32,22 @@ pub(super) fn draw_main_column(frame: &mut Frame, app: &mut App, area: Rect) {
     // A question the agent waits on sits where the command list would, and
     // like it shortens the chat box rather than covering it.
     let qh = question_height(app, area.width).min(area.height.saturating_sub(ih + 3));
+    // Messages waiting their turn sit right above the composer: a header
+    // with the send-now button, then one line each, three at most.
+    let uh = if app.queued.is_empty() {
+        0
+    } else {
+        (app.queued.len().min(3) as u16 + 1).min(area.height.saturating_sub(ih + qh + ph + 3))
+    };
     // While a turn runs, the mark turns under the composer with what the
     // turn is doing; the chat gives up that row while it does.
-    let wh = if app.busy && app.question.is_none() && area.height >= ih + ph + qh + WORKING_H + 6 {
-        WORKING_H
-    } else {
-        0
-    };
-    let chat_h = area.height.saturating_sub(ih + ph + qh + wh);
+    let wh =
+        if app.busy && app.question.is_none() && area.height >= ih + ph + qh + uh + WORKING_H + 6 {
+            WORKING_H
+        } else {
+            0
+        };
+    let chat_h = area.height.saturating_sub(ih + ph + qh + uh + wh);
     draw_chat_box(frame, app, Rect::new(area.x, area.y, area.width, chat_h));
     if ph > 0 {
         draw_palette(
@@ -56,11 +64,19 @@ pub(super) fn draw_main_column(frame: &mut Frame, app: &mut App, area: Rect) {
             Rect::new(area.x, area.y + chat_h + ph, area.width, qh),
         );
     }
+    app.queue_send_button = None;
+    if uh > 0 {
+        draw_queue(
+            frame,
+            app,
+            Rect::new(area.x, area.y + chat_h + ph + qh, area.width, uh),
+        );
+    }
     if wh > 0 {
         draw_working(
             frame,
             app,
-            Rect::new(area.x, area.y + chat_h + ph + qh + ih, area.width, wh),
+            Rect::new(area.x, area.y + chat_h + ph + qh + uh + ih, area.width, wh),
         );
     }
     // While questions wait, the panel above has the keyboard.
@@ -74,12 +90,67 @@ pub(super) fn draw_main_column(frame: &mut Frame, app: &mut App, area: Rect) {
     draw_composer_box(
         frame,
         app,
-        Rect::new(area.x, area.y + chat_h + ph + qh, area.width, ih),
+        Rect::new(area.x, area.y + chat_h + ph + qh + uh, area.width, ih),
         &input,
         row,
         col,
         look,
     );
+}
+
+/// The queue above the composer: a header naming how many wait and how to
+/// send now, the `[send now]` button at its right, then each message on one
+/// line, cut to fit.
+fn draw_queue(frame: &mut Frame, app: &mut App, area: Rect) {
+    let t = app.theme;
+    let indent = " ".repeat((1 + PAD_X) as usize);
+    let count = app.queued.len();
+    let state = if app.queue_paused {
+        "paused, you stopped the turn"
+    } else if app.busy {
+        "sent when this turn ends"
+    } else {
+        "sending"
+    };
+    let header = format!("{indent}QUEUED {count} · {state} · Ctrl+Enter send now · ↑ edit last");
+    let button = "[send now]";
+    let button_w = button.chars().count() as u16;
+    let room = area.width.saturating_sub(button_w + 2) as usize;
+    frame.render_widget(
+        Paragraph::new(Line::styled(
+            trim(&header, room),
+            Style::default().fg(t.muted).add_modifier(Modifier::BOLD),
+        )),
+        Rect::new(area.x, area.y, area.width, 1),
+    );
+    if area.width > button_w + 2 {
+        let at = Rect::new(area.right() - button_w - 1 - PAD_X, area.y, button_w, 1);
+        frame.render_widget(
+            Paragraph::new(Line::styled(
+                button,
+                Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+            )),
+            at,
+        );
+        app.queue_send_button = Some(at);
+    }
+    let shown = (area.height.saturating_sub(1)) as usize;
+    let width = area.width.saturating_sub(4 + PAD_X * 2) as usize;
+    for (row, queued) in app.queued.iter().take(shown).enumerate() {
+        let mut text = queued.text.replace('\n', " ");
+        if row + 1 == shown && count > shown {
+            text = format!("{} (+{} more)", text, count - shown);
+        }
+        let line = Line::from(vec![
+            Span::raw(indent.clone()),
+            Span::styled(format!("{}. ", row + 1), Style::default().fg(t.faint)),
+            Span::styled(trim(&text, width), Style::default().fg(t.text)),
+        ]);
+        frame.render_widget(
+            Paragraph::new(line),
+            Rect::new(area.x, area.y + 1 + row as u16, area.width, 1),
+        );
+    }
 }
 
 /// Rows the working line takes.

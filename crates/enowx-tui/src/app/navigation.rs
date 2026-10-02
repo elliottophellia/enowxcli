@@ -68,6 +68,13 @@ impl App {
     pub(crate) fn mouse(&mut self, event: MouseEvent) -> Result<()> {
         let position = Position::new(event.column, event.row);
         match event.kind {
+            MouseEventKind::Down(MouseButton::Left)
+                if self.queue_send_button.is_some_and(|button| {
+                    button.contains(ratatui::layout::Position::new(event.column, event.row))
+                }) =>
+            {
+                self.send_queued_now();
+            }
             MouseEventKind::Down(MouseButton::Left) => {
                 // QuitConfirm buttons: single click on Yes/No acts immediately.
                 if self.modal == Modal::QuitConfirm {

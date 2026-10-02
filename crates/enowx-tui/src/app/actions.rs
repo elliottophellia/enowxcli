@@ -374,7 +374,7 @@ impl App {
                 let mut text = String::from("Commands");
                 for (name, summary) in COMMANDS { text.push_str(&format!("\n  /{name:<10} {summary}")); }
                 text.push_str("\n\nKeys\n  Enter      Send message\n  Ctrl+J     Newline\n  Ctrl+R     Toggle reasoning\n  Ctrl+O     Toggle tool output\n  PgUp/PgDn  Scroll transcript\n  Esc        Close picker / stop turn / clear input\n  Ctrl+C     Stop turn / quit");
-                text.push_str("\n  Ctrl+T     Next sidebar tab (Alt+1-4 picks one)\n  Ctrl+G/X   Filter logs / show detail\n  Alt+←/→    Sidebar pages\n  Ctrl+B     Toggle sidebar\n  Ctrl+P     Command palette\n  Ctrl+↑     Edit, resend or copy your last message\n  /typesafe  TypeSafe key and context-saving features\n  /theme     Choose palette");
+                text.push_str("\n  Ctrl+Enter Send now, while a turn runs (Enter queues)\n  Ctrl+T     Next sidebar tab (Alt+1-4 picks one)\n  Ctrl+G/X   Filter logs / show detail\n  Alt+←/→    Sidebar pages\n  Ctrl+B     Toggle sidebar\n  Ctrl+P     Command palette\n  Ctrl+↑     Edit, resend or copy your last message\n  /typesafe  TypeSafe key and context-saving features\n  /theme     Choose palette");
                 self.push(TranscriptKind::System, text);
             }
             "new" => self.new_session(),

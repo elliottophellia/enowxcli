@@ -243,6 +243,14 @@ Keys: `Enter` sends, `Ctrl+Enter` inserts a newline, `/` opens the palette,
 the chat, and `Ctrl+C` clears the composer, opens the quit prompt when the
 composer is empty, or interrupts a running turn.
 
+While a turn runs you can keep typing: `Enter` puts the message in a queue
+shown above the composer, and queued messages go one at a time as each turn
+ends. `Ctrl+Enter` (or the `[send now]` button) stops the turn and sends at
+once: what is typed, or else the first queued message. `↑` in an empty
+composer takes the last queued message back to edit or delete. Stopping a
+turn with `Esc` or `Ctrl+C` pauses the queue until you send again.
+`Alt+Enter` inserts a newline at any time; idle, `Ctrl+Enter` does too.
+
 `Ctrl+T` steps to the next sidebar tab and `Alt+1`–`Alt+4` picks one without
 consuming typed digits; `Ctrl+G` steps the log's filter and `Ctrl+X` toggles its
 detail. Shortcuts are `Ctrl` combinations rather than function keys, which not

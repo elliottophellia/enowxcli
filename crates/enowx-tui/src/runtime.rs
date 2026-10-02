@@ -77,6 +77,7 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
         app.drain_events();
         app.drain_background();
         app.tick_auto_retry();
+        app.tick_queue();
         app.catch_up_with_catalog();
         app.drain_picker_events();
         app.drain_typesafe_check();

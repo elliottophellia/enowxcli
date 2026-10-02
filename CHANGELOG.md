@@ -2,10 +2,15 @@
 
 All notable changes to enx. Dates are YYYY-MM-DD.
 
-## Unreleased
+## v0.2.0 (2026-10-03)
 
-Everything below is committed but not yet released; it ships in the next tag
-after v0.1.0.
+Still an early release: expect rough edges, and please report them in
+Issues. The highlights: settings move to a Settings tab beside the chat;
+agents can work together (messages, a shared board, cross-review) when you
+turn it on; built-in code search over your project (`rag`); built-in MCP
+servers for Coolify, Dokploy and your VPSes; a stopped or failed sub-agent
+can be read back by the agent that sent it; and every shortcut now works on
+Linux, macOS and Windows.
 
 ### Agents and delegation
 

@@ -77,12 +77,33 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
 
+      # The release notes are this version's section of CHANGELOG.md, under
+      # the install lines, so the page says what changed in our own words.
+      - name: Release notes from CHANGELOG.md
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME}"
+          awk -v head="## ${version} " 'index($0, head) == 1 { on = 1; next } on && /^## / { exit } on { print }' CHANGELOG.md > section.md
+          {
+            echo "Install or update:"
+            echo "- macOS / Linux: \`curl -fsSL https://enowx.ai/install.sh | sh\`"
+            echo "- Windows (PowerShell): \`irm https://enowx.ai/install.ps1 | iex\`"
+            echo
+            echo "Each archive has a \`.sha256\` checksum beside it."
+            echo
+            cat section.md
+          } > notes.md
+          test -s section.md || { echo "no section for ${version} in CHANGELOG.md"; exit 1; }
+
       - uses: softprops/action-gh-release@v2
         with:
+          name: ${{ github.ref_name }} (early release)
+          body_path: notes.md
           files: dist/*
-          generate_release_notes: true

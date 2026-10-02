@@ -104,6 +104,10 @@ enum McpCommand {
         /// rag only: the reranker, or `off`.
         #[arg(long)]
         rerank: Option<String>,
+        /// rag only: index by itself on start and on change (on, the
+        /// default) or only when asked (off).
+        #[arg(long, value_parser = ["on", "off"])]
+        auto_index: Option<String>,
     },
     /// Forget a built-in server's setup and stored secrets, and turn it off.
     #[command(alias = "uninstall")]
@@ -205,6 +209,7 @@ async fn main() -> Result<()> {
                 model,
                 dimension,
                 rerank,
+                auto_index,
             } => {
                 if name == "rag" {
                     mcp::set_rag(mcp::RagArgs {
@@ -215,6 +220,7 @@ async fn main() -> Result<()> {
                         model,
                         dimension,
                         rerank,
+                        auto_index,
                     })
                 } else {
                     mcp::install(&name, url, token)

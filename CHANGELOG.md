@@ -100,6 +100,15 @@ after v0.1.0.
   no restart. `enx mcp clear <name>` forgets a setup. Tokens and passwords go
   to `auth.json`; secret fields and environment values are redacted from tool
   output; a VPS host key is pinned on first connection.
+- **RAG indexes by itself and cuts code along its syntax.** The workspace
+  is indexed when a session starts, then whatever changed every half minute
+  and right before each search, so agents no longer call `index` first.
+  Chunks follow the syntax tree: a function, type, method or config key is
+  whole, with its comments, and carries where it sits and what it defines;
+  only an item over about 4,000 characters is split, along its own body.
+  Markdown is cut at headings, other text at paragraphs. Code that only
+  moved keeps its embedding. Turn auto-indexing off in Settings > RAG or
+  with `--auto-index off`.
 - **`vps` signs in the way `ssh` does.** Encrypted key files (with their
   passphrase), PuTTY `.ppk` keys, ssh-agent (Pageant and the OpenSSH agent on
   Windows), hosts written as `~/.ssh/config` aliases (their `HostName`,

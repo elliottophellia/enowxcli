@@ -146,6 +146,8 @@ pub enum SettingsField {
     RerankText,
     /// A custom endpoint's base URL. Kept in the `base_url` draft.
     EmbedUrl,
+    /// Keep the RAG index fresh by itself, on or off.
+    AutoIndex,
 }
 
 impl SettingsField {
@@ -174,6 +176,7 @@ impl SettingsField {
             SettingsField::Dimension | SettingsField::DimensionText => "Dimension (vector width)",
             SettingsField::Rerank | SettingsField::RerankText => "Reranker",
             SettingsField::EmbedUrl => "Base URL (OpenAI-compatible)",
+            SettingsField::AutoIndex => "Index automatically (on start and on change)",
         }
     }
 
@@ -196,6 +199,7 @@ impl SettingsField {
             SettingsField::Effort
                 | SettingsField::Vision
                 | SettingsField::RagEnabled
+                | SettingsField::AutoIndex
                 | SettingsField::RagProvider
                 | SettingsField::EmbedModel
                 | SettingsField::Dimension
@@ -261,6 +265,7 @@ pub fn rag_fields(provider: &str) -> &'static [SettingsField] {
             SettingsField::EmbedModel,
             SettingsField::Dimension,
             SettingsField::Rerank,
+            SettingsField::AutoIndex,
         ],
         Provider::OpenAi => &[
             SettingsField::RagEnabled,
@@ -269,6 +274,7 @@ pub fn rag_fields(provider: &str) -> &'static [SettingsField] {
             SettingsField::ApiKey,
             SettingsField::EmbedModel,
             SettingsField::Dimension,
+            SettingsField::AutoIndex,
         ],
         Provider::Custom => &[
             SettingsField::RagEnabled,
@@ -279,6 +285,7 @@ pub fn rag_fields(provider: &str) -> &'static [SettingsField] {
             SettingsField::EmbedModelText,
             SettingsField::DimensionText,
             SettingsField::RerankText,
+            SettingsField::AutoIndex,
         ],
     }
 }
@@ -310,6 +317,8 @@ pub struct SettingsDraft {
     /// (empty for the model's default) and the reranker (empty for the
     /// provider's default, "off" for none). The model is in `model`.
     pub rag_enabled: String,
+    /// "off" to stop indexing by itself; anything else is on.
+    pub auto_index: String,
     pub rag_provider: String,
     pub dimension: String,
     pub rerank: String,
@@ -358,6 +367,7 @@ impl SettingsDraft {
             SettingsField::Dimension | SettingsField::DimensionText => &self.dimension,
             SettingsField::Rerank | SettingsField::RerankText => &self.rerank,
             SettingsField::EmbedUrl => &self.base_url,
+            SettingsField::AutoIndex => &self.auto_index,
         }
     }
 
@@ -386,6 +396,7 @@ impl SettingsDraft {
             SettingsField::Dimension | SettingsField::DimensionText => &mut self.dimension,
             SettingsField::Rerank | SettingsField::RerankText => &mut self.rerank,
             SettingsField::EmbedUrl => &mut self.base_url,
+            SettingsField::AutoIndex => &mut self.auto_index,
         }
     }
 
@@ -403,6 +414,8 @@ impl SettingsDraft {
             model: self.model.trim().to_owned(),
             dimension: self.dimension.trim().parse().unwrap_or(0),
             rerank: self.rerank.trim().to_owned(),
+            // Saved only when off: on is the default.
+            auto_index: (self.auto_index == "off").then_some(false),
         }
     }
 
@@ -428,6 +441,13 @@ impl SettingsDraft {
                     "on".into()
                 } else {
                     "off".into()
+                }
+            }
+            SettingsField::AutoIndex => {
+                if self.auto_index == "off" {
+                    "off".into()
+                } else {
+                    "on".into()
                 }
             }
             SettingsField::RagProvider => {
@@ -458,6 +478,14 @@ impl SettingsDraft {
                     "off"
                 } else {
                     "on"
+                }
+                .into();
+            }
+            SettingsField::AutoIndex => {
+                self.auto_index = if self.auto_index == "off" {
+                    "on"
+                } else {
+                    "off"
                 }
                 .into();
             }

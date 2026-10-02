@@ -15,7 +15,7 @@ use std::path::Path;
 use async_trait::async_trait;
 
 /// The grammar for a file, by its extension.
-fn language(path: &Path) -> Option<(tree_sitter::Language, &'static str)> {
+pub(crate) fn language(path: &Path) -> Option<(tree_sitter::Language, &'static str)> {
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     Some(match ext.as_str() {
         "rs" => (tree_sitter_rust::LANGUAGE.into(), "Rust"),

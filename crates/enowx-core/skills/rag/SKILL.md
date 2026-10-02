@@ -1,14 +1,17 @@
 ---
 name: rag
-description: "Searching this project's code by meaning with the built-in rag server: when a search beats reading files, indexing before the first search and after big changes, writing a query, reading the results by file and line, and when to fall back to grep. Read before exploring a large or unfamiliar codebase."
+description: "Searching this project's code by meaning with the built-in rag server: when a search beats reading files, how the index keeps itself fresh, writing a query, reading the results (whole functions, with where they sit and what they define), and when to fall back to grep. Read before exploring a large or unfamiliar codebase."
 ---
 
 # Searching the code with rag
 
-The rag server keeps an index of this project: every source file cut into
-chunks of whole lines, embedded with Voyage AI, stored in Postgres with
-pgvector. A search finds the chunks that answer a question by meaning and by
-words, and reranks them, so one call often replaces a dozen reads and greps.
+The rag server keeps an index of this project in Postgres with pgvector,
+embedded by the model the user chose in Settings > RAG. Files are cut along
+their syntax: a function, a type, a class method or a config key is one
+chunk, with the comments above it, and never cut in half; a chunk says where
+it sits (`in impl Store`, `in Install > macOS`) and what it defines. A search
+finds the chunks that answer a question by meaning and by words, and reranks
+them, so one call often replaces a dozen reads and greps.
 Its tools are `mcp__rag__index`, `mcp__rag__search`, `mcp__rag__status` and
 `mcp__rag__forget`.
 
@@ -23,18 +26,22 @@ Its tools are `mcp__rag__index`, `mcp__rag__search`, `mcp__rag__status` and
   where a search is ranked and capped.
 - A small project you can see whole in a `glob`: read it instead.
 
-## 2. Index first, then keep it fresh
+## 2. The index keeps itself fresh
 
-- Call `status` once at the start. No chunks, or a last index older than
-  the work in front of you: call `index`.
-- `index` embeds only chunks that are new or changed and drops chunks of
-  code that is gone, so running it again is cheap. Run it after a large
-  change (a refactor, a merge, a generated folder) before relying on a
-  search.
-- It indexes the workspace by default; pass `path` for another folder.
-- It honours `.gitignore` and never reads `.env` files, lockfiles or
-  minified bundles. Code that is ignored is not in the index: say so if
-  that is what the user asked about.
+- The workspace is indexed when the session starts, then whatever changed
+  (your edits, the user's, a `git pull`) every half minute and again right
+  before each search. You do not need to call `index` before searching or
+  after editing.
+- Only new or changed code is embedded; code that only moved keeps its
+  embedding. Removed code leaves the index.
+- Call `index` yourself only for another folder (`path`), when a search
+  says indexing is still running and you need the newest code now, or when
+  `status` shows `auto_index` off.
+- A search on a project not indexed yet says so: call `index`, then search
+  again.
+- `.gitignore` is honoured, and `.env` files, lockfiles and minified
+  bundles are never read. Code that is ignored is not in the index: say so
+  if that is what the user asked about.
 
 ## 3. Writing the query
 
@@ -49,10 +56,12 @@ Its tools are `mcp__rag__index`, `mcp__rag__search`, `mcp__rag__status` and
 
 ## 4. Reading the results
 
-- Each result is `path:start-end` with its score, best first. Read the top
-  results, then open the file at that range with `read` for the
-  surrounding code before you change anything: a chunk is a window, not the
-  whole function.
+- Each result is `path:start-end`, where it sits and what it defines, and
+  its score, best first: `## src/cart.rs:40-88 · in impl Cart · total,
+  apply_coupon (score 0.71)`. A chunk holds whole items, so a function in a
+  result is the whole function. Read the file at that range with `read`
+  before you change it: the lines around it (imports, the type it belongs
+  to, its callers) are not in the chunk.
 - Scores rank, they do not prove. A result that does not answer the
   question is not the answer because it came first: search again with a
   sharper query, or fall back to `grep`.
@@ -61,7 +70,7 @@ Its tools are `mcp__rag__index`, `mcp__rag__search`, `mcp__rag__status` and
 ## 5. When it fails
 
 - "not indexed yet": call `index`, then search again.
-- A database or Voyage error: say so plainly and fall back to `glob`,
+- A database or embedding error: say so plainly and fall back to `glob`,
   `grep` and `read`. The work does not stop because the index is down.
 - Never print the database connection string or the API key; they are
   configured by the user, not by you.

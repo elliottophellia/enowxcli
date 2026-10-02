@@ -136,6 +136,7 @@ pub struct RagArgs {
     pub model: Option<String>,
     pub dimension: Option<usize>,
     pub rerank: Option<String>,
+    pub auto_index: Option<String>,
 }
 
 /// `enx mcp set rag`: the database, the embedding provider and its key, the
@@ -169,6 +170,9 @@ pub fn set_rag(args: RagArgs) -> Result<()> {
     }
     if let Some(rerank) = args.rerank {
         setup.rerank = rerank.trim().to_owned();
+    }
+    if let Some(auto) = args.auto_index {
+        setup.auto_index = (auto == "off").then_some(false);
     }
     setup.check()?;
     let provider = setup.provider();

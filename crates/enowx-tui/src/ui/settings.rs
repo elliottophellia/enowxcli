@@ -207,6 +207,7 @@ fn placeholder(app: &App, field: SettingsField) -> &'static str {
         SettingsField::DimensionText => "the width the model returns, e.g. 768",
         SettingsField::RerankText => "blank: none (needs a /rerank endpoint)",
         SettingsField::RagEnabled
+        | SettingsField::AutoIndex
         | SettingsField::RagProvider
         | SettingsField::EmbedModel
         | SettingsField::Dimension

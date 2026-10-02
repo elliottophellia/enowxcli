@@ -36,6 +36,7 @@ impl App {
                 String::new()
             },
             rerank: setup.rerank.clone(),
+            auto_index: if setup.auto_index() { "on" } else { "off" }.into(),
             ..Default::default()
         };
         self.modal_cursor = 0;

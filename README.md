@@ -249,6 +249,7 @@ lets agents search it by meaning. It has a section of its own in Settings
 | Embedding model | picked from the provider's (`voyage-code-3`, `voyage-3.5`, `text-embedding-3-small`, ...), typed for a custom endpoint |
 | Dimension | picked from the widths the model offers, typed for a custom endpoint |
 | Reranker | `rerank-2.5`, `rerank-2.5-lite` or off for Voyage; for a custom endpoint, a model its `/rerank` serves, or blank for none |
+| Index automatically | on (the default): the workspace is indexed when a session starts, then whatever changed every half minute and before each search |
 
 The same from the CLI, which an agent can run for you:
 
@@ -257,6 +258,16 @@ enx mcp set rag --dsn postgres://localhost/enx --token <voyage key>
 enx mcp set rag --provider openai --model text-embedding-3-large --dimension 1024 --token <key>
 enx mcp set rag --provider custom --url http://localhost:11434/v1 --model nomic-embed-text --dimension 768
 ```
+
+Files are cut along their syntax (tree-sitter for Rust, TypeScript,
+JavaScript, Python, Go, JSON and CSS): a function, a type, a class method or
+a config key is one chunk with the comments above it, small neighbours are
+merged, and only an item larger than about 4,000 characters is split, along
+its own body (the methods of a class, the statements of a function). Markdown
+is cut at its headings, other text at its paragraphs; nothing is cut
+mid-line. Each chunk records where it sits (`in impl Store`, `in Install >
+macOS`) and what it defines, and a search shows both. Code that only moved
+keeps its embedding and gets its new line numbers.
 
 Chunks go to a table per width (`enx_rag_chunks_1024`, ...) and record the
 model that embedded them: after a change of model or width, the next `index`

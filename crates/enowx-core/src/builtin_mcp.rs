@@ -160,6 +160,8 @@ pub struct ToolSpec {
 /// What a built-in server does: its tools, and running one.
 #[async_trait::async_trait]
 pub trait Server: Send + Sync {
+    /// Work the server does by itself once it runs, beside the calls.
+    fn start(self: std::sync::Arc<Self>) {}
     fn tools(&self) -> Vec<ToolSpec>;
     /// The tool's text result. An error is reported to the model as a
     /// failed call, not as a protocol error.
@@ -228,7 +230,8 @@ pub fn server(name: &str) -> Result<Box<dyn Server>> {
 /// Serve `name` over stdio until the client hangs up: JSON-RPC 2.0, one
 /// message per line, as MCP clients speak it.
 pub async fn serve(name: &str) -> Result<()> {
-    let server = server(name)?;
+    let server: std::sync::Arc<dyn Server> = std::sync::Arc::from(server(name)?);
+    server.clone().start();
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut stdout = tokio::io::stdout();
     while let Some(line) = lines.next_line().await? {

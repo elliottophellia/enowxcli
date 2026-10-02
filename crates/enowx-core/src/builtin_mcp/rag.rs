@@ -28,6 +28,8 @@ use tokio::sync::Mutex;
 
 use super::{schema, Server, ToolSpec};
 
+mod chunk;
+
 /// The default embedding model: Voyage's model for code, at its default width.
 pub const MODEL: &str = "voyage-code-3";
 pub const DIM: usize = 1024;
@@ -39,8 +41,6 @@ const OPENAI: &str = "https://api.openai.com/v1";
 /// pgvector's HNSW index takes vectors up to this width; wider ones are
 /// searched exactly, without the index.
 const HNSW_MAX: usize = 2000;
-/// Characters per chunk, in whole lines.
-const CHUNK: usize = 1500;
 /// Files larger than this are not read.
 const MAX_FILE: u64 = 512 * 1024;
 /// Chunks per embedding request.
@@ -143,6 +143,10 @@ pub struct RagSetup {
     /// The reranker: empty for the provider's default, `off` for none.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub rerank: String,
+    /// Keep the index fresh by itself (the default): index when the server
+    /// starts, then whatever changed, every half minute and before a search.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_index: Option<bool>,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -152,6 +156,10 @@ fn is_zero(n: &usize) -> bool {
 impl RagSetup {
     pub fn provider(&self) -> Provider {
         Provider::parse(&self.provider)
+    }
+
+    pub fn auto_index(&self) -> bool {
+        self.auto_index.unwrap_or(true)
     }
 
     pub fn base_url(&self) -> String {
@@ -252,6 +260,27 @@ pub struct Rag {
     db: Mutex<Option<Arc<tokio_postgres::Client>>>,
     /// The folder indexed when a call names none.
     workspace: PathBuf,
+    /// One sync at a time: the background one and a tool's never race.
+    syncing: Mutex<()>,
+    /// Per folder, each file's stamp when it was last synced; what differs
+    /// now is what changed.
+    seen: Mutex<HashMap<PathBuf, BTreeMap<String, Stamp>>>,
+    /// The last background sync's failure, for `status`.
+    last_error: std::sync::Mutex<Option<String>>,
+}
+
+/// What tells a file changed without reading it: its size and mtime.
+type Stamp = (u64, Option<std::time::SystemTime>);
+
+/// What a sync did.
+#[derive(Debug, Default)]
+struct Synced {
+    files: usize,
+    chunks: usize,
+    embedded: usize,
+    moved: usize,
+    removed: usize,
+    replaced: u64,
 }
 
 impl Rag {
@@ -261,10 +290,13 @@ impl Rag {
             dsn.starts_with("postgres://") || dsn.starts_with("postgresql://"),
             "the database must be a postgres:// connection string"
         );
+        // Canonical, as `root` makes a folder a tool names: the project id
+        // hashes the path, and the background sync and a search must agree.
         let workspace = std::env::var_os("ENX_WORKSPACE")
             .map(PathBuf::from)
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
+        let workspace = std::fs::canonicalize(&workspace).unwrap_or(workspace);
         Ok(Self {
             dsn: dsn.trim().to_owned(),
             key: key.trim().to_owned(),
@@ -277,6 +309,9 @@ impl Rag {
                 .build()?,
             db: Mutex::new(None),
             workspace,
+            syncing: Mutex::new(()),
+            seen: Mutex::new(HashMap::new()),
+            last_error: std::sync::Mutex::new(None),
         })
     }
 
@@ -452,68 +487,111 @@ impl Rag {
         Ok(root)
     }
 
-    async fn index(&self, args: &Value) -> Result<String> {
-        let root = self.root(args)?;
-        let project = project_id(&root);
+    /// Bring the index of `root` up to date, for every file or for `only`
+    /// (paths relative to `root`, removed ones included). New and changed
+    /// chunks are embedded; chunks that only moved get their new lines
+    /// without being embedded again; chunks no file produces any more go.
+    async fn sync(&self, root: &Path, only: Option<Vec<String>>) -> Result<Synced> {
+        let _one = self.syncing.lock().await;
+        let project = project_id(root);
         let embedder = self.setup.embedder();
         let db = self.db().await?;
+        let t = table(self.dim);
         // Chunks a different model embedded cannot be compared with this
         // one's: they go, and the project is embedded again.
         let replaced = db
             .execute(
-                &format!(
-                    "DELETE FROM {} WHERE project_id = $1 AND embed_model <> $2",
-                    table(self.dim)
-                ),
+                &format!("DELETE FROM {t} WHERE project_id = $1 AND embed_model <> $2"),
                 &[&project, &embedder],
             )
             .await?;
-        let chunks = tokio::task::spawn_blocking({
-            let root = root.clone();
-            move || collect(&root)
+        let mut report = Synced {
+            replaced,
+            ..Default::default()
+        };
+        let listing = tokio::task::spawn_blocking({
+            let root = root.to_path_buf();
+            move || files(&root)
         })
-        .await??;
-        let files = chunks
+        .await?;
+        let targets: Vec<String> = match &only {
+            Some(only) => only.clone(),
+            None => listing.keys().cloned().collect(),
+        };
+        let chunks = tokio::task::spawn_blocking({
+            let root = root.to_path_buf();
+            let present: Vec<String> = targets
+                .iter()
+                .filter(|rel| listing.contains_key(*rel))
+                .cloned()
+                .collect();
+            move || chunks_of(&root, &present)
+        })
+        .await?;
+        report.files = chunks
             .iter()
             .map(|c| c.file.as_str())
             .collect::<std::collections::HashSet<_>>()
             .len();
+        report.chunks = chunks.len();
 
-        let existing: HashMap<String, String> = db
-            .query(
-                &format!(
-                    "SELECT id, content_hash FROM {} WHERE project_id = $1",
-                    table(self.dim)
-                ),
-                &[&project],
-            )
-            .await?
+        let rows = match &only {
+            None => {
+                db.query(
+                    &format!("SELECT id, content_hash, start_line, end_line FROM {t} WHERE project_id = $1"),
+                    &[&project],
+                )
+                .await?
+            }
+            Some(_) => {
+                db.query(
+                    &format!(
+                        "SELECT id, content_hash, start_line, end_line FROM {t} WHERE project_id = $1 AND source_file = ANY($2)"
+                    ),
+                    &[&project, &targets],
+                )
+                .await?
+            }
+        };
+        let existing: HashMap<String, (String, i32, i32)> = rows
             .into_iter()
-            .map(|row| -> Result<(String, String)> { Ok((row.try_get(0)?, row.try_get(1)?)) })
+            .map(|row| -> Result<_> {
+                Ok((
+                    row.try_get(0)?,
+                    (row.try_get(1)?, row.try_get(2)?, row.try_get(3)?),
+                ))
+            })
             .collect::<Result<_>>()?;
 
-        let wanted: std::collections::HashSet<&str> =
-            chunks.iter().map(|c| c.id.as_str()).collect();
-        let changed: Vec<&Chunk> = chunks
-            .iter()
-            .filter(|c| existing.get(&c.id) != Some(&c.hash))
-            .collect();
-
-        let mut embedded = 0;
+        let mut changed: Vec<&Chunk> = Vec::new();
+        for chunk in &chunks {
+            match existing.get(&chunk.id) {
+                Some((hash, start, end)) if *hash == chunk.hash => {
+                    if *start != chunk.start as i32 || *end != chunk.end as i32 {
+                        db.execute(
+                            &format!("UPDATE {t} SET start_line = $3, end_line = $4 WHERE project_id = $1 AND id = $2"),
+                            &[&project, &chunk.id, &(chunk.start as i32), &(chunk.end as i32)],
+                        )
+                        .await?;
+                        report.moved += 1;
+                    }
+                }
+                _ => changed.push(chunk),
+            }
+        }
         for batch in changed.chunks(BATCH) {
             let inputs: Vec<String> = batch.iter().map(|c| c.text()).collect();
             let vectors = self.embed(&inputs, false).await?;
             for (chunk, vector) in batch.iter().zip(vectors) {
                 db.execute(
                     &format!(
-                        "INSERT INTO {} (project_id, id, source_file, start_line, end_line, content, content_hash, embedding, embed_model, indexed_at)
+                        "INSERT INTO {t} (project_id, id, source_file, start_line, end_line, content, content_hash, embedding, embed_model, indexed_at)
                          VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::vector, $9, now())
                          ON CONFLICT (project_id, id) DO UPDATE SET
                            source_file = EXCLUDED.source_file, start_line = EXCLUDED.start_line,
                            end_line = EXCLUDED.end_line, content = EXCLUDED.content,
                            content_hash = EXCLUDED.content_hash, embedding = EXCLUDED.embedding,
-                           embed_model = EXCLUDED.embed_model, indexed_at = now()",
-                        table(self.dim)
+                           embed_model = EXCLUDED.embed_model, indexed_at = now()"
                     ),
                     &[
                         &project,
@@ -528,38 +606,100 @@ impl Rag {
                     ],
                 )
                 .await?;
-                embedded += 1;
+                report.embedded += 1;
             }
         }
-
-        // Chunks no file produces any more: removed files, and the tail of a
-        // file that got shorter.
+        let wanted: std::collections::HashSet<&str> =
+            chunks.iter().map(|c| c.id.as_str()).collect();
         let stale: Vec<String> = existing
             .keys()
             .filter(|id| !wanted.contains(id.as_str()))
             .cloned()
             .collect();
         if !stale.is_empty() {
-            db.execute(
-                &format!(
-                    "DELETE FROM {} WHERE project_id = $1 AND id = ANY($2)",
-                    table(self.dim)
-                ),
-                &[&project, &stale],
-            )
-            .await?;
+            report.removed = db
+                .execute(
+                    &format!("DELETE FROM {t} WHERE project_id = $1 AND id = ANY($2)"),
+                    &[&project, &stale],
+                )
+                .await? as usize;
         }
+
+        // What was synced is what the next refresh compares against.
+        let mut seen = self.seen.lock().await;
+        let stamps = seen.entry(root.to_path_buf()).or_default();
+        match &only {
+            None => {
+                *stamps = listing
+                    .iter()
+                    .map(|(rel, (_, stamp))| (rel.clone(), *stamp))
+                    .collect()
+            }
+            Some(only) => {
+                for rel in only {
+                    match listing.get(rel) {
+                        Some((_, stamp)) => {
+                            stamps.insert(rel.clone(), *stamp);
+                        }
+                        None => {
+                            stamps.remove(rel);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(report)
+    }
+
+    /// Sync what changed since the last sync of `root`: every file the
+    /// first time, then only files whose size or mtime moved, or that
+    /// appeared or went. Cheap when nothing changed: a walk and a stat.
+    async fn refresh(&self, root: &Path) -> Result<Option<Synced>> {
+        let previous = self.seen.lock().await.get(root).cloned();
+        let Some(previous) = previous else {
+            return self.sync(root, None).await.map(Some);
+        };
+        let listing = tokio::task::spawn_blocking({
+            let root = root.to_path_buf();
+            move || files(&root)
+        })
+        .await?;
+        let mut changed: Vec<String> = listing
+            .iter()
+            .filter(|(rel, (_, stamp))| previous.get(*rel) != Some(stamp))
+            .map(|(rel, _)| rel.clone())
+            .collect();
+        changed.extend(
+            previous
+                .keys()
+                .filter(|rel| !listing.contains_key(*rel))
+                .cloned(),
+        );
+        if changed.is_empty() {
+            return Ok(None);
+        }
+        self.sync(root, Some(changed)).await.map(Some)
+    }
+
+    async fn index(&self, args: &Value) -> Result<String> {
+        let root = self.root(args)?;
+        let project = project_id(&root);
+        let report = self.sync(&root, None).await?;
+        let unchanged = report.chunks - report.embedded;
         let mut summary = format!(
-            "Indexed {} ({project}) with {}: {files} files, {} chunks; embedded {embedded} new or changed, removed {} stale, {} unchanged.",
+            "Indexed {} ({project}) with {}: {} files, {} chunks; embedded {} new or changed, {} moved, removed {} stale, {unchanged} unchanged.",
             root.display(),
             self.model,
-            chunks.len(),
-            stale.len(),
-            chunks.len() - embedded,
+            report.files,
+            report.chunks,
+            report.embedded,
+            report.moved,
+            report.removed,
         );
-        if replaced > 0 {
+        if report.replaced > 0 {
             summary.push_str(&format!(
-                " The {replaced} chunks a previous model embedded were replaced."
+                " The {} chunks a previous model embedded were replaced.",
+                report.replaced
             ));
         }
         Ok(summary)
@@ -576,6 +716,17 @@ impl Rag {
             .unwrap_or(8)
             .clamp(1, 30) as usize;
         let root = self.root(args)?;
+        // Fresh before it answers: whatever changed since the last sync is
+        // indexed first. A sync already running (the first full one, on a
+        // large project) is not waited for.
+        let mut note = String::new();
+        if self.setup.auto_index() {
+            if self.syncing.try_lock().is_err() {
+                note = "\n\n(Indexing is still running; results may miss the newest code.)".into();
+            } else if let Err(error) = self.refresh(&root).await {
+                note = format!("\n\n(Could not refresh the index first: {error:#})");
+            }
+        }
         let project = project_id(&root);
         let embedder = self.setup.embedder();
         let db = self.db().await?;
@@ -654,17 +805,23 @@ impl Rag {
             let Some((file, start, end, content, _)) = hits.get(index) else {
                 continue;
             };
-            // The stored text leads with "File: …" for the embedding; the
-            // reader gets the location as a heading instead.
-            let body = content
-                .split_once("\n\n")
-                .map_or(content.as_str(), |(_, b)| b);
+            // The stored text leads with where the chunk is and what it
+            // defines, for the embedding; the reader gets that as a heading.
+            let (head, body) = content.split_once("\n\n").unwrap_or(("", content.as_str()));
+            let mut about = String::new();
+            for line in head.lines() {
+                if let Some(scope) = line.strip_prefix("In: ") {
+                    about.push_str(&format!(" · in {scope}"));
+                } else if let Some(names) = line.strip_prefix("Defines: ") {
+                    about.push_str(&format!(" · {names}"));
+                }
+            }
             out.push_str(&format!(
-                "## {file}:{start}-{end}  (score {score:.3})\n```\n{}\n```\n\n",
+                "## {file}:{start}-{end}{about}  (score {score:.3})\n```\n{}\n```\n\n",
                 body.trim_end()
             ));
         }
-        Ok(out.trim_end().to_owned())
+        Ok(format!("{}{note}", out.trim_end()))
     }
 
     async fn status(&self, args: &Value) -> Result<String> {
@@ -692,6 +849,9 @@ impl Rag {
             "model": self.model,
             "dimension": self.dim,
             "reranker": self.setup.reranker().unwrap_or_else(|| "off".into()),
+            "auto_index": self.setup.auto_index(),
+            "indexing_now": self.syncing.try_lock().is_err(),
+            "last_auto_index_error": self.last_error.lock().ok().and_then(|e| e.clone()),
         })))
     }
 
@@ -811,19 +971,54 @@ fn stable_hash(text: &str) -> u64 {
 pub struct Chunk {
     pub id: String,
     pub file: String,
+    /// 1-based, inclusive.
     pub start: usize,
     pub end: usize,
+    /// Where it sits: `impl Rag`, `Install > macOS`; empty at the top.
+    pub scope: String,
+    /// What it defines, by name.
+    pub names: Vec<String>,
     pub body: String,
+    /// Of `text()`: the same content in the same place hashes the same.
     pub hash: String,
 }
 
 impl Chunk {
-    /// What is embedded and stored: the location, then the lines.
+    pub fn new(
+        file: &str,
+        start: usize,
+        end: usize,
+        scope: &str,
+        names: Vec<String>,
+        body: String,
+    ) -> Self {
+        let mut chunk = Self {
+            id: String::new(),
+            file: file.to_owned(),
+            start,
+            end,
+            scope: scope.to_owned(),
+            names,
+            body,
+            hash: String::new(),
+        };
+        chunk.hash = format!("{:016x}", stable_hash(&chunk.text()));
+        chunk
+    }
+
+    /// What is embedded and stored: where the chunk is and what it defines,
+    /// then its lines. No line numbers: code that only moved keeps its
+    /// embedding, and its range is updated on its own.
     fn text(&self) -> String {
-        format!(
-            "File: {} (lines {}-{})\n\n{}",
-            self.file, self.start, self.end, self.body
-        )
+        let mut head = format!("File: {}", self.file);
+        if !self.scope.is_empty() {
+            head.push_str(&format!("\nIn: {}", self.scope));
+        }
+        if !self.names.is_empty() {
+            let names: Vec<&str> = self.names.iter().take(12).map(String::as_str).collect();
+            head.push_str(&format!("\nDefines: {}", names.join(", ")));
+        }
+        format!("{head}\n\n{}", self.body)
     }
 }
 
@@ -918,24 +1113,27 @@ fn wanted(path: &Path) -> bool {
 /// Every chunk of every wanted file under `root`, in the order git would see
 /// the files (`.gitignore` and hidden files skipped).
 pub fn collect(root: &Path) -> Result<Vec<Chunk>> {
-    let mut chunks = Vec::new();
+    let rels: Vec<String> = files(root).into_keys().collect();
+    Ok(chunks_of(root, &rels))
+}
+
+/// Every wanted file under `root`, by its path relative to it (with `/`),
+/// and its stamp.
+fn files(root: &Path) -> BTreeMap<String, (PathBuf, Stamp)> {
     let walk = ignore::WalkBuilder::new(root)
         .hidden(true)
         .git_ignore(true)
         .git_exclude(true)
         .parents(true)
         .build();
-    let mut files: BTreeMap<String, PathBuf> = BTreeMap::new();
+    let mut files = BTreeMap::new();
     for entry in walk.flatten() {
         let path = entry.path();
         if !entry.file_type().is_some_and(|t| t.is_file()) || !wanted(path) {
             continue;
         }
-        if entry
-            .metadata()
-            .map(|m| m.len() > MAX_FILE || m.len() == 0)
-            .unwrap_or(true)
-        {
+        let Ok(meta) = entry.metadata() else { continue };
+        if meta.len() > MAX_FILE || meta.len() == 0 {
             continue;
         }
         let rel = path
@@ -943,78 +1141,59 @@ pub fn collect(root: &Path) -> Result<Vec<Chunk>> {
             .unwrap_or(path)
             .to_string_lossy()
             .replace('\\', "/");
-        files.insert(rel, path.to_path_buf());
+        files.insert(
+            rel,
+            (path.to_path_buf(), (meta.len(), meta.modified().ok())),
+        );
     }
-    for (rel, path) in files {
-        // Not UTF-8, or binary: not text to search.
-        let Ok(text) = std::fs::read_to_string(&path) else {
+    files
+}
+
+/// The chunks of the files `rels` under `root`. One that is not UTF-8, or
+/// is binary, is not text to search.
+fn chunks_of(root: &Path, rels: &[String]) -> Vec<Chunk> {
+    let mut chunks = Vec::new();
+    for rel in rels {
+        let Ok(text) = std::fs::read_to_string(root.join(rel)) else {
             continue;
         };
         if text.contains('\0') {
             continue;
         }
-        chunks.extend(chunk_file(&rel, &text));
+        chunks.extend(chunk_file(rel, &text));
     }
-    Ok(chunks)
-}
-
-/// A file cut into chunks of whole lines, each at most `CHUNK` characters;
-/// a single longer line is split on character boundaries.
-pub fn chunk_file(rel: &str, text: &str) -> Vec<Chunk> {
-    let mut chunks = Vec::new();
-    let mut body = String::new();
-    let mut start = 1;
-    let push = |body: &mut String, start: usize, end: usize, chunks: &mut Vec<Chunk>| {
-        if body.trim().is_empty() {
-            body.clear();
-            return;
-        }
-        let index = chunks.len();
-        let hash = format!("{:016x}", stable_hash(body));
-        chunks.push(Chunk {
-            id: format!("{rel}#{index}"),
-            file: rel.to_owned(),
-            start,
-            end,
-            body: std::mem::take(body),
-            hash,
-        });
-    };
-    for (n, line) in text.lines().enumerate() {
-        let line_no = n + 1;
-        if !body.is_empty() && body.chars().count() + line.chars().count() + 1 > CHUNK {
-            push(&mut body, start, line_no - 1, &mut chunks);
-            start = line_no;
-        }
-        if line.chars().count() > CHUNK {
-            // One line longer than a chunk: its own chunks, cut on chars.
-            let chars: Vec<char> = line.chars().collect();
-            for part in chars.chunks(CHUNK) {
-                body.push_str(&part.iter().collect::<String>());
-                push(&mut body, line_no, line_no, &mut chunks);
-            }
-            start = line_no + 1;
-            continue;
-        }
-        if body.is_empty() {
-            start = line_no;
-        }
-        body.push_str(line);
-        body.push('\n');
-    }
-    let last = text.lines().count().max(start);
-    push(&mut body, start, last, &mut chunks);
     chunks
 }
 
+pub use chunk::chunk_file;
+
 #[async_trait::async_trait]
 impl Server for Rag {
+    /// The hook that keeps the index fresh with no one asking: the
+    /// workspace is synced as soon as the server starts (the session
+    /// opening), then every half minute whatever changed, by the agent or
+    /// by hand. Off with `auto_index = false`.
+    fn start(self: Arc<Self>) {
+        if !self.setup.auto_index() {
+            return;
+        }
+        tokio::spawn(async move {
+            loop {
+                let outcome = self.refresh(&self.workspace).await;
+                if let Ok(mut last) = self.last_error.lock() {
+                    *last = outcome.err().map(|e| format!("{e:#}"));
+                }
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
+        });
+    }
+
     fn tools(&self) -> Vec<ToolSpec> {
         let path = ("path", "The folder, absolute; the workspace when left out");
         vec![
             ToolSpec {
                 name: "index",
-                description: "Index the project for search: embed every source file, in chunks with their line ranges. Only new or changed chunks are embedded, and chunks of removed code are dropped, so running it again after edits is cheap. Run it once before the first search, and after large changes.",
+                description: "Index the project now and say what changed. Usually not needed: the workspace is indexed when the session starts and kept fresh by itself (every half minute, and before each search). Call it for another folder, after a huge change you want searchable at once, or when status shows auto-indexing is off.",
                 input_schema: schema(&[path], &[]),
             },
             ToolSpec {
@@ -1031,7 +1210,7 @@ impl Server for Rag {
             },
             ToolSpec {
                 name: "status",
-                description: "Whether the project is indexed: chunks, files, when it was last indexed, and the model.",
+                description: "Whether the project is indexed: chunks, files, when it was last indexed, the model, whether auto-indexing is on or running now, and its last error.",
                 input_schema: schema(&[path], &[]),
             },
             ToolSpec {
@@ -1130,39 +1309,6 @@ mod tests {
         let old: RagSetup = serde_json::from_str("{}").unwrap();
         assert_eq!(old, RagSetup::default());
         assert_eq!(serde_json::to_string(&RagSetup::default()).unwrap(), "{}");
-    }
-
-    #[test]
-    fn chunks_keep_whole_lines_and_their_range() {
-        let text: String = (1..=400)
-            .map(|n| format!("line number {n} of the file\n"))
-            .collect();
-        let chunks = chunk_file("src/a.rs", &text);
-        assert!(chunks.len() > 1);
-        assert_eq!(chunks[0].start, 1);
-        for pair in chunks.windows(2) {
-            assert_eq!(pair[1].start, pair[0].end + 1, "no line lost or repeated");
-        }
-        assert_eq!(chunks.last().unwrap().end, 400);
-        assert!(chunks.iter().all(|c| c.body.chars().count() <= CHUNK + 1));
-        assert!(chunks[0].text().starts_with("File: src/a.rs (lines 1-"));
-    }
-
-    #[test]
-    fn a_long_line_is_split_on_characters() {
-        let line: String = "é".repeat(CHUNK * 2 + 10);
-        let chunks = chunk_file("a.txt", &format!("{line}\n"));
-        assert_eq!(chunks.len(), 3);
-        assert!(chunks.iter().all(|c| c.start == 1 && c.end == 1));
-    }
-
-    #[test]
-    fn the_same_content_hashes_the_same() {
-        let a = chunk_file("a.rs", "fn main() {}\n");
-        let b = chunk_file("a.rs", "fn main() {}\n");
-        let c = chunk_file("a.rs", "fn main() { todo!() }\n");
-        assert_eq!(a[0].hash, b[0].hash);
-        assert_ne!(a[0].hash, c[0].hash);
     }
 
     #[test]

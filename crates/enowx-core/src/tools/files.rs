@@ -96,6 +96,17 @@ impl Tool for WriteTool {
     async fn execute(&self, ctx: &ToolCtx, args: Value) -> Result<ToolOutput> {
         let raw = string_arg(&args, "path")?;
         let content = string_arg(&args, "content")?;
+        // Empty content is almost always a truncated tool call, not a file the
+        // user wants blanked: say so plainly so the model does not read "0
+        // lines" as success and lose the content it meant to write.
+        if content.is_empty() {
+            return Ok(ToolOutput::error(format!(
+                "no content: `write` was called with an empty `content` for {raw}. If the file \
+                 is large, the call was likely cut off. Write it in parts: create it with the \
+                 first section, then add each following section with `edit`. Do not send the \
+                 whole file in one call."
+            )));
+        }
         let path = resolve_for_write(&ctx.workspace, raw)?;
         // Kept so the result can say what changed, and the interface show it.
         let before = std::fs::read_to_string(&path).ok();

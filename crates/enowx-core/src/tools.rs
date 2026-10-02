@@ -462,6 +462,24 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    /// Empty content is a cut-off call, not a file to blank: it is refused
+    /// with guidance, and nothing is written.
+    #[tokio::test]
+    async fn a_write_with_no_content_is_refused() {
+        let (ctx, root) = temp_ctx();
+        let out = ToolRegistry::default()
+            .dispatch(
+                &ctx,
+                "write",
+                serde_json::json!({"path": "big.html", "content": ""}),
+            )
+            .await;
+        assert!(out.is_error, "{}", out.content);
+        assert!(out.content.contains("in parts"), "{}", out.content);
+        assert!(!root.join("big.html").exists(), "nothing was written");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[tokio::test]
     async fn multi_edit_applies_every_edit_in_one_call() {
         let (ctx, root) = temp_ctx();

@@ -28,7 +28,11 @@ impl Tool for TodoTool {
     fn parameters(&self) -> Value {
         json!({"type":"object","properties":{
             "op":{"type":"string","enum":["set","done","view","clear"]},
-            "items":{"type":"array","items":{"type":"string"}},
+            "items":{
+                "type":"array",
+                "description":"Each step, a short string. A step with sub-steps may instead be an object {\"text\": \"the step\", \"items\": [ ... ]}; sub-steps are kept, indented under it.",
+                "items":{"type":["string","object"]}
+            },
             "item":{"type":"string"}
         },"required":["op"],"additionalProperties":false})
     }
@@ -47,14 +51,17 @@ impl Tool for TodoTool {
                     .get("items")
                     .and_then(Value::as_array)
                     .ok_or_else(|| anyhow::anyhow!("set requires items"))?;
-                *items = raw
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(|text| TodoItem {
-                        text: text.to_string(),
-                        done: false,
-                    })
-                    .collect();
+                // Nested steps are flattened with indentation rather than
+                // dropped: the model gets the hierarchy it asked for instead
+                // of a silently shorter list.
+                let mut flat = Vec::new();
+                for value in raw {
+                    flatten(value, 0, &mut flat);
+                }
+                if flat.is_empty() {
+                    anyhow::bail!("set requires at least one item");
+                }
+                *items = flat;
             }
             "done" => {
                 // Several at once: one call per finished step was a model
@@ -107,19 +114,69 @@ impl Tool for TodoTool {
     }
 }
 
+/// Turn one `items` entry into todo lines, keeping any sub-steps indented
+/// under their parent. An entry is a plain string, or an object naming the
+/// step (`text`/`title`/`task`/`label`/`name`/`step`) with optional nested
+/// steps (`items`/`subtasks`/`steps`/`children`), marked done by `done`.
+fn flatten(value: &Value, depth: usize, out: &mut Vec<TodoItem>) {
+    let indent = "  ".repeat(depth);
+    match value {
+        Value::String(text) => {
+            // A single string may itself carry newlines; each line is a step.
+            for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+                out.push(TodoItem {
+                    text: format!("{indent}{line}"),
+                    done: false,
+                });
+            }
+        }
+        Value::Object(map) => {
+            let text = ["text", "title", "task", "label", "name", "step"]
+                .iter()
+                .find_map(|key| map.get(*key).and_then(Value::as_str))
+                .unwrap_or("")
+                .trim();
+            if !text.is_empty() {
+                out.push(TodoItem {
+                    text: format!("{indent}{text}"),
+                    done: map.get("done").and_then(Value::as_bool).unwrap_or(false),
+                });
+            }
+            for key in ["items", "subtasks", "substeps", "steps", "children"] {
+                if let Some(children) = map.get(key).and_then(Value::as_array) {
+                    for child in children {
+                        flatten(child, depth + 1, out);
+                    }
+                }
+            }
+        }
+        Value::Array(entries) => {
+            for entry in entries {
+                flatten(entry, depth, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// The item a `done` names: its exact text, or failing that the one item
 /// whose text starts with it, ignoring case. Models shorten long items when
 /// they tick them off, and refusing those turned each tick into a retry.
 fn find_item<'a>(items: &'a mut [TodoItem], target: &str) -> Option<&'a mut TodoItem> {
     let target = target.trim();
-    if let Some(index) = items.iter().position(|item| item.text == target) {
+    // Items are stored with their indentation; a `done` names the step, not
+    // its depth, so both sides are compared with leading spaces removed.
+    if let Some(index) = items
+        .iter()
+        .position(|item| item.text.trim_start() == target)
+    {
         return items.get_mut(index);
     }
     let lower = target.to_lowercase();
     let mut matches = items
         .iter()
         .enumerate()
-        .filter(|(_, item)| item.text.to_lowercase().starts_with(&lower));
+        .filter(|(_, item)| item.text.trim_start().to_lowercase().starts_with(&lower));
     match (matches.next(), matches.next()) {
         (Some((index, _)), None) if !lower.is_empty() => items.get_mut(index),
         _ => None,
@@ -174,6 +231,63 @@ mod tests {
         assert!(out.content.contains("[x] write b"), "{}", out.content);
         assert!(out.content.contains("[ ] check"), "{}", out.content);
         assert!(out.content.contains("1 remaining"), "{}", out.content);
+    }
+
+    #[tokio::test]
+    async fn nested_steps_are_kept_indented_not_dropped() {
+        let tool = TodoTool::default();
+        let out = tool
+            .execute(
+                &ctx(),
+                json!({"op":"set","items":[
+                    {"text":"Wave 1: foundation","items":[
+                        "humanize",
+                        {"title":"account combo","done":true}
+                    ]},
+                    "Wave 2: integration"
+                ]}),
+            )
+            .await
+            .unwrap();
+        assert!(!out.is_error, "{}", out.content);
+        assert!(
+            out.content.contains("[ ] Wave 1: foundation"),
+            "{}",
+            out.content
+        );
+        assert!(
+            out.content.contains("[ ]   humanize"),
+            "indented: {}",
+            out.content
+        );
+        assert!(
+            out.content.contains("[x]   account combo"),
+            "done kept: {}",
+            out.content
+        );
+        assert!(
+            out.content.contains("[ ] Wave 2: integration"),
+            "{}",
+            out.content
+        );
+        assert!(out.content.contains("3 remaining"), "{}", out.content);
+    }
+
+    /// A nested step is ticked off by its own text, whatever its depth.
+    #[tokio::test]
+    async fn a_nested_step_is_marked_done_by_its_text() {
+        let tool = TodoTool::default();
+        tool.execute(
+            &ctx(),
+            json!({"op":"set","items":[{"text":"Wave 1","items":["humanize","proxy"]}]}),
+        )
+        .await
+        .unwrap();
+        let out = tool
+            .execute(&ctx(), json!({"op":"done","item":"humanize"}))
+            .await
+            .unwrap();
+        assert!(out.content.contains("[x]   humanize"), "{}", out.content);
     }
 
     #[tokio::test]

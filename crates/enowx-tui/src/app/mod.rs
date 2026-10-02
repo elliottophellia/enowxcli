@@ -252,9 +252,15 @@ pub(crate) struct App {
     /// The main column on the last frame: where a settings page is drawn.
     pub(crate) main_area: Option<Rect>,
     /// The tabs at the top right, as drawn, for a click.
-    pub(crate) page_tabs: Vec<(Rect, pages::Page)>,
+    pub(crate) page_tabs: Vec<(Rect, pages::Tab)>,
     /// The tab last chosen, by its place in `pages::PAGES`.
     pub(crate) page_index: usize,
+    /// Settings has the section list focused rather than the section.
+    pub(crate) settings_nav: bool,
+    /// Where each section of the Settings list was drawn, for clicks.
+    pub(crate) settings_sections: Vec<(Rect, pages::Page)>,
+    /// The area a Settings section draws in, beside the section list.
+    pub(crate) settings_content: Option<Rect>,
     /// What this session costs the machine, sampled every few seconds.
     pub(crate) resources: crate::resources::Sampler,
     /// A handoff under way: the new session, or why it failed.
@@ -442,6 +448,9 @@ impl App {
             main_area: None,
             page_tabs: Vec::new(),
             page_index: 0,
+            settings_nav: false,
+            settings_sections: Vec::new(),
+            settings_content: None,
             resources: crate::resources::Sampler::default(),
             handoff: None,
             mcp_config_stamp: mcp_config_mtime(),

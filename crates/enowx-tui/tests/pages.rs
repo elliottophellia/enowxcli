@@ -1,6 +1,7 @@
-//! The tabs at the top right: Chat, and a page per kind of setting. A page
-//! takes the main column in place of the chat; Ctrl+P steps through the tabs,
-//! a click opens one, and Esc comes back to the chat.
+//! The tabs at the top right: Chat and Settings. Settings takes the main
+//! column in place of the chat, with its sections listed on the left; Ctrl+P
+//! switches tabs, a click opens a tab or a section, the arrows move between
+//! the list and the section, and Esc comes back to the chat.
 
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use enowx_tui::testing::TestApp;
@@ -12,40 +13,27 @@ fn chat() -> TestApp {
 }
 
 #[test]
-fn the_tabs_sit_at_the_top_right() {
+fn two_tabs_sit_at_the_top_right() {
     let mut app = chat();
     let rows = app.render_to_text(160, 40);
     let top = &rows[0];
-    for tab in [
-        "Chat",
-        "Models",
-        "Providers",
-        "Agents",
-        "MCP",
-        "Skills",
-        "Sessions",
-        "Theme",
-    ] {
-        assert!(top.contains(tab), "`{tab}` in the top row: {top}");
-    }
-    // Right side: the tabs end near the right edge of the main column.
-    assert!(top.find("Theme").unwrap() > 60, "{top}");
+    assert!(top.contains(" Chat "), "{top}");
+    assert!(top.contains(" Settings "), "{top}");
+    assert!(!top.contains("Providers"), "sections are not tabs: {top}");
+    assert!(top.find("Settings").unwrap() > 100, "{top}");
 }
 
 #[test]
-fn a_page_replaces_the_chat_and_esc_brings_it_back() {
+fn settings_replaces_the_chat_with_sections_beside_the_section() {
     let mut app = chat();
-    assert!(app
-        .render_to_text(160, 40)
-        .join("\n")
-        .contains("HISTORY-LINE-ONE"));
-    app.run_command("/mcp").expect("mcp page");
-    let page = app.render_to_text(160, 40).join("\n");
-    assert!(page.contains("coolify"), "{page}");
-    assert!(
-        !page.contains("HISTORY-LINE-ONE"),
-        "the chat gives way to the page: {page}"
-    );
+    app.run_command("/mcp").expect("mcp");
+    let screen = app.render_to_text(160, 40).join("\n");
+    assert!(screen.contains("SETTINGS"), "{screen}");
+    for section in ["Models", "Providers", "Agents", "MCP", "Skills", "Sessions", "Theme"] {
+        assert!(screen.contains(section), "`{section}` listed: {screen}");
+    }
+    assert!(screen.contains("coolify"), "the section beside it: {screen}");
+    assert!(!screen.contains("HISTORY-LINE-ONE"), "{screen}");
     app.press_key(KeyCode::Esc).expect("esc");
     assert!(!app.is_modal_open());
     assert!(app
@@ -55,23 +43,39 @@ fn a_page_replaces_the_chat_and_esc_brings_it_back() {
 }
 
 #[test]
-fn ctrl_p_steps_through_the_tabs_and_back_to_the_chat() {
+fn ctrl_p_switches_between_chat_and_settings() {
     let mut app = chat();
-    let mut titles = Vec::new();
-    for _ in 0..8 {
-        app.press(KeyCode::Char('p'), true).expect("ctrl+p");
-        titles.push(app.modal_title().trim().to_owned());
-    }
-    // Models opens first; after the last tab the chat comes back (no modal).
-    assert!(
-        app.render_to_text(160, 40)
-            .join("\n")
-            .contains("HISTORY-LINE-ONE"),
-        "{titles:?}"
-    );
-    assert!(!app.is_modal_open(), "back on the chat: {titles:?}");
-    assert!(titles.iter().any(|t| t.contains("MCP")), "{titles:?}");
-    assert!(titles.iter().any(|t| t.contains("THEME")), "{titles:?}");
+    app.press(KeyCode::Char('p'), true).expect("ctrl+p");
+    assert!(app.is_modal_open(), "settings open");
+    let first = app.modal_title();
+    app.press(KeyCode::Char('p'), true).expect("ctrl+p");
+    assert!(!app.is_modal_open(), "back on the chat");
+    // Settings opens again on the section used last.
+    app.run_command("/skills").unwrap();
+    app.press(KeyCode::Char('p'), true).unwrap();
+    app.press(KeyCode::Char('p'), true).unwrap();
+    assert!(app.modal_title().contains("SKILLS"), "{first} then {}", app.modal_title());
+}
+
+#[test]
+fn the_arrows_walk_the_section_list() {
+    let mut app = chat();
+    app.run_command("/agent").unwrap();
+    assert!(app.modal_title().contains("AGENT"), "{}", app.modal_title());
+    app.press_key(KeyCode::Left).unwrap();
+    app.press_key(KeyCode::Down).unwrap();
+    assert!(app.modal_title().contains("MCP"), "{}", app.modal_title());
+    app.press_key(KeyCode::Up).unwrap();
+    app.press_key(KeyCode::Up).unwrap();
+    assert!(app.modal_title().contains("PROVIDER"), "{}", app.modal_title());
+    // Right goes back into the section: Down moves its list, not the sections.
+    app.press_key(KeyCode::Right).unwrap();
+    app.press_key(KeyCode::Down).unwrap();
+    assert!(app.modal_title().contains("PROVIDER"), "{}", app.modal_title());
+    // Esc from the list goes back to the chat.
+    app.press_key(KeyCode::Left).unwrap();
+    app.press_key(KeyCode::Esc).unwrap();
+    assert!(!app.is_modal_open());
 }
 
 /// The screen column of `text` in `row`: characters, not bytes, since the
@@ -83,32 +87,41 @@ fn column_of(row: &str, text: &str) -> u16 {
     row[..byte].chars().count() as u16
 }
 
+fn click(app: &mut TestApp, column: u16, row: u16) {
+    app.mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    })
+    .expect("click");
+}
+
 #[test]
-fn a_click_on_a_tab_opens_its_page() {
+fn clicks_open_a_tab_and_a_section() {
     let mut app = chat();
     let rows = app.render_to_text(160, 40);
-    let col = column_of(&rows[0], "Skills");
-    app.mouse(MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: col + 1,
-        row: 0,
-        modifiers: KeyModifiers::NONE,
-    })
-    .expect("click");
-    assert!(
-        app.modal_title().contains("SKILLS"),
-        "{}",
-        app.modal_title()
-    );
-    // And the Chat tab closes it again.
+    click(&mut app, column_of(&rows[0], " Settings ") + 2, 0);
+    assert!(app.is_modal_open(), "settings open");
     let rows = app.render_to_text(160, 40);
-    let col = column_of(&rows[0], " Chat ");
-    app.mouse(MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column: col + 2,
-        row: 0,
-        modifiers: KeyModifiers::NONE,
-    })
-    .expect("click");
+    let (y, row) = rows
+        .iter()
+        .enumerate()
+        .find(|(_, r)| r.contains(" Skills "))
+        .expect("Skills listed");
+    click(&mut app, column_of(row, "Skills"), y as u16);
+    assert!(app.modal_title().contains("SKILLS"), "{}", app.modal_title());
+    let rows = app.render_to_text(160, 40);
+    click(&mut app, column_of(&rows[0], " Chat ") + 2, 0);
     assert!(!app.is_modal_open());
+}
+
+#[test]
+fn settings_reopens_on_the_section_left_with_esc() {
+    let mut app = chat();
+    app.run_command("/theme").unwrap();
+    app.press_key(KeyCode::Esc).unwrap();
+    assert!(!app.is_modal_open());
+    app.press(KeyCode::Char('p'), true).unwrap();
+    assert!(app.modal_title().contains("THEME"), "{}", app.modal_title());
 }

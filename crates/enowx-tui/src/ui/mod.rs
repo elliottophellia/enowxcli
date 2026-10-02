@@ -86,6 +86,7 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
     // No margin and no window frame: the boxes themselves are the layout,
     // and a frame around them drew a second edge beside every first one.
     draw_main(frame, app, area);
+    draw_settings_nav(frame, app);
     if app.modal != Modal::None && !draw_popup(frame, app) {
         draw_modal(frame, app);
     }
@@ -93,20 +94,20 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
     no_control_characters(frame.buffer_mut());
 }
 
-/// The tabs at the top right of the main column: Chat, and a page for each
-/// kind of setting. Drawn on the top edge of whatever box is there, last, so
-/// a page or a popup never hides them.
+/// The tabs at the top right of the main column: Chat and Settings. Drawn
+/// on the top edge of whatever box is there, last, so a section or a popup
+/// never hides them.
 fn draw_page_tabs(frame: &mut Frame, app: &mut App) {
-    use crate::app::pages::{Page, PAGES};
+    use crate::app::pages::Tab;
     app.page_tabs.clear();
     let Some(main) = app.main_area else {
         return;
     };
     let t = app.theme;
-    let current = app.page();
-    let labels: Vec<(Page, String)> = PAGES
+    let current = app.tab();
+    let labels: Vec<(Tab, String)> = Tab::ALL
         .iter()
-        .map(|p| (*p, format!(" {} ", p.label())))
+        .map(|tab| (*tab, format!(" {} ", tab.label())))
         .collect();
     let width: u16 = labels
         .iter()
@@ -120,7 +121,7 @@ fn draw_page_tabs(frame: &mut Frame, app: &mut App) {
     }
     let mut x = main.right().saturating_sub(width + 2);
     let y = main.y;
-    for (i, (page, label)) in labels.iter().enumerate() {
+    for (i, (tab, label)) in labels.iter().enumerate() {
         if i > 0 {
             frame.render_widget(
                 Paragraph::new(Span::styled("·", Style::default().fg(t.faint).bg(t.panel))),
@@ -129,7 +130,7 @@ fn draw_page_tabs(frame: &mut Frame, app: &mut App) {
             x += 1;
         }
         let w = label.chars().count() as u16;
-        let style = if *page == current {
+        let style = if *tab == current {
             Style::default()
                 .fg(t.panel)
                 .bg(t.accent)
@@ -139,8 +140,96 @@ fn draw_page_tabs(frame: &mut Frame, app: &mut App) {
         };
         let rect = Rect::new(x, y, w, 1);
         frame.render_widget(Paragraph::new(Span::styled(label.clone(), style)), rect);
-        app.page_tabs.push((rect, *page));
+        app.page_tabs.push((rect, *tab));
         x += w;
+    }
+}
+
+/// Columns the Settings section list takes, its border included.
+const SETTINGS_NAV_WIDTH: u16 = 20;
+
+/// The Settings section list, on the left of the main column, and the area
+/// beside it where the chosen section draws. On a window too small for both
+/// the section takes the whole column and the list is left out (`Ctrl+P`
+/// and the section's own keys still work).
+fn draw_settings_nav(frame: &mut Frame, app: &mut App) {
+    use crate::app::pages::{Tab, SECTIONS};
+    app.settings_sections.clear();
+    app.settings_content = None;
+    if app.tab() != Tab::Settings {
+        return;
+    }
+    let Some(main) = app.main_area else {
+        return;
+    };
+    if main.width < SETTINGS_NAV_WIDTH + 40 || main.height < (SECTIONS.len() as u16) + 4 {
+        return;
+    }
+    let t = app.theme;
+    let nav = Rect::new(main.x, main.y, SETTINGS_NAV_WIDTH, main.height);
+    app.settings_content = Some(Rect::new(
+        main.x + SETTINGS_NAV_WIDTH + 1,
+        main.y,
+        main.width - SETTINGS_NAV_WIDTH - 1,
+        main.height,
+    ));
+    // The list and the one-column gap after it are cleared: the chat drawn
+    // underneath would otherwise show through between the two boxes.
+    let gap = Rect::new(nav.right(), main.y, 1, main.height);
+    frame.render_widget(Clear, nav);
+    frame.render_widget(Clear, gap);
+    frame.render_widget(Block::default().style(Style::default().bg(t.canvas)), gap);
+    let focused = app.settings_nav;
+    panel_box(
+        frame,
+        nav,
+        if focused { t.accent } else { t.border },
+        t.panel,
+    );
+    box_title(
+        frame,
+        nav,
+        vec![Span::styled(
+            "SETTINGS",
+            Style::default()
+                .fg(if focused { t.accent } else { t.muted })
+                .add_modifier(Modifier::BOLD),
+        )],
+        t.panel,
+    );
+    box_hint(
+        frame,
+        nav,
+        if focused { "↑↓ · → open" } else { "← here" },
+        t.muted,
+        t.panel,
+    );
+    let current = app.section_index();
+    let inner = Rect::new(nav.x + 1, nav.y + 2, nav.width - 2, nav.height - 3);
+    for (i, page) in SECTIONS.iter().enumerate() {
+        let y = inner.y + i as u16;
+        if y >= inner.bottom() {
+            break;
+        }
+        // One row per section, the whole width clickable.
+        let row = Rect::new(nav.x + 1, y, nav.width - 2, 1);
+        let selected = i == current;
+        let style = match (selected, focused) {
+            (true, true) => Style::default()
+                .fg(t.panel)
+                .bg(t.accent)
+                .add_modifier(Modifier::BOLD),
+            (true, false) => Style::default()
+                .fg(t.accent)
+                .bg(t.panel)
+                .add_modifier(Modifier::BOLD),
+            _ => Style::default().fg(t.text).bg(t.panel),
+        };
+        let marker = if selected { "›" } else { " " };
+        let width = row.width as usize;
+        let text = format!(" {marker} {:<w$}", page.label(), w = width.saturating_sub(3));
+        frame.render_widget(Paragraph::new(Span::styled(text, style)), row);
+        app.settings_sections.push((row, *page));
     }
 }
 

@@ -212,10 +212,10 @@ pub(super) fn overlay(
 ) -> (Rect, Rect) {
     let t = app.theme;
     let area = frame.area();
-    // A settings page fills the main column, in place of the chat; anything
-    // else floats in the middle of the window.
+    // A Settings section fills the main column beside the section list, in
+    // place of the chat; anything else floats in the middle of the window.
     let page = crate::app::pages::Page::of(app.modal) != crate::app::pages::Page::Chat;
-    let rect = match app.main_area {
+    let rect = match app.settings_content.or(app.main_area) {
         Some(main) if page && main.width >= 30 && main.height >= 8 => main,
         _ => {
             let width = width.min(area.width.saturating_sub(4));
@@ -471,7 +471,7 @@ fn key_spans(app: &App, figures: bool) -> Vec<Span<'static>> {
     } else if app.busy {
         &[("Ctrl+C", "stop"), ("Ctrl+S", "send now")]
     } else {
-        &[("Ctrl+P", "pages"), ("/", "commands")]
+        &[("Ctrl+P", "settings"), ("/", "commands")]
     };
     for (index, (key, what)) in hints.iter().enumerate() {
         if index > 0 {

@@ -1,14 +1,19 @@
-//! The tabs at the top right: Chat, and a page for each kind of setting.
+//! The two tabs at the top right: Chat and Settings.
 //!
-//! A settings page is the modal that already edits that setting, drawn over
-//! the whole main column instead of as a popup, so the chat gives its room
-//! to the page while it is open. Every key and click the modal handled before
-//! still works; `Ctrl+P` moves to the next tab, a click on a tab opens it,
-//! and `Esc` comes back to the chat.
+//! Settings replaces the chat in the main column with a list of sections on
+//! the left (Models, Providers, Agents, MCP, Skills, Sessions, Theme) and the
+//! chosen section beside it. A section is the modal that already edits that
+//! setting, drawn in place instead of as a popup, so every key and click it
+//! handled before still works.
+//!
+//! Keys: `Ctrl+P` switches between Chat and Settings. In Settings, `Left`
+//! moves to the section list, `Up`/`Down` there pick a section, `Right`,
+//! `Enter` or `Tab` go back into it, and `Esc` returns to the chat. The mouse
+//! does the same with a click on a tab or a section.
 
 use super::*;
 
-/// One tab.
+/// A section of Settings, or the chat.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Page {
     Chat,
@@ -21,9 +26,8 @@ pub(crate) enum Page {
     Theme,
 }
 
-/// The tabs, in the order `Ctrl+P` steps through them.
-pub(crate) const PAGES: [Page; 8] = [
-    Page::Chat,
+/// The sections of Settings, in the order they are listed.
+pub(crate) const SECTIONS: [Page; 7] = [
     Page::Models,
     Page::Providers,
     Page::Agents,
@@ -32,6 +36,24 @@ pub(crate) const PAGES: [Page; 8] = [
     Page::Sessions,
     Page::Theme,
 ];
+
+/// The tabs at the top right.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Tab {
+    Chat,
+    Settings,
+}
+
+impl Tab {
+    pub(crate) const ALL: [Tab; 2] = [Tab::Chat, Tab::Settings];
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Tab::Chat => "Chat",
+            Tab::Settings => "Settings",
+        }
+    }
+}
 
 impl Page {
     pub(crate) fn label(self) -> &'static str {
@@ -65,20 +87,36 @@ impl Page {
 }
 
 impl App {
-    /// The tab on screen.
+    /// The section on screen, or `Chat`.
     pub(crate) fn page(&self) -> Page {
         Page::of(self.modal)
     }
 
-    /// Open `page`: its modal, drawn full size, or the chat.
+    /// The tab on screen.
+    pub(crate) fn tab(&self) -> Tab {
+        if self.page() == Page::Chat {
+            Tab::Chat
+        } else {
+            Tab::Settings
+        }
+    }
+
+    /// Open `page`: a section of Settings, or the chat.
     pub(crate) fn open_page(&mut self, page: Page) -> Result<()> {
-        self.page_index = PAGES.iter().position(|p| *p == page).unwrap_or(0);
-        // The theme page previews as you move; leaving it without choosing
-        // puts the saved theme back, or the preview sticks.
+        // Remembered for the next time Settings opens, however the section
+        // was reached (a tab, the list, or `/skills` typed in the chat).
+        if let Some(index) = SECTIONS.iter().position(|p| *p == self.page()) {
+            self.page_index = index;
+        }
+        if let Some(index) = SECTIONS.iter().position(|p| *p == page) {
+            self.page_index = index;
+        }
+        // The theme section previews as you move; leaving it without
+        // choosing puts the saved theme back, or the preview sticks.
         if self.modal == Modal::Themes {
             self.theme = crate::theme::Theme::find(&self.config.ui.theme);
         }
-        // Leaving a page closes its modal the way Esc does, so nothing it
+        // Leaving a section closes its modal the way Esc does, so nothing it
         // was holding (a model list being fetched, an agent being given a
         // model) carries over to the next one.
         self.modal = Modal::None;
@@ -86,6 +124,7 @@ impl App {
         self.picking_for_agent = None;
         self.modal_search.clear();
         self.modal_error.clear();
+        self.settings_nav = false;
         match page {
             Page::Chat => {}
             Page::Models => self.open_model_picker(None),
@@ -99,19 +138,69 @@ impl App {
         Ok(())
     }
 
-    /// `Ctrl+P`: the next tab, after the last one the chat again.
-    ///
-    /// Counted from the tab last chosen, not from the modal on screen: a page
-    /// can open another (Models with no provider connected opens Providers),
-    /// and stepping from that one skipped tabs.
-    pub(crate) fn next_page(&mut self) -> Result<()> {
-        let at = if self.modal == Modal::None {
-            0
-        } else {
-            self.page_index
-        };
-        let next = PAGES[(at + 1) % PAGES.len()];
-        self.open_page(next)
+    /// Open a tab: Settings opens on the section used last.
+    pub(crate) fn open_tab(&mut self, tab: Tab) -> Result<()> {
+        match tab {
+            Tab::Chat => self.open_page(Page::Chat),
+            Tab::Settings if self.tab() == Tab::Settings => Ok(()),
+            Tab::Settings => self.open_page(SECTIONS[self.page_index.min(SECTIONS.len() - 1)]),
+        }
+    }
+
+    /// `Ctrl+P`: Chat to Settings and back.
+    pub(crate) fn switch_tab(&mut self) -> Result<()> {
+        match self.tab() {
+            Tab::Chat => self.open_tab(Tab::Settings),
+            Tab::Settings => self.open_tab(Tab::Chat),
+        }
+    }
+
+    /// The section list's place in `SECTIONS`: the section on screen, which
+    /// may differ from the one chosen (Models with no provider connected
+    /// opens Providers).
+    pub(crate) fn section_index(&self) -> usize {
+        SECTIONS
+            .iter()
+            .position(|p| *p == self.page())
+            .unwrap_or(self.page_index)
+    }
+
+    /// Keys while Settings is on screen, before the section sees them.
+    /// Returns whether the key was taken.
+    pub(crate) fn settings_page_key(&mut self, key: &crossterm::event::KeyEvent) -> Result<bool> {
+        use crossterm::event::KeyCode;
+        if self.tab() != Tab::Settings {
+            self.settings_nav = false;
+            return Ok(false);
+        }
+        // Esc from a section closes it in the section's own handler; the
+        // section is remembered here so Settings opens on it again.
+        self.page_index = self.section_index();
+        if self.settings_nav {
+            match key.code {
+                KeyCode::Up | KeyCode::Down => {
+                    let at = self.section_index();
+                    let next = if key.code == KeyCode::Up {
+                        at.checked_sub(1).unwrap_or(SECTIONS.len() - 1)
+                    } else {
+                        (at + 1) % SECTIONS.len()
+                    };
+                    self.open_page(SECTIONS[next])?;
+                    self.settings_nav = true;
+                }
+                KeyCode::Right | KeyCode::Enter | KeyCode::Tab => self.settings_nav = false,
+                KeyCode::Esc => self.open_page(Page::Chat)?,
+                _ => {}
+            }
+            return Ok(true);
+        }
+        // Left steps out to the section list from a section's list; a form
+        // keeps it for its own caret.
+        if key.code == KeyCode::Left && key.modifiers.is_empty() && !self.modal.is_form() {
+            self.settings_nav = true;
+            return Ok(true);
+        }
+        Ok(false)
     }
 }
 

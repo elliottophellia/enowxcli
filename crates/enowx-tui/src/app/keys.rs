@@ -22,13 +22,17 @@ impl App {
             self.interrupt();
             return Ok(());
         }
-        // Ctrl+P moves between the tabs from anywhere, a page included: a page
-        // is a modal, and its own handler would otherwise take the key.
+        // Ctrl+P switches between Chat and Settings from anywhere, a section
+        // included: a section is a modal, and its own handler would otherwise
+        // take the key.
         if key.modifiers.contains(KeyModifiers::CONTROL)
             && key.code == KeyCode::Char('p')
             && self.modal != Modal::QuitConfirm
         {
-            return self.next_page();
+            return self.switch_tab();
+        }
+        if self.settings_page_key(&key)? {
+            return Ok(());
         }
         if self.modal != Modal::None {
             if self.modal.is_form() && self.modal != Modal::McpForm {
@@ -341,8 +345,9 @@ impl App {
                 // attaches from the clipboard there.
                 KeyCode::Char('v') => self.attach_from_clipboard(),
                 KeyCode::Char('b') => self.toggle_sidebar()?,
-                // The tabs at the top right; typing `/` lists the commands.
-                KeyCode::Char('p') => self.next_page()?,
+                // Chat and Settings, the tabs at the top right; typing `/` lists
+                // the commands.
+                KeyCode::Char('p') => self.switch_tab()?,
                 // Sidebar tabs and the log's filter and detail. These were
                 // F1-F7; not every terminal or OS passes function keys
                 // through, so they are Ctrl combinations now.

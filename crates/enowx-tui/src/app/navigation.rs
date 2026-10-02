@@ -81,7 +81,26 @@ impl App {
                     .find(|(rect, _)| rect.contains(position))
                     .copied()
                 {
-                    self.open_page(page)?;
+                    self.open_tab(page)?;
+                }
+            }
+            // A section in the Settings list opens it, with the keys in it.
+            MouseEventKind::Down(MouseButton::Left)
+                if self.settings_sections.iter().any(|(rect, _)| {
+                    rect.contains(ratatui::layout::Position::new(event.column, event.row))
+                }) =>
+            {
+                let position = ratatui::layout::Position::new(event.column, event.row);
+                if let Some((_, page)) = self
+                    .settings_sections
+                    .iter()
+                    .find(|(rect, _)| rect.contains(position))
+                    .copied()
+                {
+                    if page != self.page() {
+                        self.open_page(page)?;
+                    }
+                    self.settings_nav = false;
                 }
             }
             MouseEventKind::Down(MouseButton::Left)

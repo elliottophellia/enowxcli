@@ -387,7 +387,7 @@ impl App {
                     "\n  Esc                Close page / stop turn / clear input",
                     "\n  Ctrl+C             Stop turn / clear input / quit",
                     "\n  Ctrl+D             Quit when the composer is empty",
-                    "\n  Ctrl+P             Next tab: Models, Providers, Agents, MCP...",
+                    "\n  Ctrl+P             Chat / Settings (Left: section list)",
                     "\n  Ctrl+T             Next sidebar tab (Alt+1-4 picks one)",
                     "\n  Ctrl+G / Ctrl+X    Filter logs / show detail",
                     "\n  Alt+Left/Right     Sidebar pages (Alt+B / Alt+F too)",

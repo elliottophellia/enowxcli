@@ -283,11 +283,14 @@ per step, long files in parts), and the turn carries on. A turn that still fails
 from where it stopped by itself, up to three times a minute apart; `/retry`
 continues at once and `Esc` cancels the wait.
 
-The tabs at the top right are pages: Chat, Models, Providers, Agents, MCP,
-Skills, Sessions and Theme. A settings page fills the main column in place of
-the chat. Click a tab, or press `Ctrl+P` to step to the next one; `Esc` goes
-back to the chat. `/commands` opens a searchable list of every command, and
-typing `/` lists them above the composer.
+Two tabs sit at the top right: Chat and Settings. Settings takes the main
+column in place of the chat, with its sections listed on the left (Models,
+Providers, Agents, MCP, Skills, Sessions, Theme) and the chosen one beside
+them. `Ctrl+P` switches between Chat and Settings. Inside, `Left` moves to
+the section list, `Up`/`Down` pick a section, `Right` (or `Enter`) goes back
+into it, and `Esc` returns to the chat; clicking a tab or a section does the
+same. `/commands` opens a searchable list of every command, and typing `/`
+lists them above the composer.
 
 Keys work the same on Linux, macOS and Windows. Where a terminal or the OS
 takes a shortcut for itself, a second form does the same thing:
@@ -298,10 +301,10 @@ takes a shortcut for itself, a second form does the same thing:
 | `Shift+Enter`, `Alt+Enter` | Newline (`Ctrl+J` too, when idle) |
 | `Ctrl+Enter`, `Ctrl+S` | Send now, while a turn runs |
 | `Ctrl+Backspace`, `Alt+Backspace` | Erase a word |
-| `Esc` | Close a page, stop a turn, or clear the composer |
+| `Esc` | Leave Settings, stop a turn, or clear the composer |
 | `Ctrl+C` | Stop a turn, clear the composer, or ask to quit |
 | `Ctrl+D` | Quit, from an empty composer |
-| `Ctrl+P` | Next page tab |
+| `Ctrl+P` | Switch between Chat and Settings |
 | `Ctrl+R` / `Ctrl+O` | Show reasoning / tool output |
 | `Ctrl+T` | Next sidebar tab (`Alt+1` to `Alt+4` pick one) |
 | `Alt+Left`/`Alt+Right`, `Alt+B`/`Alt+F` | Sidebar pages |
@@ -420,7 +423,7 @@ whose work needs it and read only when the work does. A project or user skill of
 name replaces one. A skill installed in the project or `~/` goes to every
 agent until the orchestrator binds it, with `skill_bind` (every binding in one
 call), to the agents whose work it serves; bindings are kept in `~/.enx/skill-bindings.json`, and the
-Skills tab shows who has each one. `/skills` and `/mcp` open their pages to toggle
+Skills tab shows who has each one. `/skills` and `/mcp` open their Settings sections to toggle
 or add entries; `/compact` folds older turns into a summary; auto-compact fires
 when the context window nears its cap.
 

@@ -22,26 +22,54 @@ const MAX_QUESTIONS: usize = 8;
 const MAX_OPTIONS: usize = 5;
 
 /// One question, with the answers the agent offers.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Question {
+    // Models name the field a few ways; all mean the question.
+    #[serde(
+        alias = "prompt",
+        alias = "text",
+        alias = "q",
+        alias = "title",
+        alias = "query"
+    )]
     pub question: String,
     /// A word or two naming the question, for moving between several.
-    #[serde(default)]
+    #[serde(default, alias = "label", alias = "name")]
     pub header: String,
     /// Offered answers. The user may always write their own instead.
-    #[serde(default)]
+    #[serde(default, alias = "choices", alias = "answers", alias = "options_list")]
     pub options: Vec<Choice>,
     /// Whether more than one option may be chosen.
-    #[serde(default)]
+    #[serde(
+        default,
+        alias = "multi",
+        alias = "multiple_choice",
+        alias = "multiselect",
+        alias = "multiSelect",
+        alias = "allow_multiple"
+    )]
     pub multiple: bool,
 }
 
 /// An offered answer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Choice {
+    #[serde(
+        alias = "text",
+        alias = "title",
+        alias = "value",
+        alias = "name",
+        alias = "option"
+    )]
     pub label: String,
     /// What choosing it means, when the label alone does not say.
-    #[serde(default)]
+    #[serde(
+        default,
+        alias = "detail",
+        alias = "desc",
+        alias = "explanation",
+        alias = "hint"
+    )]
     pub description: String,
 }
 
@@ -139,9 +167,28 @@ pub fn schema() -> Value {
 /// The questions in a call's arguments, or what is wrong with them. A single
 /// question given without the `questions` list is taken as one.
 pub fn parse(args: &Value) -> Result<Vec<Question>, String> {
-    let questions: Vec<Question> = match args.get("questions") {
-        Some(list) => serde_json::from_value(list.clone())
+    // A plain string is the question itself; an object is a full question.
+    // Models sometimes give a bare string where a question object is meant.
+    let one = |value: &Value| -> Result<Question, String> {
+        if let Some(text) = value.as_str() {
+            return Ok(Question {
+                question: text.to_owned(),
+                ..Default::default()
+            });
+        }
+        serde_json::from_value(value.clone()).map_err(|error| format!("{error}"))
+    };
+    let questions: Vec<Question> = match args.get("questions").or_else(|| args.get("question")) {
+        // The list form, the normal one.
+        Some(Value::Array(list)) => list
+            .iter()
+            .map(one)
+            .collect::<Result<_, _>>()
             .map_err(|error| format!("not a list of questions: {error}"))?,
+        // A single question handed under `questions`/`question`, not wrapped
+        // in a list.
+        Some(value) => vec![one(value).map_err(|error| format!("not a question: {error}"))?],
+        // The whole argument object is the question.
         None => vec![serde_json::from_value(args.clone())
             .map_err(|error| format!("not a question: {error}"))?],
     };
@@ -201,6 +248,36 @@ pub fn answer_message(questions: &[Question], answer: &Answer) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Models label the fields a few ways and sometimes give a bare
+    /// string; each still parses into a question.
+    #[test]
+    fn a_question_is_read_however_it_is_dressed() {
+        // The `question` field under other names.
+        for key in ["question", "prompt", "text", "q", "title"] {
+            let parsed = parse(&json!({"questions": [{key: "Which mode?"}]})).unwrap();
+            assert_eq!(parsed[0].question, "Which mode?", "key {key}");
+        }
+        // A bare string item.
+        let parsed = parse(&json!({"questions": ["Which mode?"]})).unwrap();
+        assert_eq!(parsed[0].question, "Which mode?");
+        // Options and multi-select under other names.
+        let parsed = parse(&json!({"questions": [{
+            "prompt": "Pick pages",
+            "multiSelect": true,
+            "choices": [{"text": "Home", "detail": "the landing page"}]
+        }]}))
+        .unwrap();
+        assert!(parsed[0].multiple);
+        assert_eq!(parsed[0].options[0].label, "Home");
+        assert_eq!(parsed[0].options[0].description, "the landing page");
+        // A single question not wrapped in a list.
+        let parsed = parse(&json!({"question": "Go ahead?"})).unwrap();
+        assert_eq!(parsed[0].question, "Go ahead?");
+        // The whole object is the question.
+        let parsed = parse(&json!({"prompt": "Go ahead?"})).unwrap();
+        assert_eq!(parsed[0].question, "Go ahead?");
+    }
 
     #[test]
     fn questions_read_from_their_arguments() {

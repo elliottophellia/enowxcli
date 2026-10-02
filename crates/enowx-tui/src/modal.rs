@@ -224,7 +224,11 @@ impl SettingsDraft {
     pub fn choice_shown(&self, field: SettingsField) -> String {
         match field {
             SettingsField::Effort => {
-                if self.effort.is_empty() { "default".into() } else { self.effort.clone() }
+                if self.effort.is_empty() {
+                    "default".into()
+                } else {
+                    self.effort.clone()
+                }
             }
             SettingsField::Vision => match self.vision.as_str() {
                 "yes" => "yes".into(),

@@ -10,7 +10,9 @@ pub fn normalize(key: KeyEvent) -> KeyEvent {
     let backspace = match key.code {
         KeyCode::Char('h') => {
             key.modifiers.contains(KeyModifiers::CONTROL)
-                && !key.modifiers.intersects(KeyModifiers::ALT | KeyModifiers::SHIFT)
+                && !key
+                    .modifiers
+                    .intersects(KeyModifiers::ALT | KeyModifiers::SHIFT)
         }
         KeyCode::Char('\x08' | '\x7f') => true,
         _ => false,
@@ -47,7 +49,10 @@ mod tests {
         for sent in [
             key(KeyCode::Char('h'), KeyModifiers::NONE),
             key(KeyCode::Char('H'), KeyModifiers::SHIFT),
-            key(KeyCode::Char('h'), KeyModifiers::CONTROL | KeyModifiers::ALT),
+            key(
+                KeyCode::Char('h'),
+                KeyModifiers::CONTROL | KeyModifiers::ALT,
+            ),
             key(KeyCode::Delete, KeyModifiers::NONE),
         ] {
             assert_eq!(normalize(sent), sent, "{sent:?}");

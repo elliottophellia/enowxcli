@@ -206,8 +206,10 @@ Keys: `Enter` sends, `Ctrl+Enter` inserts a newline, `/` opens the palette,
 the chat, and `Ctrl+C` clears the composer, opens the quit prompt when the
 composer is empty, or interrupts a running turn.
 
-`F1`–`F5` (or `Alt+1`–`Alt+5`) selects a telemetry tab without consuming typed
-digits. `Ctrl+B` shows/hides the sidebar; on narrow terminals it opens over the
+`Ctrl+T` steps to the next sidebar tab and `Alt+1`–`Alt+4` picks one without
+consuming typed digits; `Ctrl+G` steps the log's filter and `Ctrl+X` toggles its
+detail. Shortcuts are `Ctrl` combinations rather than function keys, which not
+every terminal or OS passes through. `Ctrl+B` shows/hides the sidebar; on narrow terminals it opens over the
 transcript while leaving the composer accessible.
 
 Themes are changed only through `/theme`: arrow keys preview, `Enter` saves,
@@ -226,8 +228,9 @@ provider's stored key, and a second `d` removes a custom provider.
 
 `/model` lists the models of every connected provider in one place, the
 favourites and recent picks first. Type to search, `Enter` to use a model,
-`Ctrl+F` to mark a favourite, `F2` to add a model by hand, `F5` to ask the
-providers for their lists again. A model is always named with its provider,
+`Ctrl+F` to mark a favourite, `Ctrl+N` to add a model by hand, `Ctrl+E` to edit
+a model's context window, thinking effort, vision and prices, `Ctrl+R` to ask
+the providers for their lists again. A model is always named with its provider,
 `deepseek/deepseek-flash`, and a pick is remembered in `~/.enx/model.json`
 rather than written to `config.toml`. `/model <provider/model>` does the same
 from the composer.

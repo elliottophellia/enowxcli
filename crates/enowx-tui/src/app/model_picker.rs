@@ -326,9 +326,9 @@ impl App {
                 rows.push(PickerRow::Note(if provider.loading {
                     format!("Asking {} for its models…", provider.name)
                 } else if let Some(error) = &provider.error {
-                    format!("{error}. F5 asks again; F2 adds a model by hand.")
+                    format!("{error}. Ctrl+R asks again; Ctrl+N adds a model by hand.")
                 } else {
-                    "No models listed. F2 adds one by hand.".into()
+                    "No models listed. Ctrl+N adds one by hand.".into()
                 }));
                 continue;
             }
@@ -444,7 +444,7 @@ impl App {
         self.fetch_models(connected);
     }
 
-    /// F2: a model by hand, for the provider of the selected row.
+    /// Ctrl+N: a model by hand, for the provider of the selected row.
     pub(crate) fn open_manual_model(&mut self) {
         let rows = self.picker_rows();
         let provider = self
@@ -483,7 +483,7 @@ impl App {
         self.open_form(Modal::ModelManual);
     }
 
-    /// F3: edit the selected model's properties. Prefills from what is set
+    /// Ctrl+E: edit the selected model's properties. Prefills from what is set
     /// now (an explicit override, else the detected or catalogue value) so
     /// the form shows the real figures and a save keeps the ones untouched.
     pub(crate) fn open_edit_model(&mut self) {
@@ -509,7 +509,13 @@ impl App {
             .cloned()
             .filter(|level| efforts.contains(level))
             .unwrap_or_default();
-        let num = |value: f64| if value > 0.0 { format!("{value}") } else { String::new() };
+        let num = |value: f64| {
+            if value > 0.0 {
+                format!("{value}")
+            } else {
+                String::new()
+            }
+        };
         self.settings = SettingsDraft {
             provider_id: model.provider.clone(),
             model: model.model.clone(),
@@ -584,7 +590,10 @@ impl App {
             if kept_cache.is_some() {
                 entry.models.insert(
                     model.clone(),
-                    ModelEntry { price_cache_read: kept_cache, ..ModelEntry::default() },
+                    ModelEntry {
+                        price_cache_read: kept_cache,
+                        ..ModelEntry::default()
+                    },
                 );
             } else {
                 entry.models.remove(&model);

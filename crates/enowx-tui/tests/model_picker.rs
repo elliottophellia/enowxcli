@@ -130,7 +130,7 @@ fn a_model_added_by_hand_is_saved_and_used() {
     let mut app = two_providers();
     app.open_model_picker();
     app.type_keys("glm");
-    app.press_key(KeyCode::F(2)).expect("add by hand");
+    app.press(KeyCode::Char('n'), true).expect("add by hand");
     app.set_settings_field("model", "cbc/new-one");
     app.set_settings_field("context_window", "256,000");
     app.submit_form().expect("add");
@@ -159,7 +159,8 @@ fn a_provider_with_no_list_offers_to_add_a_model_by_hand() {
     app.open_model_picker();
     let rows = app.picker_rows();
     assert!(
-        rows.iter().any(|row| row.contains("F2 adds one by hand")),
+        rows.iter()
+            .any(|row| row.contains("Ctrl+N adds one by hand")),
         "{rows:#?}"
     );
 }

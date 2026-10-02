@@ -9,6 +9,17 @@ impl App {
         self.show_sidebar = true;
     }
 
+    /// Ctrl+T: the next sidebar tab, or the current one when the sidebar
+    /// is hidden.
+    pub(crate) fn next_tab(&mut self) {
+        let next = if self.show_sidebar {
+            (self.sidebar_tab + 1) % crate::ui::TABS.len()
+        } else {
+            self.sidebar_tab
+        };
+        self.select_tab(next);
+    }
+
     pub(crate) fn page_sidebar(&mut self, next: bool) {
         self.sidebar_page = if next {
             (self.sidebar_page + 1).min(self.sidebar_pages.saturating_sub(1))

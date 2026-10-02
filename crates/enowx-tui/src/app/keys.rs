@@ -118,9 +118,11 @@ impl App {
                     KeyCode::Down => self.move_picker(1),
                     KeyCode::PageUp => self.move_picker(-10),
                     KeyCode::PageDown => self.move_picker(10),
-                    KeyCode::F(5) => self.refresh_models(),
-                    KeyCode::F(2) => self.open_manual_model(),
-                    KeyCode::F(3) => self.open_edit_model(),
+                    // Ctrl, not F-keys: not every terminal or OS passes
+                    // function keys through.
+                    KeyCode::Char('r') if control => self.refresh_models(),
+                    KeyCode::Char('n') if control => self.open_manual_model(),
+                    KeyCode::Char('e') if control => self.open_edit_model(),
                     KeyCode::Enter => {
                         if let Some(model) = self.selected_model() {
                             self.choose_model(&model)?;
@@ -338,6 +340,18 @@ impl App {
                 // which serves someone who knows the name they want. This is
                 // for looking: a floating list that searches summaries too.
                 KeyCode::Char('p') => self.open_palette(),
+                // Sidebar tabs and the log's filter and detail. These were
+                // F1-F7; not every terminal or OS passes function keys
+                // through, so they are Ctrl combinations now.
+                KeyCode::Char('t') => self.next_tab(),
+                KeyCode::Char('g') => {
+                    self.log_filter = (self.log_filter + 1) % crate::logs::FILTERS.len();
+                    self.select_tab(crate::ui::LOG_TAB);
+                }
+                KeyCode::Char('x') => {
+                    self.log_detail = !self.log_detail;
+                    self.select_tab(crate::ui::LOG_TAB);
+                }
                 // Ctrl+Enter inserts a newline; many terminals report it as
                 // Ctrl+J, so both reach the same handler.
                 KeyCode::Enter | KeyCode::Char('j') => {
@@ -404,20 +418,6 @@ impl App {
         }
 
         match key.code {
-            KeyCode::F(index @ 1..=4) => {
-                self.select_tab(index as usize - 1);
-                return Ok(());
-            }
-            KeyCode::F(6) => {
-                self.log_filter = (self.log_filter + 1) % crate::logs::FILTERS.len();
-                self.select_tab(crate::ui::LOG_TAB);
-                return Ok(());
-            }
-            KeyCode::F(7) => {
-                self.log_detail = !self.log_detail;
-                self.select_tab(crate::ui::LOG_TAB);
-                return Ok(());
-            }
             KeyCode::Enter => {
                 let text = self.input.trim().to_string();
                 if self.busy && !text.starts_with('/') {

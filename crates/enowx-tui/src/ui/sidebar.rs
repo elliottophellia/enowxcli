@@ -778,9 +778,9 @@ fn detail_lines(app: &App, width: usize) -> Detail {
             note(
                 &mut lines,
                 if app.log_detail {
-                    "F6 filter · F7 summary"
+                    "^G filter · ^X summary"
                 } else {
-                    "F6 filter · F7 detail"
+                    "^G filter · ^X detail"
                 },
                 t,
             );

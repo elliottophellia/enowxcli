@@ -163,7 +163,7 @@ fn draw_model_picker(frame: &mut Frame, app: &mut App, width: u16) {
     let hint = if width < 64 {
         "Enter use · ^F favourite · Esc"
     } else {
-        "Enter use · Ctrl+F favourite · F2 add · F5 refresh · Esc"
+        "Enter use · ^F favourite · ^N add · ^E edit · ^R refresh · Esc"
     };
     let (_, content) = overlay(frame, app, width, body, app.modal.title(), hint);
     if content.height < 3 {

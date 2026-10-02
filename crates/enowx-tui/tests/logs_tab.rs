@@ -28,7 +28,7 @@ fn the_fourth_tab_is_the_log() {
     let text = app.side_column(120, 34).join("\n");
     assert!(text.contains("Log"), "the tab should be named: {text}");
     assert!(
-        text.contains("F6 filter"),
+        text.contains("^G filter"),
         "and its keys should be what is showing: {text}"
     );
     assert!(
@@ -101,16 +101,16 @@ fn detail_is_hidden_until_asked_for() {
         "the numbers are noise by default"
     );
 
-    app.press(KeyCode::F(7), false).expect("F7");
+    app.press(KeyCode::Char('x'), true).expect("Ctrl+X");
     assert!(
         logs(&mut app).contains("4,876"),
         "and available when asked for"
     );
 
-    app.press(KeyCode::F(7), false).expect("F7 again");
+    app.press(KeyCode::Char('x'), true).expect("Ctrl+X again");
     assert!(
         !logs(&mut app).contains("4,876"),
-        "F7 toggles rather than only turning on"
+        "Ctrl+X toggles rather than only turning on"
     );
 }
 
@@ -124,8 +124,8 @@ fn the_filter_narrows_to_one_kind() {
     let all = logs(&mut app);
     assert!(all.contains("fe") && all.contains("trimmed bash"), "{all}");
 
-    // F6 steps to the first filter: agents only.
-    app.press(KeyCode::F(6), false).expect("F6");
+    // Ctrl+G steps to the first filter: agents only.
+    app.press(KeyCode::Char('g'), true).expect("Ctrl+G");
     let agents = logs(&mut app);
     assert!(
         agents.contains("agents"),
@@ -144,7 +144,7 @@ fn the_filter_cycles_back_to_everything() {
     let mut app = TestApp::in_conversation();
     app.deliver_trimmed("bash", 4876, 620);
     for _ in 0..5 {
-        app.press(KeyCode::F(6), false).expect("F6");
+        app.press(KeyCode::Char('g'), true).expect("Ctrl+G");
     }
     let text = logs(&mut app);
     // The unfiltered heading names no filter: "N entries" rather than
@@ -156,16 +156,16 @@ fn the_filter_cycles_back_to_everything() {
     assert!(text.contains("trimmed bash"), "and showing it: {text}");
 }
 
-/// F6 and F7 are useless if the user is looking at another tab.
+/// Ctrl+G and Ctrl+X are useless if the user is looking at another tab.
 #[test]
 fn the_filter_keys_bring_the_tab_forward() {
     let mut app = TestApp::in_conversation();
     app.select_sidebar_tab(0);
-    app.press(KeyCode::F(6), false).expect("F6");
+    app.press(KeyCode::Char('g'), true).expect("Ctrl+G");
     let text = app.side_column(120, 34).join("\n");
     assert!(
-        text.contains("F6 filter"),
-        "F6 should show the log it just filtered: {text}"
+        text.contains("^G filter"),
+        "Ctrl+G should show the log it just filtered: {text}"
     );
 }
 

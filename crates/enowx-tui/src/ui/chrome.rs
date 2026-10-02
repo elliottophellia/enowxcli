@@ -469,9 +469,9 @@ fn key_spans(app: &App, figures: bool) -> Vec<Span<'static>> {
     let hints: &[(&str, &str)] = if app.question.is_some() {
         &[("Enter", "answer"), ("Esc", "stop")]
     } else if app.busy {
-        &[("Ctrl+C", "stop")]
+        &[("Ctrl+C", "stop"), ("Ctrl+S", "send now")]
     } else {
-        &[("Ctrl+P", "commands"), ("/", "run one")]
+        &[("Ctrl+P", "pages"), ("/", "commands")]
     };
     for (index, (key, what)) in hints.iter().enumerate() {
         if index > 0 {

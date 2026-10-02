@@ -38,11 +38,16 @@ after v0.1.0.
 
 ### Interface
 
+- **Settings are pages, with tabs at the top right.** Chat, Models,
+  Providers, Agents, MCP, Skills, Sessions and Theme. A settings page takes
+  the whole main column in place of the chat; click a tab or press `Ctrl+P`
+  to step through them, and `Esc` comes back to the chat. The searchable
+  command list moved to `/commands` (typing `/` still lists commands inline).
 - **Queue messages typed while a turn runs.** Enter during a turn puts the
   message in a queue above the composer, with a `[send now]` button; queued
-  messages go one at a time as each turn ends. `Ctrl+Enter` sends now (idle it
-  is still a newline; `Alt+Enter` is one at any time), `Up` in an empty
-  composer edits the last queued message.
+  messages go one at a time as each turn ends. `Ctrl+Enter` or `Ctrl+S` sends
+  now, `Shift+Enter` or `Alt+Enter` is a newline at any time, and `Up` in an
+  empty composer edits the last queued message.
 - **`/handoff` to a fresh session.** Folds the conversation into a summary in a
   new, light session held by the same agent; asks first whether to keep the old
   session's history or delete it.
@@ -51,6 +56,23 @@ after v0.1.0.
   preview browser), and the history on disk.
 - **A sub-agent's transcript is read only.** Viewing a delegation shows no
   composer; nothing is typed or sent from it.
+- **Every shortcut works on Linux, macOS and Windows.** Each one has a form
+  that reaches enx through the terminals that swallow the first:
+  - `Ctrl+S` sends now where a terminal cannot tell `Ctrl+Enter` from Enter;
+    `Shift+Enter` is a newline where it can.
+  - Terminals that speak the kitty keyboard protocol (kitty, WezTerm, foot,
+    Ghostty, Alacritty, iTerm2) are asked to use it, so those keys are told
+    apart there.
+  - `Alt+Up` opens the message menu (macOS takes `Ctrl+Up`), `Alt+V`
+    attaches from the clipboard (Windows Terminal takes `Ctrl+V`), and
+    `Alt+B`/`Alt+F` page the sidebar (macOS sends them for Option+arrows).
+  - AltGr characters (`@`, `{`, `€` on many European layouts) type on
+    Windows instead of being read as Ctrl+Alt shortcuts.
+  - A multi-line paste on Windows arrives as one paste instead of sending
+    each line as its own message.
+  - `Ctrl+Backspace` and `Alt+Backspace` erase a word; `Ctrl+D` quits only
+    from an empty composer and erases forward otherwise; an `Alt` chord no
+    longer types its letter.
 - **Ctrl shortcuts instead of function keys**, since not every terminal passes
   F-keys through: `Ctrl+T` next sidebar tab, `Ctrl+G`/`Ctrl+X` the log's filter
   and detail, and in `/model` `Ctrl+N` add, `Ctrl+E` edit, `Ctrl+R` refresh.
@@ -67,11 +89,21 @@ after v0.1.0.
 
 ### Built-in MCP servers
 
-- **`coolify`, `dokploy` and `vps`, served by enx itself** (no Node or Python).
-  A server is offered to agents only once installed: `enx mcp install coolify`,
-  `enx mcp install dokploy`, or `enx vps add` for an SSH host. Tokens and
-  passwords go to `auth.json`; secret fields and environment values are redacted
-  from tool output; a VPS host key is pinned on first connection.
+- **`coolify`, `dokploy`, `vps` and `rag`, served by enx itself** (no Node or
+  Python). All four are listed in `/mcp`, off by default; `Tab` turns one on,
+  and `c` opens its setup form. Credentials can also be set from the CLI
+  (`enx mcp set coolify --url ... --token ...`, `enx vps add`), which an agent
+  can run for you, and the running session reloads MCP the moment they land:
+  no restart. `enx mcp clear <name>` forgets a setup. Tokens and passwords go
+  to `auth.json`; secret fields and environment values are redacted from tool
+  output; a VPS host key is pinned on first connection.
+- **Built-in code search (`rag`).** Indexes the workspace into Postgres with
+  pgvector, local or cloud, embedded with Voyage AI (`voyage-code-3`), and
+  searches it with dense and keyword matches fused, then reranked. Indexing is
+  incremental and honours `.gitignore`; secrets and lockfiles are never
+  indexed. Off by default: set it up with
+  `enx mcp set rag --dsn postgres://... --token <voyage key>` or `c` in
+  `/mcp`. Its skill reaches the agents only while the server is on.
 
 ### Skills
 
@@ -102,6 +134,12 @@ after v0.1.0.
 - **The session resource card counts only enx's real descendants**, not
   unrelated processes caught by macOS recycling a pid.
 - **`/resume` lists conversations only**, never a delegation's transcript.
+- **The `write` tool refuses an empty write** with a message telling the
+  model to send the file in parts, instead of silently creating an empty file
+  when a long reply was cut off.
+- **No more freeze on Windows.** The session resource card measured
+  processes on the interface thread, which on Windows could take long enough
+  to stop scrolling and typing; it now measures in the background.
 
 ### Project
 

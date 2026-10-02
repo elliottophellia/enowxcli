@@ -182,42 +182,72 @@ you are authorized to test, such as your own project before release.
 
 ## Built-in MCP servers
 
-enx ships three MCP servers of its own, served by the `enx` binary (no Node
-or Python needed). An agent is offered one only after it is installed; until
-then it is not listed anywhere.
+enx ships four MCP servers of its own, served by the `enx` binary (no Node
+or Python needed). All four are always listed in `/mcp`, **off by default**.
+Turn one on with `Tab`; a server with no credentials opens its config form
+instead, which you also reach with `c`. Changes take effect in the running
+session, no restart.
 
-| Server | Gives agents | Install |
-|---|---|---|
-| `coolify` | Applications, servers, databases, services and projects; deploy, start, stop, restart; logs; deployments; env var names | `enx mcp install coolify` |
-| `dokploy` | Projects with their applications, compose stacks and databases; deploy, redeploy, start, stop; logs; deployments; servers; containers | `enx mcp install dokploy` |
-| `vps` | Your VPSes over SSH: run a command, or a read-only status (load, disk, memory, Docker) | `enx vps add <name> --host <address> --user <user> [--key <file>]` |
+| Server | Gives agents |
+|---|---|
+| `coolify` | Applications, servers, databases, services and projects; deploy, start, stop, restart; logs; deployments; env var names |
+| `dokploy` | Projects with their applications, compose stacks and databases; deploy, redeploy, start, stop; logs; deployments; servers; containers |
+| `vps` | Your VPSes over SSH: run a command, or a read-only status (load, disk, memory, Docker) |
+| `rag` | Code search over the workspace: `index`, `search`, `status`, `forget` (see below) |
+
+Fill a server in from the TUI (`c` on its row), or from the CLI, which an
+agent can run for you: enx reloads MCP the moment the credentials land, so you
+never restart the session.
 
 ```sh
-enx mcp install coolify --url https://coolify.example.com   # then paste an API token
+enx mcp set coolify --url https://coolify.example.com --token <token>
+enx mcp set dokploy --url https://dokploy.example.com --token <token>
 enx vps add prod --host 203.0.113.5 --user root --key ~/.ssh/id_ed25519
-enx vps add db --host 203.0.113.6 --user root               # asks for the password
-enx mcp list                                                # what is installed
+enx vps add db --host 203.0.113.6 --user root --password <password>
+enx mcp list
 enx vps list
 enx vps remove db
-enx mcp uninstall dokploy
+enx mcp clear dokploy        # forget its setup and turn it off
 ```
 
 URLs, hosts and users are kept in `~/.enx/builtin-mcp.json`; tokens and VPS
 passwords in `~/.enx/auth.json` (readable by you alone), never in the
-transcript. Secret-looking fields and environment variable values are
+transcript. Ask the agent to set one up ("connect my Coolify at … with this
+token") and it runs `enx mcp set` for you, then the server is live without a
+restart. Secret-looking fields and environment variable values are
 redacted from what the tools return. A VPS's host key is recorded on the
 first connection (`~/.enx/vps_known_hosts`) and a different key later is
 refused before any password is sent. A server you declared yourself under
 the same name (for example in `~/.claude/mcp.json`) keeps the name.
 
 Other MCP clients can run them too: the command is `enx mcp serve coolify`
-(or `dokploy`, `vps`) over stdio.
+(or `dokploy`, `vps`, `rag`) over stdio.
+
+### Code search (`rag`)
+
+`rag` indexes the workspace into Postgres with the pgvector extension and
+lets agents search it by meaning. It needs two things: a Postgres database,
+local (`postgres://localhost/enx`) or cloud (Neon, Supabase, RDS, with
+`?sslmode=require`), and a [Voyage AI](https://www.voyageai.com) API key.
+
+```sh
+enx mcp set rag --dsn postgres://localhost/enx --token <voyage key>
+```
+
+or `c` on its row in `/mcp`. Chunks are embedded with `voyage-code-3` and
+stored in the table `enx_rag_chunks_1024` (the `vector` extension is
+created if the role may). A search fuses vector and keyword matches and
+reranks them with `rerank-2.5`. Indexing is incremental (only changed chunks
+are embedded again), honours `.gitignore`, and never reads `.env` files,
+keys or lockfiles. Each checkout is its own project in the table. The `rag`
+skill, which tells agents when to index and how to search, reaches them only
+while the server is on.
 
 ## Terminal commands
 
 `/help` `/new` `/resume` `/agent` `/model` `/effort` `/provider` `/attach`
 `/theme` `/typesafe` `/skills` `/mcp` `/compact` `/handoff` `/sidebar` `/reasoning`
-`/tools` `/preview` `/status` `/clear` `/stop` `/retry` `/quit`
+`/tools` `/preview` `/status` `/clear` `/stop` `/retry` `/commands` `/quit`
 
 `/handoff` carries the conversation on in a fresh session: its history is
 folded into a summary, the last few turns are kept as they were, and the same
@@ -253,23 +283,51 @@ per step, long files in parts), and the turn carries on. A turn that still fails
 from where it stopped by itself, up to three times a minute apart; `/retry`
 continues at once and `Esc` cancels the wait.
 
-Keys: `Enter` sends, `Ctrl+Enter` inserts a newline, `/` opens the palette,
-`Ctrl+R` toggles reasoning, `Ctrl+O` toggles tool output, `PgUp`/`PgDn` scroll
-the chat, and `Ctrl+C` clears the composer, opens the quit prompt when the
-composer is empty, or interrupts a running turn.
+The tabs at the top right are pages: Chat, Models, Providers, Agents, MCP,
+Skills, Sessions and Theme. A settings page fills the main column in place of
+the chat. Click a tab, or press `Ctrl+P` to step to the next one; `Esc` goes
+back to the chat. `/commands` opens a searchable list of every command, and
+typing `/` lists them above the composer.
+
+Keys work the same on Linux, macOS and Windows. Where a terminal or the OS
+takes a shortcut for itself, a second form does the same thing:
+
+| Key | Does |
+|---|---|
+| `Enter` | Send (queues while a turn runs) |
+| `Shift+Enter`, `Alt+Enter` | Newline (`Ctrl+J` too, when idle) |
+| `Ctrl+Enter`, `Ctrl+S` | Send now, while a turn runs |
+| `Ctrl+Backspace`, `Alt+Backspace` | Erase a word |
+| `Esc` | Close a page, stop a turn, or clear the composer |
+| `Ctrl+C` | Stop a turn, clear the composer, or ask to quit |
+| `Ctrl+D` | Quit, from an empty composer |
+| `Ctrl+P` | Next page tab |
+| `Ctrl+R` / `Ctrl+O` | Show reasoning / tool output |
+| `Ctrl+T` | Next sidebar tab (`Alt+1` to `Alt+4` pick one) |
+| `Alt+Left`/`Alt+Right`, `Alt+B`/`Alt+F` | Sidebar pages |
+| `Ctrl+G` / `Ctrl+X` | Log filter / log detail |
+| `Ctrl+B` | Show or hide the sidebar |
+| `Ctrl+Up`, `Alt+Up` | Edit, resend or copy your last message |
+| `Ctrl+V`, `Alt+V` | Attach an image from the clipboard |
+| `PgUp` / `PgDn` | Scroll the chat |
+
+`Ctrl+Enter` and `Shift+Enter` are told apart from `Enter` only by terminals
+that speak the kitty keyboard protocol (kitty, WezTerm, foot, Ghostty,
+Alacritty, iTerm2) and by Windows Terminal; enx turns it on where it is
+offered. Elsewhere (Terminal.app, GNOME Terminal, tmux) use `Ctrl+S` and
+`Alt+Enter`. AltGr characters type normally on Windows, and a multi-line
+paste there arrives as one paste. Shortcuts are `Ctrl` and `Alt`
+combinations rather than function keys, which not every terminal passes
+through.
 
 While a turn runs you can keep typing: `Enter` puts the message in a queue
 shown above the composer, and queued messages go one at a time as each turn
-ends. `Ctrl+Enter` (or the `[send now]` button) stops the turn and sends at
-once: what is typed, or else the first queued message. `↑` in an empty
-composer takes the last queued message back to edit or delete. Stopping a
-turn with `Esc` or `Ctrl+C` pauses the queue until you send again.
-`Alt+Enter` inserts a newline at any time; idle, `Ctrl+Enter` does too.
+ends. `Ctrl+S` (or `Ctrl+Enter`, or the `[send now]` button) stops the turn
+and sends at once: what is typed, or else the first queued message. `↑` in an
+empty composer takes the last queued message back to edit or delete. Stopping
+a turn with `Esc` or `Ctrl+C` pauses the queue until you send again.
 
-`Ctrl+T` steps to the next sidebar tab and `Alt+1`–`Alt+4` picks one without
-consuming typed digits; `Ctrl+G` steps the log's filter and `Ctrl+X` toggles its
-detail. Shortcuts are `Ctrl` combinations rather than function keys, which not
-every terminal or OS passes through. `Ctrl+B` shows/hides the sidebar; on narrow terminals it opens over the
+`Ctrl+B` shows or hides the sidebar; on narrow terminals it opens over the
 transcript while leaving the composer accessible.
 
 Themes are changed only through `/theme`: arrow keys preview, `Enter` saves,
@@ -362,7 +420,7 @@ whose work needs it and read only when the work does. A project or user skill of
 name replaces one. A skill installed in the project or `~/` goes to every
 agent until the orchestrator binds it, with `skill_bind` (every binding in one
 call), to the agents whose work it serves; bindings are kept in `~/.enx/skill-bindings.json`, and the
-Skills tab shows who has each one. `/skills` and `/mcp` open popups to toggle
+Skills tab shows who has each one. `/skills` and `/mcp` open their pages to toggle
 or add entries; `/compact` folds older turns into a summary; auto-compact fires
 when the context window nears its cap.
 

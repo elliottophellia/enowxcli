@@ -306,6 +306,46 @@ pub struct Agent {
     background: std::sync::Mutex<Option<mpsc::Sender<Event>>>,
     /// Batches of delegations still running in the background.
     waiting: Arc<std::sync::atomic::AtomicUsize>,
+    /// Every delegated branch at work, by session id, so one is never run
+    /// twice at once and its caller knows what is still running.
+    running: Arc<std::sync::Mutex<std::collections::BTreeMap<String, RunningBranch>>>,
+}
+
+/// A delegated branch at work: who runs it, for whom, on what.
+#[derive(Debug, Clone)]
+struct RunningBranch {
+    agent: String,
+    parent: String,
+    task: String,
+}
+
+/// What the agent holding `parent`'s conversation is told about the
+/// delegations it started that are still at work, so it neither resumes one
+/// (running the same session twice at once) nor starts the same work again.
+fn running_note(running: &[RunningBranch]) -> String {
+    if running.is_empty() {
+        return String::new();
+    }
+    let mut note = String::from(
+        "\n\nStill at work in the background, delegated by you earlier. Each reports \
+         back on its own when it finishes. Do not resume these sessions and do not \
+         delegate the same work again: wait for the report, or give the user an update, \
+         or do other work that does not touch theirs.\n",
+    );
+    for branch in running {
+        let task: String = branch.task.chars().take(200).collect();
+        let more = if branch.task.chars().count() > 200 {
+            "…"
+        } else {
+            ""
+        };
+        note.push_str(&format!(
+            "- {}: {}{more}\n",
+            branch.agent,
+            task.replace('\n', " ")
+        ));
+    }
+    note
 }
 
 impl Agent {
@@ -352,6 +392,7 @@ impl Agent {
             me: std::sync::Weak::new(),
             background: std::sync::Mutex::new(None),
             waiting: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            running: Arc::default(),
         }
     }
 
@@ -818,6 +859,26 @@ impl Agent {
         for delegation in delegations {
             // Continuing an earlier delegation: its own session, as it left it.
             if let Some(id) = &delegation.resume {
+                // Still at work: running it a second time would put two runs of
+                // one session on the same files.
+                if self
+                    .running
+                    .lock()
+                    .is_ok_and(|running| running.contains_key(id))
+                {
+                    started.push(Err(crate::event::DelegationReport {
+                        agent: delegation.to.clone(),
+                        session_id: id.clone(),
+                        summary: format!(
+                            "not started: `{id}` ({}) is still at work in the background. \
+                             Its report comes back on its own when it finishes; do not \
+                             resume it or delegate the same work again.",
+                            delegation.to
+                        ),
+                        failed: false,
+                    }));
+                    continue;
+                }
                 let resumed = self.store.load(id).ok().filter(|branch| {
                     branch.parent.as_deref() == Some(parent.id.as_str())
                         && crate::agent_def::canonical_name(&branch.agent)
@@ -846,6 +907,7 @@ impl Agent {
                     continue;
                 };
                 self.board.branch(&branch.id, &parent.id);
+                self.mark_running(&branch.id, &parent.id, delegation);
                 if let Some(record) = parent
                     .delegations
                     .iter_mut()
@@ -887,6 +949,7 @@ impl Agent {
                 continue;
             }
             self.board.branch(&branch.id, &parent.id);
+            self.mark_running(&branch.id, &parent.id, delegation);
             parent.delegations.push(crate::session::DelegationRecord {
                 agent: delegation.to.clone(),
                 session_id: branch.id.clone(),
@@ -902,6 +965,33 @@ impl Agent {
             started.push(Ok(branch));
         }
         started
+    }
+
+    fn mark_running(&self, branch: &str, parent: &str, delegation: &crate::routing::Delegation) {
+        if let Ok(mut running) = self.running.lock() {
+            running.insert(
+                branch.to_owned(),
+                RunningBranch {
+                    agent: delegation.to.clone(),
+                    parent: parent.to_owned(),
+                    task: delegation.task.clone(),
+                },
+            );
+        }
+    }
+
+    /// The delegations `parent` started that are still at work.
+    fn running_for(&self, parent: &str) -> Vec<RunningBranch> {
+        self.running
+            .lock()
+            .map(|running| {
+                running
+                    .values()
+                    .filter(|branch| branch.parent == parent)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Run the started branches together and say how each ended.
@@ -941,6 +1031,9 @@ impl Agent {
                 let outcome = Box::pin(self.run_inner(request, &sink, own)).await;
                 // Finished: what it was editing is open to the others again.
                 self.board.release(&branch.id);
+                if let Ok(mut running) = self.running.lock() {
+                    running.remove(&branch.id);
+                }
                 Some(outcome)
             });
         let outcomes = futures::future::join_all(runs).await;
@@ -1348,6 +1441,12 @@ impl Agent {
         // agent handed the conversation answers the user, not a caller.
         if session.parent.is_some() {
             prompt.push_str(REPORT_CONTRACT);
+        }
+        // Delegations this conversation left running in the background: said
+        // up front, or a "continue" from the user resumed one still at work and
+        // two runs of the same session edited the same files.
+        if active.delegation != crate::agent_def::Delegation::None {
+            prompt.push_str(&running_note(&self.running_for(&session.id)));
         }
         // An agent taking over sees the previous agent's messages as its own.
         // Continuing them, one described the handoff to the user ("I've passed
@@ -1929,9 +2028,43 @@ impl Agent {
                     let started = self
                         .start_branches(&mut session, &delegations, events)
                         .await;
-                    self.continue_in_background(session.id.clone(), delegations.clone(), started);
+                    // One that did not start (a resume of a session still at
+                    // work, a branch that could not be saved) is reported now:
+                    // held back with the others, its caller was told it had
+                    // started and asked again for it.
+                    let (mut running, mut branches) = (Vec::new(), Vec::new());
+                    for (delegation, branch) in delegations.iter().zip(started) {
+                        match branch {
+                            Ok(branch) => {
+                                running.push(delegation.clone());
+                                branches.push(Ok(branch));
+                            }
+                            Err(report) => session.push(Message {
+                                role: MessageRole::User,
+                                content: crate::routing::report_message_for(
+                                    &report.agent,
+                                    &report.session_id,
+                                    &report.summary,
+                                ),
+                                reasoning: None,
+                                tool_calls: Vec::new(),
+                                attachments: Vec::new(),
+                                tool_call_id: None,
+                                interrupted: false,
+                                error: None,
+                                model: None,
+                                message_id: None,
+                            }),
+                        }
+                    }
+                    if running.is_empty() {
+                        self.store.save(&session)?;
+                        step += 1;
+                        continue;
+                    }
                     let names: Vec<String> =
-                        delegations.iter().map(|d| format!("`{}`", d.to)).collect();
+                        running.iter().map(|d| format!("`{}`", d.to)).collect();
+                    self.continue_in_background(session.id.clone(), running, branches);
                     session.push(Message {
                         role: MessageRole::User,
                         content: format!(

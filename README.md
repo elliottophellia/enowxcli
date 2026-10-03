@@ -1,16 +1,61 @@
-# enowxcli
+<h1 align="center">enx</h1>
 
-A Rust coding agent with a terminal interface.
+<p align="center">
+  <b>An open-source AI coding agent for your terminal.</b><br>
+  Specialist agents that plan, build, review and test each other's work, with
+  built-in code search and any model provider. One binary.
+</p>
 
-Website: [enowx.ai](https://enowx.ai)
+<p align="center">
+  <a href="https://github.com/enowdev/enowxcli/releases"><img src="https://img.shields.io/github/v/release/enowdev/enowxcli?color=f0f1f2&label=release" alt="Release"></a>
+  <a href="https://github.com/enowdev/enowxcli/stargazers"><img src="https://img.shields.io/github/stars/enowdev/enowxcli?color=f0f1f2" alt="Stars"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-f0f1f2" alt="License"></a>
+  <img src="https://img.shields.io/badge/macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-f0f1f2" alt="Platforms">
+</p>
+
+<p align="center">
+  <a href="https://enowx.ai">Website</a> ·
+  <a href="https://enowx.ai/docs">Docs</a> ·
+  <a href="https://enowx.ai/changelog">Changelog</a> ·
+  <a href="https://discord.gg/enowxlabs">Discord</a>
+</p>
+
+<p align="center">
+  <img src="docs/demo.gif" alt="enx: a team of AI agents in your terminal building a landing page and pricing API" width="760">
+</p>
+
+```sh
+curl -fsSL https://enowx.ai/install.sh | sh     # macOS / Linux
+irm https://enowx.ai/install.ps1 | iex          # Windows (PowerShell)
+```
+
+Then run `enx`.
+
+## Why enx
+
+Most coding agents are one model editing your files, locked to one vendor. enx
+is different:
+
+- **A team, not one model.** It splits a task across specialist agents (plan,
+  build, review, test) that message each other and review each other's work
+  before it reports back.
+- **Any provider, no lock-in.** Bring any OpenAI-compatible endpoint, including
+  local or cheaper models (DeepSeek and others). Give each agent its own model.
+- **It finds things.** Built-in code search (RAG) over your project, cut along
+  the code's syntax, so a function is never split in half.
+- **It is honest.** It reports what it changed and how it checked it, and says
+  plainly when something was not tested.
+- **One binary.** Written in Rust, no runtime to install. Runs on macOS, Linux
+  and Windows, on Intel and ARM.
+
+> **Early release.** It runs and is used daily, but the surface is still
+> moving. Bug reports, ideas and PRs are welcome.
 
 ```
 enx                          # open the terminal interface (default)
 enx auth login deepseek      # store a provider's API key (typed, not echoed)
-enx auth list                # which providers are connected, and how
-enx config get model.active  # the model in use, as provider/model
 enx config set model.default deepseek/deepseek-flash   # pin the model to start on
-enx config path
+enx models list              # the connected providers and their models
 ```
 
 ## Install

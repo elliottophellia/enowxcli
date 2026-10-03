@@ -130,8 +130,17 @@ async fn run(prompt: &str, script: Script) -> Vec<(String, String)> {
         .await
         .expect("the run ends")
     {
-        if let enowx_core::Event::DelegationFinished { agent, summary, .. } = event {
-            finished.push((agent, summary));
+        match event {
+            enowx_core::Event::DelegationFinished { agent, summary, .. } => {
+                finished.push((agent, summary));
+            }
+            // What a delegated agent used comes up, named.
+            enowx_core::Event::Branch { agent, event, .. }
+                if matches!(*event, enowx_core::Event::Usage { .. }) =>
+            {
+                finished.push((format!("usage:{agent}"), String::new()));
+            }
+            _ => {}
         }
     }
     let _ = handle.await;
@@ -203,6 +212,11 @@ async fn a_review_sends_the_work_back_until_it_passes() {
         fe.1
     );
     assert_eq!(*reviews.lock().unwrap(), 2, "checked, then checked again");
+    assert!(
+        finished.iter().any(|(a, _)| a == "usage:fe")
+            && finished.iter().any(|(a, _)| a == "usage:review"),
+        "the delegate's and the reviewer's model calls come up: {finished:?}"
+    );
     assert!(
         *same_session.lock().unwrap(),
         "the reviewer checked again in the session it reviewed in"

@@ -465,12 +465,19 @@ fn key_spans(app: &App, figures: bool) -> Vec<Span<'static>> {
     // it, so the figures only come along when there is room.
     let mut right_spans: Vec<Span<'static>> = Vec::new();
     if figures {
-        let pct = (app.context_tokens as u64 * 100 / app.context_window.max(1) as u64).min(999);
+        let (context_tokens, window, _) = app.shown_context();
+        let pct = (context_tokens as u64 * 100 / window.max(1) as u64).min(999);
         right_spans.push(Span::styled(
             format!("ctx {pct}%"),
             Style::default().fg(if pct >= 85 { t.red } else { t.muted }),
         ));
-        let cost = crate::pricing::cost_usd(&app.config, app.tokens_in, app.tokens_out, 0);
+        let (used_in, used_out) = app.session_tokens();
+        let cost = crate::pricing::cost_usd(
+            &app.config,
+            used_in.min(u32::MAX as u64) as u32,
+            used_out.min(u32::MAX as u64) as u32,
+            0,
+        );
         right_spans.push(Span::styled(
             format!("  {}   ", crate::pricing::format_cost(&app.config, cost)),
             Style::default().fg(t.muted),

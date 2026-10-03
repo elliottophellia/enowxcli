@@ -66,6 +66,17 @@ toggle.addEventListener("click", () => {
 });
 ```
 
+The toggle itself is an icon button, a sun or a moon and no text beside
+it, named by `aria-label` (and `title`) for what it does, updated on each
+switch:
+
+```html
+<button id="theme" class="icon-button" type="button" aria-label="Switch to dark theme"
+        title="Switch to dark theme">
+  <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20"><!-- moon --></svg>
+</button>
+```
+
 The CSS has the three blocks from the `canvas` skill: bare `:root` (light),
 `@media (prefers-color-scheme: dark) :root` (OS dark), and
 `:root[data-theme="dark"]` / `:root[data-theme="light"]` so the toggle wins

@@ -1135,6 +1135,16 @@ impl Agent {
         let started = self.start_branches(parent, delegations, events).await;
         let reports = self.finish_branches(delegations, started, events).await;
         self.absorb_reports(parent, &reports);
+        // The session's totals now hold what its delegations spent: said
+        // now, not at its next model call.
+        let _ = events
+            .send(Event::Usage {
+                input_tokens: parent.usage.input_tokens,
+                output_tokens: parent.usage.output_tokens,
+                context_tokens: parent.usage.context_tokens,
+                context_window: self.config.model.context_window,
+            })
+            .await;
         reports
     }
 
@@ -1315,8 +1325,7 @@ impl Agent {
                 // The sub-agent's own events are not forwarded: the caller sees a
                 // summary, and interleaving several agents' tool calls in one
                 // transcript is unreadable. The branch session holds the detail.
-                let (sink, mut drain) = mpsc::channel::<Event>(64);
-                tokio::spawn(async move { while drain.recv().await.is_some() {} });
+                let sink = branch_sink(events, &delegation.to, &branch.id);
                 // Its own token, not a child of the caller's: stopping the turn
                 // stops the agent the user talks to, and a sub-agent cut off
                 // mid-task would leave its caller a `NO REPORT` for work that was
@@ -1474,7 +1483,17 @@ impl Agent {
             })
             .await;
         let (verdict, last_report) = self
-            .review_rounds(delegation, branch_id, &review, &reviewer, rounds, cancel)
+            .review_rounds(
+                ReviewPlan {
+                    delegation,
+                    branch_id,
+                    review: &review,
+                    reviewer: &reviewer,
+                    rounds,
+                },
+                cancel,
+                events,
+            )
             .await;
         // Done with it: off the list, its files freed, and its transcript
         // cleared like any delegation that reported.
@@ -1490,6 +1509,14 @@ impl Agent {
                 failed: false,
             })
             .await;
+        // Its tokens count toward the delegate's, and so up to the session
+        // the user sees, before its transcript goes.
+        if let (Ok(reviewed), Ok(mut delegate)) =
+            (self.store.load(&review.id), self.store.load(branch_id))
+        {
+            delegate.absorb_usage(&reviewed.usage);
+            let _ = self.store.save(&delegate);
+        }
         let _ = self.store.delete_family(&review.id);
         verdict
     }
@@ -1499,13 +1526,17 @@ impl Agent {
     /// the caller, and the reviewer's last report.
     async fn review_rounds(
         &self,
-        delegation: &crate::routing::Delegation,
-        branch_id: &str,
-        review: &Session,
-        reviewer: &str,
-        rounds: u8,
+        plan: ReviewPlan<'_>,
         cancel: &CancellationToken,
+        events: &mpsc::Sender<Event>,
     ) -> (Option<String>, String) {
+        let ReviewPlan {
+            delegation,
+            branch_id,
+            review,
+            reviewer,
+            rounds,
+        } = plan;
         use crate::comms::{
             corrections_message, parse_verdict, recheck_brief, review_brief, Verdict,
         };
@@ -1533,8 +1564,7 @@ impl Agent {
                 attachments: Vec::new(),
                 agent: None,
             };
-            let (sink, mut drain) = mpsc::channel::<Event>(64);
-            tokio::spawn(async move { while drain.recv().await.is_some() {} });
+            let sink = branch_sink(events, reviewer, &review.id);
             let outcome = Box::pin(self.run_inner(request, &sink, cancel.child_token())).await;
             let reviewed = self
                 .store
@@ -1577,8 +1607,7 @@ impl Agent {
                         attachments: Vec::new(),
                         agent: None,
                     };
-                    let (sink, mut drain) = mpsc::channel::<Event>(64);
-                    tokio::spawn(async move { while drain.recv().await.is_some() {} });
+                    let sink = branch_sink(events, &delegation.to, branch_id);
                     if let Err(error) =
                         Box::pin(self.run_inner(request, &sink, cancel.child_token())).await
                     {
@@ -2874,6 +2903,43 @@ fn persist_interrupted(
 /// Whether a delegation's transcript is kept after it reports: only one
 /// that finished with its report is cleared. A failure, a stop short (no
 /// report) or a branch still at work keeps its session to be resumed.
+/// What a cross-review checks, and how many times it may send work back.
+struct ReviewPlan<'a> {
+    delegation: &'a crate::routing::Delegation,
+    branch_id: &'a str,
+    review: &'a Session,
+    reviewer: &'a str,
+    rounds: u8,
+}
+
+/// The channel a delegated agent's turn sends its events to. What its
+/// caller's host keeps track of (`Event::goes_up`) is passed up as a
+/// `Branch` naming it; the rest stays in its own transcript.
+fn branch_sink(up: &mpsc::Sender<Event>, agent: &str, session_id: &str) -> mpsc::Sender<Event> {
+    let (sink, mut events) = mpsc::channel::<Event>(64);
+    let up = up.clone();
+    let (agent, session_id) = (agent.to_owned(), session_id.to_owned());
+    tokio::spawn(async move {
+        while let Some(event) = events.recv().await {
+            if !event.goes_up() {
+                continue;
+            }
+            let event = match event {
+                // A delegation of a delegation already says who it is.
+                branch @ Event::Branch { .. } => branch,
+                other => Event::Branch {
+                    agent: agent.clone(),
+                    session_id: session_id.clone(),
+                    event: Box::new(other),
+                },
+            };
+            // The host may be gone (the user quit); the turn goes on.
+            let _ = up.send(event).await;
+        }
+    });
+    sink
+}
+
 /// The report of a delegation the user stopped: what it had changed, what
 /// it was doing last, and where to read the rest.
 fn killed_summary(branch: &Session) -> String {

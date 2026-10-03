@@ -320,6 +320,11 @@ impl App {
                 );
             }
             Event::Notice { message } => self.push(TranscriptKind::Notice, message),
+            Event::Branch {
+                agent,
+                session_id,
+                event,
+            } => self.branch_event(&agent, &session_id, *event),
             Event::AgentSwitched { to, reason } => {
                 // Pinned to where the transcript has reached rather than to a
                 // turn index: the block list is what the marker is drawn
@@ -411,6 +416,9 @@ impl App {
                     crate::logs::LogKind::Agent,
                     format!("{agent} {}", if failed { "failed" } else { "finished" }),
                 );
+                if let Some(usage) = self.branch_usage.get_mut(&session_id) {
+                    usage.done = true;
+                }
                 // Match on the branch id: the same agent can be delegated to
                 // more than once in a session, and marking the first one
                 // finished would leave a later run showing as done.
@@ -464,6 +472,8 @@ impl App {
                 );
                 self.tokens_in = input_tokens;
                 self.tokens_out = output_tokens;
+                // What reported delegations spent is in these totals now.
+                self.branch_usage.retain(|_, usage| !usage.done);
                 self.context_tokens = context_tokens;
                 if context_window > 0 {
                     self.context_window = context_window;
@@ -682,5 +692,68 @@ impl App {
                     .await;
             }
         }));
+    }
+}
+
+impl App {
+    /// A delegated agent's event: its token use counted, and what happened
+    /// in the log, named by who. The log is every agent's, not only the
+    /// conversation's.
+    pub(crate) fn branch_event(&mut self, agent: &str, session_id: &str, event: Event) {
+        use crate::logs::LogKind;
+        let who = enowx_core::agent_def::display_name(agent).to_string();
+        match event {
+            Event::Usage {
+                input_tokens,
+                output_tokens,
+                context_tokens,
+                context_window,
+            } => {
+                self.logs.push_with(
+                    LogKind::Model,
+                    format!("{who} · model call"),
+                    Some(format!(
+                        "in {} · out {} · context {}",
+                        crate::text::thousands(input_tokens as u64),
+                        crate::text::thousands(output_tokens as u64),
+                        crate::text::thousands(context_tokens as u64)
+                    )),
+                );
+                let usage = self.branch_usage.entry(session_id.to_owned()).or_default();
+                usage.agent = agent.to_owned();
+                usage.input = input_tokens;
+                usage.output = output_tokens;
+                usage.context = context_tokens;
+                if context_window > 0 {
+                    usage.window = context_window;
+                }
+            }
+            Event::Retry {
+                message,
+                attempt,
+                max,
+            } => self.logs.push_with(
+                LogKind::Problem,
+                format!("{who}: retry {attempt}/{max}"),
+                Some(message),
+            ),
+            Event::Trimmed { tool, was, now } => self.logs.push_with(
+                LogKind::Context,
+                format!("{who}: trimmed {tool}"),
+                Some(format!(
+                    "{} → {} chars",
+                    crate::text::thousands(was as u64),
+                    crate::text::thousands(now as u64)
+                )),
+            ),
+            Event::Notice { message } => {
+                self.logs.push(LogKind::Agent, format!("{who}: {message}"));
+            }
+            Event::Error { message } => {
+                self.logs
+                    .push_with(LogKind::Problem, format!("{who} failed"), Some(message));
+            }
+            _ => {}
+        }
     }
 }

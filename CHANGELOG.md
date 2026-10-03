@@ -9,10 +9,22 @@ Issues. The highlights: settings move to a Settings tab beside the chat;
 agents can work together (messages, a shared board, cross-review) when you
 turn it on; built-in code search over your project (`rag`); built-in MCP
 servers for Coolify, Dokploy and your VPSes; a stopped or failed sub-agent
-can be read back by the agent that sent it; and every shortcut now works on
-Linux, macOS and Windows.
+can be read back by the agent that sent it; every shortcut now works on
+Linux, macOS and Windows; and enx updates itself (`enx update`, `/update`).
 
 ### Agents and delegation
+
+- **Sub-agents count, and are logged.** What a delegated agent uses comes
+  up to the interface as it works: the Log tab lists every agent's model
+  calls, retries, trims and errors, named; the SESSION card's new `used`
+  row and the cost count the whole session, sub-agents included (a
+  reviewer's tokens too); and with a sub-agent's transcript open, the
+  context shown is that agent's own.
+- **A finished sub-agent leaves the sidebar** once its transcript is
+  cleared, so no row leads nowhere; one at work, failed or stopped stays.
+- **One reviewer across cross-review rounds.** It waits between rounds in
+  its own session (so the delegate can answer it) and carries on there,
+  keeping its context and the prompt cache.
 
 - **Stop a sub-agent with a right-click on it in the sidebar.** Its caller
   gets a report that it was stopped by the user, with the files it had
@@ -58,6 +70,16 @@ Linux, macOS and Windows.
   Every agent shows the model it runs on under its description.
 
 ### Interface
+
+- **enx updates itself.** `enx update` installs the latest release in place
+  of the running binary after checking its published checksum (`--check`
+  only looks, `--force` reinstalls). The interface looks for a new release
+  in the background at start and notes it in the status bar until
+  `/update` installs it. Settings > Updates turns the check off, or has it
+  install by itself, used from the next start.
+- **Line edits show as diffs.** An edit by line anchors used to show the
+  tool's raw anchored text; it now returns a small diff the interface draws
+  like any edit.
 
 - **Chat and Settings tabs at the top right.** Settings takes the whole main
   column in place of the chat: its sections (Models, Providers, Agents, Team,
@@ -159,6 +181,10 @@ Linux, macOS and Windows.
   on.
 
 ### Skills
+
+- **A theme toggle is an icon, with no text.** `ui-themes`, `ui-part-header`
+  and `canvas-data` now say so: a sun or moon button, named by its
+  `aria-label` alone.
 
 - **Desktop apps in Rust: `systems-desktop` and `systems-gpui`.** The first
   chooses the stack (Tauri for a web UI with a Rust core, GPUI for a native

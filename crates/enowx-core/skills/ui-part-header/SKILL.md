@@ -52,7 +52,8 @@ actions are its page header (`ui-part-page-header`).
   (GitHub, LinkedIn) is a text link, or an icon with a label, not an
   outlined button beside the navigation.
 - A theme toggle only when both themes are built and checked: one icon
-  button whose `aria-label` says what it switches to (`ui-themes`).
+  button (sun or moon), no visible text, whose `aria-label` says what it
+  switches to (`ui-themes`).
 - The name's left edge and the last link's right edge line up with the
   content's container, so the header and the page share one grid: the
   bar's inner row is the page's container, its background full width.

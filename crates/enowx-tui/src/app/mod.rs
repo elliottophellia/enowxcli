@@ -34,6 +34,47 @@ pub(crate) mod skills;
 mod team_ui;
 pub(crate) mod update_ui;
 
+/// What one delegated agent has used so far.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct BranchUsage {
+    pub(crate) agent: String,
+    pub(crate) input: u32,
+    pub(crate) output: u32,
+    pub(crate) context: u32,
+    pub(crate) window: u32,
+    /// It reported: its tokens are about to be the delegating session's.
+    pub(crate) done: bool,
+}
+
+impl App {
+    /// The context the SESSION card shows: the sub-agent's whose transcript
+    /// is open, or else the conversation's. (used, window, whose).
+    pub(crate) fn shown_context(&self) -> (u32, u32, Option<String>) {
+        if let Some(viewing) = &self.viewing {
+            let usage = self.branch_usage.get(&viewing.session_id);
+            return (
+                usage.map_or(0, |u| u.context),
+                usage
+                    .map(|u| u.window)
+                    .filter(|w| *w > 0)
+                    .unwrap_or(self.context_window),
+                Some(viewing.agent.clone()),
+            );
+        }
+        (self.context_tokens, self.context_window, None)
+    }
+
+    /// Tokens the whole session used so far, in and out: the conversation
+    /// with what its finished delegations spent, and what those at work
+    /// have spent until they report.
+    pub(crate) fn session_tokens(&self) -> (u64, u64) {
+        self.branch_usage.values().fold(
+            (self.tokens_in as u64, self.tokens_out as u64),
+            |(input, output), u| (input + u.input as u64, output + u.output as u64),
+        )
+    }
+}
+
 /// One sub-agent run, as the sidebar shows it.
 #[derive(Clone)]
 pub(crate) struct Delegation {
@@ -225,6 +266,10 @@ pub(crate) struct App {
     pub(crate) update_shown: update_ui::UpdateState,
     /// Whether the user asked (`/update`), and so hears every outcome.
     pub(crate) update_heard: bool,
+    /// What each delegated agent has used, by its session, from its own
+    /// `Usage` events. Counted into the session's totals until the session
+    /// that delegated has taken it into its own.
+    pub(crate) branch_usage: std::collections::HashMap<String, BranchUsage>,
     /// The inline command list above the composer, and its rows, for the
     /// wheel and for clicks.
     pub(crate) composer_palette: Option<Rect>,
@@ -448,6 +493,7 @@ impl App {
             update: Default::default(),
             update_shown: Default::default(),
             update_heard: false,
+            branch_usage: std::collections::HashMap::new(),
             composer_palette: None,
             composer_palette_rows: Vec::new(),
             question: None,

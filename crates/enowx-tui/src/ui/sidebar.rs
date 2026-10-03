@@ -92,9 +92,11 @@ fn session_rows(app: &App, width: usize) -> Vec<Line<'static>> {
     // thing anyone does about these numbers, so it leads — and its bar turns
     // red once there is little room left, when a full bar in the accent
     // colour would look the same as an empty one at a glance.
-    let window = app.context_window;
+    // With a sub-agent's transcript open, the context is that agent's:
+    // its own window, not the conversation's.
+    let (context_tokens, window, whose) = app.shown_context();
     let percent = if window > 0 {
-        (100.0 * app.context_tokens as f64 / window as f64).min(100.0)
+        (100.0 * context_tokens as f64 / window as f64).min(100.0)
     } else {
         0.0
     };
@@ -102,6 +104,15 @@ fn session_rows(app: &App, width: usize) -> Vec<Line<'static>> {
     let track = width.saturating_sub(LABEL_COLUMN + 5).max(4);
     let filled = ((track as f64) * percent / 100.0).round() as usize;
     let bar_colour = if percent >= 85.0 { t.red } else { t.accent };
+    if let Some(agent) = &whose {
+        rows.push(Line::from(vec![
+            label("agent"),
+            Span::styled(
+                enowx_core::agent_def::display_name(agent).to_string(),
+                Style::default().fg(t.accent),
+            ),
+        ]));
+    }
     rows.push(Line::from(vec![
         label("context"),
         Span::styled(
@@ -118,11 +129,27 @@ fn session_rows(app: &App, width: usize) -> Vec<Line<'static>> {
         label("tokens"),
         value(format!(
             "{} / {}",
-            thousands(app.context_tokens as u64),
+            thousands(context_tokens as u64),
             thousands(window as u64)
         )),
     ]));
-    let cost = crate::pricing::cost_usd(&app.config, app.tokens_in, app.tokens_out, 0);
+    // Everything the session used, in and out, its sub-agents included:
+    // what the cost is counted from.
+    let (used_in, used_out) = app.session_tokens();
+    rows.push(Line::from(vec![
+        label("used"),
+        value(format!(
+            "in {} · out {}",
+            compact(used_in),
+            compact(used_out)
+        )),
+    ]));
+    let cost = crate::pricing::cost_usd(
+        &app.config,
+        used_in.min(u32::MAX as u64) as u32,
+        used_out.min(u32::MAX as u64) as u32,
+        0,
+    );
     rows.push(Line::from(vec![
         label("cost"),
         value(crate::pricing::format_cost(&app.config, cost)),
@@ -844,5 +871,14 @@ fn detail_lines(app: &App, width: usize) -> Detail {
         delegation_markers,
         slide_markers,
         list_span,
+    }
+}
+
+/// A token count short enough for the card: `950`, `48.2k`, `1.3M`.
+fn compact(n: u64) -> String {
+    match n {
+        0..=9_999 => thousands(n),
+        10_000..=999_999 => format!("{:.1}k", n as f64 / 1_000.0),
+        _ => format!("{:.1}M", n as f64 / 1_000_000.0),
     }
 }

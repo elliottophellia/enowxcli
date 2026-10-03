@@ -132,6 +132,32 @@ pub enum Event {
     Done {
         stop_reason: String,
     },
+    /// Something a delegated agent's turn did that its caller's host keeps
+    /// track of: its token use (`Usage`), a retry, a trim, a notice or an
+    /// error, with who and which branch. A delegation of a delegation comes
+    /// through as its own `Branch`, unwrapped.
+    Branch {
+        agent: String,
+        session_id: String,
+        event: Box<Event>,
+    },
+}
+
+impl Event {
+    /// Whether a delegated agent's event goes up to its caller's host as a
+    /// `Branch`: what the host logs and counts. Its text, tool calls and
+    /// terminal events stay in its own transcript.
+    pub fn goes_up(&self) -> bool {
+        matches!(
+            self,
+            Event::Usage { .. }
+                | Event::Retry { .. }
+                | Event::Trimmed { .. }
+                | Event::Notice { .. }
+                | Event::Error { .. }
+                | Event::Branch { .. }
+        )
+    }
 }
 
 /// What one delegated agent reported, carried back to the agent that

@@ -80,6 +80,18 @@ page, check it against its `.sha256` file, and put `enx` (`enx.exe`) on your
 | Windows, x64 | `enx-x86_64-pc-windows-msvc.zip` |
 | Windows, ARM64 | `enx-aarch64-pc-windows-msvc.zip` |
 
+### Updating
+
+```sh
+enx update            # install the latest release in place of this one
+enx update --check    # only say whether there is one
+```
+
+The interface also looks for a new release when it starts and says so in
+the status bar; `/update` installs it. Settings > Updates turns the check
+off, or has it install updates by itself (`[update]` in `config.toml`,
+or `ENX_NO_UPDATE_CHECK=1`).
+
 ### From source
 
 With a Rust toolchain:
@@ -310,7 +322,7 @@ The same settings live in `config.toml` under `[agent.comms]`: `enabled`,
 
 `/help` `/new` `/resume` `/agent` `/model` `/effort` `/provider` `/attach`
 `/theme` `/typesafe` `/skills` `/mcp` `/compact` `/handoff` `/sidebar` `/reasoning`
-`/tools` `/preview` `/rag` `/team` `/status` `/clear` `/stop` `/retry` `/commands` `/quit`
+`/tools` `/preview` `/rag` `/team` `/update` `/status` `/clear` `/stop` `/retry` `/commands` `/quit`
 
 `/handoff` carries the conversation on in a fresh session: its history is
 folded into a summary, the last few turns are kept as they were, and the same
@@ -354,7 +366,7 @@ continues at once and `Esc` cancels the wait.
 
 Two tabs sit at the top right: Chat and Settings. Settings takes the main
 column in place of the chat, with its sections listed on the left (Models,
-Providers, Agents, Team, MCP, RAG, Skills, Sessions, Theme) and the chosen one beside
+Providers, Agents, Team, MCP, RAG, Skills, Sessions, Theme, Updates) and the chosen one beside
 them. `Ctrl+P` switches between Chat and Settings. Settings opens with the
 section list focused: `Up`/`Down` pick a section, shown beside the list, and
 `Enter` goes into it. `Esc` steps back one level: from a form to its list,

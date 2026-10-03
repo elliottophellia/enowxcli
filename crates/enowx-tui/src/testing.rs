@@ -1641,4 +1641,24 @@ impl TestApp {
             context_window,
         });
     }
+
+    /// A delegated agent's `Usage`, as its caller's turn passes it up.
+    pub fn deliver_branch_usage(
+        &mut self,
+        agent: &str,
+        session_id: &str,
+        tokens: (u32, u32, u32, u32),
+    ) {
+        let (input_tokens, output_tokens, context_tokens, context_window) = tokens;
+        self.inner.apply_event(enowx_core::Event::Branch {
+            agent: agent.to_owned(),
+            session_id: session_id.to_owned(),
+            event: Box::new(enowx_core::Event::Usage {
+                input_tokens,
+                output_tokens,
+                context_tokens,
+                context_window,
+            }),
+        });
+    }
 }

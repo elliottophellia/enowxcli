@@ -125,11 +125,16 @@ use `--border-strong`, which still reaches 3:1; the one highlighted part
 
 - The default follows the system (`prefers-color-scheme`) unless the concept
   sets one theme, in which case there is no toggle.
-- A toggle is a button in the header's right group, named for what it does
-  ("Switch to dark theme"), with the icon set's sun or moon. The choice is
-  saved, and applied before the first paint by a small script in `<head>`
-  that sets the class or attribute, so the wrong theme never flashes
-  (`next-themes` does this in Next.js).
+- A toggle is an icon button in the header's right group: the icon set's
+  sun or moon and nothing else. No visible text: not "Dark mode", not
+  "Light", not a label beside or under the icon, not a switch with words on
+  it. Its name is for assistive technology and the pointer, not the eye:
+  an `aria-label` that says what it does ("Switch to dark theme"), the same
+  in a `title`, updated when the theme changes. It is the size of the other
+  icon buttons (a 40px target at least) and shows focus like them. The
+  choice is saved, and applied before the first paint by a small script in
+  `<head>` that sets the class or attribute, so the wrong theme never
+  flashes (`next-themes` does this in Next.js).
 - No page-wide animation when switching; a short colour transition at most.
 
 ## 6. Check both

@@ -4,6 +4,8 @@ All notable changes to enx. Dates are YYYY-MM-DD.
 
 ## Unreleased
 
+## v0.2.1 (2026-10-03)
+
 ### Interface work
 
 - **Everything that can be set is in Settings.** New sections: General
@@ -36,6 +38,29 @@ All notable changes to enx. Dates are YYYY-MM-DD.
 - **The orchestrator and maestro can stop a delegation** at work with
   `stop_delegation` and a reason; its report says who stopped it and why,
   and the list of delegations still running now gives their sessions.
+- **Each delegated sub-agent shows the model it runs on** in the sidebar
+  list and the log, so a glance shows what is answering each one.
+- **Stopping a sub-agent asks first.** A right-click in the sidebar used to
+  stop it at once; it now opens a confirm that defaults to keeping it, so a
+  stray click stops nothing.
+
+### Models
+
+- **A model manager that tests before it assigns.** A new `model-manager`
+  skill, carried by the orchestrator and maestro, helps set a model per
+  agent: `enx models list` shows the connected providers and their models,
+  the model in use and the per-tier and per-agent ones; `enx models test
+  provider/model` makes one tiny call and says whether it answered, how
+  fast, and the tokens, failing with the provider's own error. The skill
+  lists what you own, brainstorms a mapping, tests every candidate, then
+  sets only the ones that answered.
+- **The footer and `/model` follow the active agent's model.** Setting an
+  agent to another model used to leave the footer on the old one until the
+  next `/model`, and picking a model while an agent had its own changed the
+  conversation's model, not the agent's. Both now track the agent that is
+  answering.
+- **`antares --version` and `--help` work as commands** (the CLI took a
+  leading flag as an option of the default serve).
 
 ## v0.2.0 (2026-10-03)
 

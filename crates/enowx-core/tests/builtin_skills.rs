@@ -591,6 +591,32 @@ fn every_skill_directory_is_built_in() {
     }
 }
 
+/// Brainstorming is not the default: it runs when the user asks, or when a
+/// large product's purpose cannot be told; small work is built with stated
+/// assumptions, and an unclear case builds rather than asks.
+#[test]
+fn brainstorming_is_not_the_default() {
+    let source = builtin_source("brainstorm").unwrap();
+    let head = source.split("## How").next().unwrap();
+    for needed in [
+        "Only when the user asks to brainstorm",
+        "Not the default for building",
+        "the user asks for it",
+        "a small project, one page, one tool, one feature",
+        "When it is unclear whether to brainstorm, do not",
+    ] {
+        assert!(head.contains(needed), "missing {needed:?}");
+    }
+    assert!(!head.contains("anything two reasonable specialists would build differently"));
+    assert!(
+        source.contains("never offered as a question"),
+        "the stack is decided, not asked"
+    );
+    let orchestration = builtin_source("orchestration").unwrap();
+    assert!(orchestration.contains("**Check**, without asking"));
+    assert!(!orchestration.contains("one `ask` before the\n   first wave"));
+}
+
 /// A new project with an interface is always asked which theme it gets.
 #[test]
 fn brainstorming_asks_for_the_theme() {

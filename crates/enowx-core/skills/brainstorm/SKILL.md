@@ -1,36 +1,40 @@
 ---
 name: brainstorm
-description: "Turning a new project, a new feature or a redesign into a design agreed with the user, then into the plan documents the user chose (PRD, DESIGN, ARCHITECTURE, ERD, API, PLAN), before anyone builds it. Asks which documents to write and skips the rest. Read before routing such a request; not for fixes, small changes or questions. Its parts hold each document's template."
+description: "Agreeing a design with the user before building, then writing the plan documents they chose (PRD, DESIGN, ARCHITECTURE, ERD, API, PLAN). Only when the user asks to brainstorm, plan or settle the design first, or when a large new product's purpose or users cannot be told from the request or the workspace. Not the default for building: not for small projects, one page or one feature, fixes, changes or questions, which go straight to work with stated assumptions. Its parts hold each document's template."
 ---
 
 # Brainstorm before building
 
-A new project or feature built from a one-line request is built on guesses:
-who it is for, what it must do first, how it should look, what it must not
-do. Each wrong guess is paid for with a rebuild. A few questions first cost
-the user a minute.
+The default is to build: a lead that answers every request with questions
+looks unable to decide, and most requests say enough. Open details are
+filled from the request, the code and common convention, and the
+assumptions are stated in one line. A brainstorm is for the few cases where
+guessing would waste a large build.
 
 ## When
 
-Brainstorm when the request starts something whose shape is open:
+Brainstorm only when:
 
-- a new project or application from nothing ("build me an app for…",
-  "scaffold a…")
-- a new feature, or a new page, with real choices in it
-- a redesign or a rewrite
-- anything two reasonable specialists would build differently
+- the user asks for it: to brainstorm, plan, discuss or settle the design
+  before anything is built
+- the work is large (a new product across several areas, a rewrite) and
+  what it is for or who uses it cannot be told from the request or the
+  workspace ("build me an app" and nothing else)
 
-Do not brainstorm:
+Do not brainstorm, build instead:
 
+- a small project, one page, one tool, one feature: choose sensible
+  defaults, state them, and build
+- a request whose purpose is stated, even in a line ("a landing page for my
+  bakery", "a todo app with tags")
 - a bug, an error or a failing test: route it
 - a small change whose result is clear ("make the button green")
 - a question about the code: answer it or route it
-- work the user already specified in detail, or when they say to just
-  build it
+- work the user already specified, or when they say to just build it
 - a follow-up on work already agreed in this conversation
 
-When it is unclear, ask one question: whether the user wants to settle the
-details, or leave them to you.
+When it is unclear whether to brainstorm, do not: build with your
+assumptions stated, and let the user correct them.
 
 Two rules hold for every brainstorm, whatever the work is:
 
@@ -96,9 +100,11 @@ webview recording, and never ask the user to record the sound.
      the recommendation first (for React with Tailwind: "shadcn/ui with
      Lucide (recommended)", "Mantine with Tabler", "Radix Themes"); the `ui`
      skill lists the choices per stack
-   - constraints: the stack, where it runs, the data it works with. How
-     the data is fetched, cached or deployed is the specialist's to decide;
-     ask about it only when the user raised it
+   - constraints only the user can name: an existing stack or host they
+     must use, a budget or a paid service, data they already have. The
+     stack, the framework, the architecture and how data is fetched, cached
+     or deployed are decided by you and the specialists, stated in the
+     brief, never offered as a question
    - the checks, for work large enough to delegate in waves, `"multiple":
      true`: "Tests (recommended)" (the `test` agent writes and runs tests
      against what was agreed), "Review (recommended)" (the `review` agent

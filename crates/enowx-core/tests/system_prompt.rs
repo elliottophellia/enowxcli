@@ -286,20 +286,45 @@ async fn built_in_skills_reach_only_the_agents_that_carry_them() {
     assert!(tools.iter().any(|t| t == "skill_read"), "{tools:?}");
 }
 
-/// The orchestrator brainstorms only when the shape of the work is open,
-/// and asks through `ask`, never in prose.
+/// The orchestrator decides by default: a build request goes to work with its
+/// assumptions stated. It brainstorms only when the user asks, or when a
+/// large product's purpose cannot be told, and asks only what is the user's,
+/// through `ask`, never in prose. Checks run without a question.
 #[test]
-fn the_orchestrator_brainstorms_only_when_the_shape_is_open() {
+fn the_orchestrator_decides_and_brainstorms_only_when_asked() {
     let orchestrator = builtin_agents()
         .into_iter()
         .find(|a| a.name == "orchestrator")
         .unwrap();
+    let prompt = &orchestrator.prompt;
     for needed in [
+        "DECIDE BY DEFAULT",
+        "Do not ask what the code, the context or convention",
+        "a small project, one page or one feature gets no brainstorm",
+        "Brainstorm when the user asks for it",
+        "cannot be told from the",
         "read the `brainstorm` skill",
         "Not for a fix, a small change with a clear result",
+        "ASK ONLY WHAT IS THE USER'S",
         "never as prose",
         "concepts drawn from the subject, never as the category's default",
+        "The check, without asking",
+        "only when the user asked for them or chose them in a brainstorm",
     ] {
-        assert!(orchestrator.prompt.contains(needed), "missing {needed:?}");
+        assert!(prompt.contains(needed), "missing {needed:?}");
     }
+    for gone in [
+        "BRAINSTORM FIRST WHEN THE SHAPE IS OPEN",
+        "one `ask` before the first wave",
+        "only the checks the user chose",
+    ] {
+        assert!(!prompt.contains(gone), "still says {gone:?}");
+    }
+
+    let maestro = builtin_agents()
+        .into_iter()
+        .find(|a| a.name == "maestro")
+        .unwrap();
+    assert!(maestro.prompt.contains("Decide by default"), "maestro");
+    assert!(maestro.prompt.contains("Brainstorm only when the user asks"), "maestro");
 }

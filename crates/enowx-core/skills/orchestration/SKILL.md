@@ -12,7 +12,10 @@ writes briefs that prescribe a layout and drop what the user decided; lets
 two agents edit one file; and passes "done" on without looking. This is how
 to choose between answering, handing off and delegating, split by area, run
 waves on a shared contract, brief each part, choose tiers, handle failures
-and report back. Agreeing an open design with the user is `brainstorm`.
+and report back. The lead decides by default: open details are filled from
+the request, the code and convention, and the assumptions go in the briefs
+and the answer. Agreeing a design with the user first is `brainstorm`, only
+when the user asks for it or a large product's purpose cannot be told.
 
 ## 1. Answer, hand off or delegate
 
@@ -56,10 +59,12 @@ and report back. Agreeing an open design with the user is `brainstorm`.
 A wave is one step holding one `delegate` call per part, so its parts run
 at the same time; it waits only for the wave before it.
 
-0. **Plan**, for a new product or a feature across several areas or waves:
-   the documents the user chose in `brainstorm` (PRD, DESIGN, ARCHITECTURE,
-   ERD, API, PLAN), written with `plan_write` from what the user decided;
-   none when they chose none. The waves below are `PLAN.md`'s; the contract is `API.md`'s.
+0. **Plan documents**, only when the user asked for them or chose them in
+   `brainstorm` (PRD, DESIGN, ARCHITECTURE, ERD, API, PLAN), written with
+   `plan_write` from what the user decided; then the waves below are
+   `PLAN.md`'s and the contract is `API.md`'s. Otherwise none: the plan is
+   the `todo` list and the contract travels in the briefs. A small project
+   never gets them.
 
 1. **Foundation**, only when the other parts stand on it: a new project's
    scaffold, shared types, the API's routes and shapes, the layout every
@@ -75,11 +80,11 @@ at the same time; it waits only for the wave before it.
    step. `motion` needs markup that exists: on existing pages it runs in
    this step on its own files; on new pages it takes a step of its own,
    right after the `fe` parts it animates.
-3. **Check**: the checks the user chose, together: `test`, `review`,
-   `security` where it matters (sign-in, payments, uploads, anything
-   public). They are asked in `brainstorm`, or in one `ask` before the
-   first wave when there was no brainstorm. A check not chosen is not
-   delegated; none chosen means no check wave, and the answer says so.
+3. **Check**, without asking, together: `review` on what was built,
+   `test` when it holds logic worth testing (an API, a calculation, a
+   flow), `security` where it matters (sign-in, payments, uploads,
+   anything public). Leave one out only when the user said so, or chose
+   otherwise in a brainstorm; the answer says which checks ran.
 4. **Fixes** from the check, each to the specialist that owns the files,
    with the finding as its brief.
 
@@ -227,9 +232,10 @@ planning documents and nothing else.
 
 ## 10. Splits that work
 
-- **A new shop.** Brainstorm; then 1) `fe` foundation; 2) `fe` catalogue,
+- **A new shop** ("a shop for my handmade candles"). Its purpose is
+  stated, so no brainstorm: defaults stated in the briefs; 1) `fe` foundation; 2) `fe` catalogue,
   `fe` product page, `fe` cart and checkout, `be` API, `db` schema and
-  seed, all in one step; 3) `motion`, if the user chose motion; 4) `test`,
+  seed, all in one step; 3) `motion`, if the user asked for motion; 4) `test`,
   `review`, and `security` on checkout and sign-in.
 - **A dashboard in an existing SaaS app.** No foundation: 1) `fe` per
   screen (overview, list and detail, settings), `be` for the new
@@ -239,8 +245,8 @@ planning documents and nothing else.
   and the API client, when there is no app yet; 2) `mobile` per screen,
   `be` for the missing endpoints; 3) `test`, `review`, and `security` for
   token storage and sign-in.
-- **A landing page with motion.** Brainstorm the look, the theme and how
-  much motion; then 1) one `fe` part for the page (its sections share one
+- **A landing page with motion.** No brainstorm: the look and theme drawn
+  from the subject and a calm level of motion, said in the brief; then 1) one `fe` part for the page (its sections share one
   stylesheet and layout, so they are not split across agents); 2) `motion`
   on its own files; 3) `review`, which looks with `preview`.
 - **"Checkout sometimes charges twice."** Not split yet: 1) `test` to

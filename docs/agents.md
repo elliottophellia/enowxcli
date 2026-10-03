@@ -159,7 +159,7 @@ and three built-in skills are there to stop that (2026-09-28).
 | `review*`, `research*`, `librarian`, `orchestration` | How to review a change and the checklists by kind; how to answer with evidence, read a codebase, search the web and choose a library; how to gather excerpts; how to run a large task across specialists |
 | `code` | Reading the codebase first, structure, names, types, errors, dependencies, frontend specifics, comments, hygiene |
 | `writing` | Specific over generic, words to drop, sentences, interface copy, errors and empty states, docs, voice |
-| `brainstorm` | When to agree a design with the user before building (a new project, feature or page, a redesign) and when not to; how: look first, ask everything open in one `ask` session (always the theme, for a new interface, and which plan documents to write), offer approaches, confirm, write the chosen documents with `plan_write`, hand the agreed design over. Parts: `brainstorm-prd`, `-design`, `-architecture`, `-erd`, `-api`, `-plan`, one template each |
+| `brainstorm` | When to agree a design with the user before building (only when the user asks for it, or a large new product's purpose cannot be told; never the default) and when not to; how: look first, ask everything open in one `ask` session (always the theme, for a new interface, and which plan documents to write), offer approaches, confirm, write the chosen documents with `plan_write`, hand the agreed design over. Parts: `brainstorm-prd`, `-design`, `-architecture`, `-erd`, `-api`, `-plan`, one template each |
 
 They ship inside the binary (`crates/enowx-core/skills/`), so every install
 has them, and are listed with the scope `built-in`. A project or user skill of
@@ -979,8 +979,42 @@ fix, a small change with a clear result, a question, work the user already
 specified, or when they say to just build it.
 ```
 
-The skill asks what is still open in a fixed order (what it is for and who
-uses it, the first version's scope, how it should feel, the constraints),
+Since 2026-10-04 that rule is narrower. The orchestrator brainstormed nearly
+every request, because any new page or feature counted as "work two
+specialists would build differently", and it asked which checks to run even
+without a brainstorm, so even a small, clear project began with questions and
+the lead looked unable to decide. The orchestrator now decides by default:
+
+```
+DECIDE BY DEFAULT
+You lead, so decide. A request to build something goes to work now: fill what
+it leaves open from the request, the code and common convention, ... and put
+your assumptions in one line in the brief and in your answer. ... Scale the
+ceremony to the work: a small project, one page or one feature gets no
+brainstorm and no plan documents.
+
+BRAINSTORM ONLY WHEN ASKED, OR WHEN A LARGE PRODUCT IS UNREADABLE
+Brainstorm when the user asks for it (to brainstorm, plan, or settle the
+design before building), or when the work is large (a new product across
+several areas) and what it is for or who uses it cannot be told from the
+request or the workspace. ...
+
+ASK ONLY WHAT IS THE USER'S
+Ask only for what is theirs to decide and you cannot infer: taste that changes
+the result and nothing in the request or the project hints at, spending money
+or a paid service, anything destructive or that cannot be undone, credentials
+or accounts. Once, in one `ask`, a few options with the one you recommend
+first. Everything else you decide and say what you chose.
+```
+
+The check wave (`review`, `test` where there is logic, `security` where it
+matters) now runs without a question, and plan documents are written only
+when the user asks for them or chooses them in a brainstorm. Inside a
+brainstorm, the stack and architecture are decided, not asked.
+
+When a brainstorm does run, the skill asks what is still open in a fixed order
+(what it is for and who uses it, the first version's scope, how it should
+feel, the constraints only the user can name),
 three to six questions and never more than eight, then offers two or three
 approaches, confirms the design in a few lines ("Build it like this?"), and
 hands it over with every decision the user made. The earlier rule survives

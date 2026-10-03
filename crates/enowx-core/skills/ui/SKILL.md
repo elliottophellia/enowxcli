@@ -300,8 +300,9 @@ page in charcoal grey (`#1e1e1e`, `#27272a`), a light page in dull grey
   Mantine, Heroicons with Tailwind UI, Material Symbols with Material).
   Navigation items, actions and statuses get icons; decoration does not.
   The `icon` tool is for a page with no package manager.
-- Ask the user which library when it is open and the project is new (the
-  brainstorm does), with the recommendation for the stack first.
+- When the library is open and the project is new, pick the usual one for
+  the stack (shadcn/ui with Lucide for React and Tailwind) and say so; ask
+  only when the user is brainstorming, or the brief names a choice to make.
 - A component for each named concept, and wherever the same markup repeats
   with different content. Variants through props (`variant`, `size`), never
   copies. Pass native attributes through, so a Button stays a button.

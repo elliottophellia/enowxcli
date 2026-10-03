@@ -546,9 +546,10 @@ testing, SEO, security, errors), databases (`database*`), infrastructure
 (`testing*`), documentation (`docs*`), security audits (`security*`),
 authorized assessment (`pentest*`), performance (`performance*`), reviewing (`review*`), research (`research*`),
 gathering (`librarian`) and running large tasks (`orchestration`), plus
-`code`, `writing`, `i18n` and `brainstorm` (agreeing a design, then the
-plan documents the user chooses: PRD, DESIGN, ARCHITECTURE, ERD, API, PLAN,
-written by the orchestrator with `plan_write`), each carried by the agents
+`code`, `writing`, `i18n` and `brainstorm` (agreeing a design with the
+user, only when they ask for it or a large product's purpose cannot be told,
+then the plan documents they choose: PRD, DESIGN, ARCHITECTURE, ERD, API,
+PLAN, written by the orchestrator with `plan_write`), each carried by the agents
 whose work needs it and read only when the work does. A project or user skill of the same
 name replaces one. A skill installed in the project or `~/` goes to every
 agent until the orchestrator binds it, with `skill_bind` (every binding in one

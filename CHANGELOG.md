@@ -4,6 +4,20 @@ All notable changes to enowx. Dates are YYYY-MM-DD.
 
 ## Unreleased
 
+### Agents
+
+- **The lead decides instead of asking.** The orchestrator brainstormed almost
+  every build request and asked which checks to run, so even a small, clear
+  project started with questions. It now goes straight to work, fills open
+  details from the request, the code and convention, and states its
+  assumptions in one line. A brainstorm runs only when you ask for one, or
+  when a large new product's purpose cannot be told from the request. It asks
+  only what is yours to decide (taste nothing hints at, money, anything
+  irreversible, credentials), once, with a recommendation. The check wave
+  (review, tests, security where it matters) runs without a question, plan
+  documents are written only when you ask for them, and inside a brainstorm
+  the stack is decided, not asked. The maestro follows the same rules.
+
 ## v0.2.2 (2026-10-03)
 
 ### Renamed to enowx

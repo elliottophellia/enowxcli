@@ -436,7 +436,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
     let docs = join(&[&docs_family, &plan_documents, &["writing"]]);
     // The orchestrator agrees the design, writes the plan the user chose,
     // and runs it.
-    let orchestrator = join(&[&brainstorm, &["orchestration", "model-manager"]]);
+    let orchestrator = join(&[&brainstorm, &["orchestration", "model-manager", "motion-video"]]);
     let security = join(&[
         &security_family,
         &[
@@ -518,7 +518,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
     // The all-rounder leads like the orchestrator and builds like a
     // specialist: the planning skills and every family the reviewer carries,
     // so whatever it takes on itself, it has the guidance for.
-    let maestro = join(&[&brainstorm, &["orchestration", "model-manager"], &review]);
+    let maestro = join(&[&brainstorm, &["orchestration", "model-manager", "motion-video"], &review]);
     // Work that fits no specialist reads the root of whichever family is
     // closest.
     let general = join(&[&[

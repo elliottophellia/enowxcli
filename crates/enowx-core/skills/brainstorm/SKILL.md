@@ -32,6 +32,31 @@ Do not brainstorm:
 When it is unclear, ask one question: whether the user wants to settle the
 details, or leave them to you.
 
+Two rules hold for every brainstorm, whatever the work is:
+
+- **Ask only what is the user's to decide; decide how it is built yourself.**
+  The user owns what it is for, its scope, how it looks and feels, and its
+  content. You own how it is made: the tool, the library, the technique, the
+  file format, how data is fetched or stored. Never turn an implementation
+  choice into a question, and never ask the user to do a step a tool can do
+  (record a sound, draw an asset, export a file by hand). If a build choice
+  truly changes what the user will pay, run on or live with, state your
+  decision and the trade-off in one line, do not make them pick.
+- **Read the one relevant skill before you offer any option.** The skills
+  list in your prompt is an index: names and one-line descriptions only. Find
+  the single skill whose description matches the work and `skill_read` that
+  one (not the others, never all of them), then draw the options and the
+  recommendation from it, so they are real, not invented. With no skill for
+  it, options may come from your own knowledge, said plainly as that. Never
+  list tools or approaches you have not checked are right for this task.
+
+For example, a video or motion graphic as a file (an explainer, an animated
+logo, a social clip): its content is worth a short brainstorm (what it shows,
+its length, its visual style), but the tool is not a question. Read
+`motion-video`; it is rendered from code with the sound synthesised, so you
+never ask "which tool", never offer After Effects, Remotion, Manim or a
+webview recording, and never ask the user to record the sound.
+
 ## How
 
 1. **Look first.** Read what exists (within your five looks): an empty
@@ -90,8 +115,11 @@ details, or leave them to you.
      are skipped; when they tick none, there is no plan and the design goes
      straight into the briefs. Do not ask it for small work, or when the user
      already said to just build it
-   Ask only what you could not write the brief without: three to six
-   questions is usual, never more than ten.
+   Ask only what you could not write the brief without, and only what is the
+   user's to decide: three to six questions is usual, never more than ten.
+   Never ask which tool, library, framework, technique or file format to use,
+   or ask the user to perform a step a tool can do; those are decided from the
+   relevant skill or your own judgement, not by the user.
    For a developer's portfolio, the look and the theme might be asked like
    this, each option a concept from the work, the recommended one first:
 

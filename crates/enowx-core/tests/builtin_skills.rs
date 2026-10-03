@@ -382,6 +382,7 @@ fn each_agent_carries_the_skills_for_its_work() {
             "brainstorm-plan",
             "orchestration",
             "model-manager",
+            "motion-video",
             "rag"
         ]
     );

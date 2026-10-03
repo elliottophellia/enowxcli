@@ -1,4 +1,4 @@
-pub(crate) const COMMANDS: [(&str, &str); 26] = [
+pub(crate) const COMMANDS: [(&str, &str); 27] = [
     ("help", "Show every command"),
     ("commands", "Browse and search every command"),
     ("new", "Start a fresh session"),
@@ -33,6 +33,7 @@ pub(crate) const COMMANDS: [(&str, &str); 26] = [
     ("clear", "Clear the visible transcript"),
     ("stop", "Interrupt the current turn"),
     ("retry", "Continue from where a failed turn stopped"),
+    ("update", "Install the latest enx release"),
     ("quit", "Leave enowxcli"),
 ];
 
@@ -98,6 +99,7 @@ const PALETTE: [(&str, &[(&str, &str)]); 5] = [
         "App",
         &[
             ("commands", "All commands"),
+            ("update", "Update enx"),
             ("help", "Help"),
             ("quit", "Quit"),
         ],

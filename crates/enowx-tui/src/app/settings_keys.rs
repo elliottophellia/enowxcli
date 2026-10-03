@@ -142,6 +142,7 @@ impl App {
                 Modal::BuiltinMcp => self.save_builtin_mcp()?,
                 Modal::Rag => self.save_rag()?,
                 Modal::Team => self.save_team()?,
+                Modal::Updates => self.save_updates()?,
                 _ => {}
             },
             // A cycled choice (effort, vision) steps with Left/Right or

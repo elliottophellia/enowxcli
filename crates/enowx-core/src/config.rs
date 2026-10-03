@@ -45,6 +45,8 @@ pub struct Config {
     pub agent: AgentConfig,
     pub ui: UiConfig,
     pub typesafe: TypeSafeConfig,
+    /// Checking for a new release, and installing it.
+    pub update: UpdateConfig,
     /// Providers for this process only, never written: an endpoint from
     /// `ENX_BASE_URL`, or a test's fixture server.
     #[serde(skip)]
@@ -52,6 +54,27 @@ pub struct Config {
     /// Provider keys: `auth.json`, the environment, this process.
     #[serde(skip)]
     pub auth: crate::auth::Auth,
+}
+
+/// The `[update]` table.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdateConfig {
+    /// Look for a newer release each time the interface starts, in the
+    /// background. `ENX_NO_UPDATE_CHECK` set turns it off too.
+    pub check_on_start: bool,
+    /// Install a newer release found at start by itself; it is used from
+    /// the next start. Off: say it is there, and `/update` installs it.
+    pub auto_install: bool,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            check_on_start: true,
+            auto_install: false,
+        }
+    }
 }
 
 /// TypeSafe's System One model, used for small typed judgements inside the

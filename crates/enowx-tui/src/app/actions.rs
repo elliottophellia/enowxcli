@@ -420,6 +420,7 @@ impl App {
             "mcp" => self.open_mcp(),
             "rag" => self.open_page(crate::app::pages::Page::Rag)?,
             "team" => self.open_page(crate::app::pages::Page::Team)?,
+            "update" => self.update_now(),
             "compact" => self.start_compact()?,
             "handoff" => self.open_handoff()?,
             "commands" => self.open_palette(),
@@ -667,6 +668,7 @@ impl App {
             Modal::BuiltinMcp => return self.save_builtin_mcp(),
             Modal::Rag => return self.save_rag(),
             Modal::Team => return self.save_team(),
+            Modal::Updates => return self.save_updates(),
             Modal::QuitConfirm => {
                 self.should_quit = true;
             }

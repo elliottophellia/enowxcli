@@ -387,6 +387,11 @@ impl SessionStore {
         Ok(self.root.join(format!("{id}.jsonl")))
     }
 
+    /// Whether session `id` is on disk.
+    pub fn exists(&self, id: &str) -> bool {
+        self.path_for(id).is_ok_and(|path| path.is_file())
+    }
+
     pub fn save(&self, session: &Session) -> Result<()> {
         std::fs::create_dir_all(&self.root)
             .with_context(|| format!("creating {}", self.root.display()))?;

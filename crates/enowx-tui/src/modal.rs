@@ -53,6 +53,8 @@ pub enum Modal {
     /// Settings > Team: agents messaging each other, a shared board, and
     /// cross-review.
     Team,
+    /// Settings > Updates: the check at start, and installing by itself.
+    Updates,
     /// Ctrl+C in an empty composer: confirm before quitting.
     QuitConfirm,
     /// `/handoff`: carry on in a fresh session, keeping or deleting this
@@ -88,6 +90,7 @@ impl Modal {
             | Modal::BuiltinMcp
             | Modal::Rag
             | Modal::Team
+            | Modal::Updates
             | Modal::ProviderKey => "",
         }
     }
@@ -105,6 +108,7 @@ impl Modal {
                 | Modal::BuiltinMcp
                 | Modal::Rag
                 | Modal::Team
+                | Modal::Updates
         )
     }
 }
@@ -160,6 +164,9 @@ pub enum SettingsField {
     TeamReview,
     ReviewRounds,
     Reviewer,
+    /// Settings > Updates.
+    UpdateCheck,
+    UpdateAuto,
 }
 
 impl SettingsField {
@@ -195,6 +202,8 @@ impl SettingsField {
             SettingsField::TeamReview => "Cross-review of delegated work",
             SettingsField::ReviewRounds => "Correction rounds at most",
             SettingsField::Reviewer => "Reviewer",
+            SettingsField::UpdateCheck => "Check for a new release at start",
+            SettingsField::UpdateAuto => "Install it by itself (used from the next start)",
         }
     }
 
@@ -224,6 +233,8 @@ impl SettingsField {
                 | SettingsField::TeamReview
                 | SettingsField::ReviewRounds
                 | SettingsField::Reviewer
+                | SettingsField::UpdateCheck
+                | SettingsField::UpdateAuto
                 | SettingsField::RagProvider
                 | SettingsField::EmbedModel
                 | SettingsField::Dimension
@@ -372,6 +383,9 @@ pub struct SettingsDraft {
     pub review_rounds: String,
     pub reviewer: String,
     pub reviewers: Vec<String>,
+    /// Settings > Updates: "on" or "off".
+    pub update_check: String,
+    pub update_auto: String,
     /// The efforts this model offers, to cycle through on the Effort field.
     pub efforts: Vec<String>,
 }
@@ -424,6 +438,8 @@ impl SettingsDraft {
             SettingsField::TeamReview => &self.team_review,
             SettingsField::ReviewRounds => &self.review_rounds,
             SettingsField::Reviewer => &self.reviewer,
+            SettingsField::UpdateCheck => &self.update_check,
+            SettingsField::UpdateAuto => &self.update_auto,
         }
     }
 
@@ -459,6 +475,8 @@ impl SettingsDraft {
             SettingsField::TeamReview => &mut self.team_review,
             SettingsField::ReviewRounds => &mut self.review_rounds,
             SettingsField::Reviewer => &mut self.reviewer,
+            SettingsField::UpdateCheck => &mut self.update_check,
+            SettingsField::UpdateAuto => &mut self.update_auto,
         }
     }
 
@@ -515,7 +533,9 @@ impl SettingsDraft {
             SettingsField::TeamEnabled
             | SettingsField::TeamMessages
             | SettingsField::TeamBoard
-            | SettingsField::TeamReview => {
+            | SettingsField::TeamReview
+            | SettingsField::UpdateCheck
+            | SettingsField::UpdateAuto => {
                 if self.value(field) == "on" {
                     "on".into()
                 } else {
@@ -572,7 +592,9 @@ impl SettingsDraft {
             SettingsField::TeamEnabled
             | SettingsField::TeamMessages
             | SettingsField::TeamBoard
-            | SettingsField::TeamReview => {
+            | SettingsField::TeamReview
+            | SettingsField::UpdateCheck
+            | SettingsField::UpdateAuto => {
                 let next = if self.value(field) == "on" {
                     "off"
                 } else {

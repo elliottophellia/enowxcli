@@ -96,6 +96,8 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
         }
     }
     let _guard = TerminalGuard::enter()?;
+    // A newer release, looked for in the background (Settings > Updates).
+    app.start_update_check();
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
     terminal.clear()?;
     while !app.should_quit {
@@ -106,6 +108,7 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
         app.tick_handoff();
         app.tick_resources();
         app.tick_mcp_reload();
+        app.tick_update();
         app.catch_up_with_catalog();
         app.drain_picker_events();
         app.drain_typesafe_check();

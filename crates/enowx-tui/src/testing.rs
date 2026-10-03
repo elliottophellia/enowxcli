@@ -157,6 +157,14 @@ impl TestApp {
     pub fn modal_offset(&self) -> usize {
         self.inner.modal_offset
     }
+
+    /// As if the check at start found release `tag`.
+    pub fn set_update_available(&mut self, tag: &str) {
+        if let Ok(mut state) = self.inner.update.lock() {
+            *state = crate::app::update_ui::UpdateState::Available(tag.to_owned());
+        }
+        self.inner.tick_update();
+    }
     pub fn mcp_field(&self) -> usize {
         self.inner.mcp_field
     }
@@ -1510,6 +1518,19 @@ impl TestApp {
         let id = branch.id.clone();
         self.deliver_delegation_started(agent, task, &id);
         id
+    }
+}
+
+impl TestApp {
+    /// Clear a branch's transcript, as a delegation that reported has it.
+    pub fn clear_branch(&mut self, session_id: &str) {
+        let _ = self.inner.store.delete_family(session_id);
+    }
+
+    /// The once-a-second sweep of the sidebar's delegations; how many stay.
+    pub fn prune_delegations(&mut self) -> usize {
+        self.inner.prune_delegations();
+        self.inner.delegations.len()
     }
 }
 

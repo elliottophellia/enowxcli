@@ -32,6 +32,7 @@ mod sessions;
 mod settings_keys;
 pub(crate) mod skills;
 mod team_ui;
+pub(crate) mod update_ui;
 
 /// One sub-agent run, as the sidebar shows it.
 #[derive(Clone)]
@@ -218,6 +219,12 @@ pub(crate) struct App {
     pub(crate) modal_scrolled: bool,
     /// The modal `modal_offset` belongs to: another one starts at its top.
     pub(crate) modal_offset_for: Modal,
+    /// The update check and install, shared with the task doing them.
+    pub(crate) update: std::sync::Arc<std::sync::Mutex<update_ui::UpdateState>>,
+    /// The update state last said on screen.
+    pub(crate) update_shown: update_ui::UpdateState,
+    /// Whether the user asked (`/update`), and so hears every outcome.
+    pub(crate) update_heard: bool,
     /// The inline command list above the composer, and its rows, for the
     /// wheel and for clicks.
     pub(crate) composer_palette: Option<Rect>,
@@ -438,6 +445,9 @@ impl App {
             modal_offset: 0,
             modal_scrolled: false,
             modal_offset_for: Modal::None,
+            update: Default::default(),
+            update_shown: Default::default(),
+            update_heard: false,
             composer_palette: None,
             composer_palette_rows: Vec::new(),
             question: None,
@@ -724,6 +734,11 @@ impl App {
             crate::modal::rag_fields(&self.settings.rag_provider)
         } else if self.modal == crate::modal::Modal::Team {
             crate::modal::team_fields(self.settings.team_enabled == "on")
+        } else if self.modal == crate::modal::Modal::Updates {
+            &[
+                crate::modal::SettingsField::UpdateCheck,
+                crate::modal::SettingsField::UpdateAuto,
+            ]
         } else {
             crate::modal::form_fields(self.modal)
         }
@@ -737,6 +752,9 @@ impl App {
         if self.mcp_reload_checked.elapsed() < std::time::Duration::from_millis(1000) {
             return;
         }
+        // On the same once-a-second beat: finished delegations whose
+        // transcript is gone leave the sidebar.
+        self.prune_delegations();
         self.mcp_reload_checked = std::time::Instant::now();
         let now = mcp_config_mtime();
         if now != self.mcp_config_stamp {

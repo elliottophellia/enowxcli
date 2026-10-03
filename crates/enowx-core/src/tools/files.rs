@@ -761,9 +761,11 @@ impl Tool for EditLinesTool {
             Err(refusal) => return Ok(refusal),
         };
         crate::config::atomic_write(&path, updated.as_bytes())?;
-        // Where the changed lines ended up, with their new anchors, so the
-        // next edit needs no new read. Spans were applied last first; shift
-        // each by what the edits above it added or removed.
+        // Each change as a small diff: a line of context on each side, the
+        // lines removed (`-`), and the lines that took their place (`+`)
+        // with their new anchors, so the next edit needs no new read and the
+        // interface can show what changed. Spans were applied last first;
+        // shift each by what the edits above it added or removed.
         let new_lines: Vec<&str> = updated.lines().collect();
         let mut shown = String::new();
         let mut delta: isize = 0;
@@ -772,18 +774,26 @@ impl Tool for EditLinesTool {
             .map(|(start, end, text)| (*start, end - start, text.len()))
             .collect();
         ordered.sort();
+        let anchored = |i: usize| format!("{:>4}#{}:{}", i + 1, anchor(new_lines[i]), new_lines[i]);
         for (start, removed, added) in ordered {
             let at = (start as isize + delta).max(0) as usize;
-            let from = at.saturating_sub(1);
-            let to = (at + added + 1).min(new_lines.len());
-            for (i, line) in new_lines.iter().enumerate().take(to).skip(from) {
-                shown.push_str(&format!("{:>4}#{}:{}\n", i + 1, anchor(line), line));
+            if at > 0 && at - 1 < new_lines.len() {
+                shown.push_str(&format!(" {}\n", anchored(at - 1)));
+            }
+            for old in &lines[start..start + removed] {
+                shown.push_str(&format!("-         {old}\n"));
+            }
+            for i in at..(at + added).min(new_lines.len()) {
+                shown.push_str(&format!("+{}\n", anchored(i)));
+            }
+            if at + added < new_lines.len() {
+                shown.push_str(&format!(" {}\n", anchored(at + added)));
             }
             shown.push_str("  …\n");
             delta += added as isize - removed as isize;
         }
         let output = ToolOutput::ok(format!(
-            "Updated {raw}: {} edits\n{}{reminders}{mended}",
+            "Updated {raw}: {} edits (- removed; + added, with the new anchors)\n{}{reminders}{mended}",
             plans.len(),
             shown.trim_end()
         ));

@@ -146,9 +146,15 @@ async fn run(prompt: &str, script: Script) -> Vec<(String, String)> {
 async fn a_review_sends_the_work_back_until_it_passes() {
     let reviews = Arc::new(Mutex::new(0u32));
     let counted = reviews.clone();
+    let same_session = Arc::new(Mutex::new(false));
+    let same = same_session.clone();
     let script: Script = Arc::new(move |body: &str| {
         if body.contains("Review the work `fe` just did") {
             *counted.lock().unwrap() += 1;
+            // The second round is in the same session: it carries the first.
+            if body.contains("made its fixes") {
+                *same.lock().unwrap() = true;
+            }
             return if body.contains("fixed the title") {
                 (says("DONE: VERDICT: PASS\nCHANGED: none\nVERIFIED: read page.html\nNEXT: nothing"), 0)
             } else {
@@ -197,6 +203,10 @@ async fn a_review_sends_the_work_back_until_it_passes() {
         fe.1
     );
     assert_eq!(*reviews.lock().unwrap(), 2, "checked, then checked again");
+    assert!(
+        *same_session.lock().unwrap(),
+        "the reviewer checked again in the session it reviewed in"
+    );
 }
 
 /// Two agents at work at once: one messages the other, which reads it at

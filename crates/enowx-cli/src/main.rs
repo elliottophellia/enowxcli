@@ -58,6 +58,16 @@ enum Command {
         #[command(subcommand)]
         command: AuthCommand,
     },
+    /// Install the latest release in place of this enx, after checking its
+    /// published checksum. With --check, only say whether there is one.
+    Update {
+        #[arg(long)]
+        check: bool,
+        /// Install the latest release even when this one is as new (to
+        /// repair a binary, or to replace a build from source).
+        #[arg(long, conflicts_with = "check")]
+        force: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -167,6 +177,8 @@ enum ConfigCommand {
 async fn main() -> Result<()> {
     // The alternate-screen TUI owns stdout, so nothing here logs to it.
     let cli = Cli::parse();
+    // What a Windows update left beside the binary, once it no longer runs.
+    enowx_core::update::clean_up();
     match cli.command.unwrap_or(Command::Tui {
         workspace: None,
         session: None,
@@ -252,6 +264,7 @@ async fn main() -> Result<()> {
             VpsCommand::List => mcp::vps_list(),
             VpsCommand::Remove { name } => mcp::vps_remove(&name),
         },
+        Command::Update { check, force } => update(check, force).await,
         Command::Auth { command } => {
             let mut config = Config::load()?;
             match command {
@@ -259,6 +272,37 @@ async fn main() -> Result<()> {
                 AuthCommand::Login { provider } => auth::login(&mut config, &provider)?,
                 AuthCommand::Logout { provider } => auth::logout(&mut config, &provider)?,
             }
+            Ok(())
+        }
+    }
+}
+
+/// `enx update`: the latest release in place of this one.
+async fn update(check_only: bool, force: bool) -> Result<()> {
+    use enowx_core::update;
+    let current = update::current();
+    println!("enx {current}");
+    let found = if force {
+        update::Check::Available(update::latest().await?)
+    } else {
+        update::check().await?
+    };
+    match found {
+        update::Check::UpToDate => {
+            println!("Up to date.");
+            Ok(())
+        }
+        update::Check::Available(latest) if check_only => {
+            println!("{latest} is available. Run `enx update` to install it.");
+            Ok(())
+        }
+        update::Check::Available(latest) => {
+            println!("Installing {latest}...");
+            let path = update::install(&latest).await?;
+            println!(
+                "Installed {latest} at {}. Restart any enx that is running to use it.",
+                path.display()
+            );
             Ok(())
         }
     }

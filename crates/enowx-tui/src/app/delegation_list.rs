@@ -16,6 +16,25 @@ impl App {
         self.delegation_window.map_or(last, |start| start.min(last))
     }
 
+    /// Drop from the list the delegations that finished and whose
+    /// transcript was cleared: a click on one went nowhere. One still at
+    /// work, or that failed or stopped (its transcript kept, to be read or
+    /// resumed), stays. Not while a transcript is open, whose place in the
+    /// list must not move.
+    pub(crate) fn prune_delegations(&mut self) {
+        if self.viewing.is_some() {
+            return;
+        }
+        let before = self.delegations.len();
+        let store = &self.store;
+        self.delegations
+            .retain(|d| d.state != DelegationState::Finished || store.exists(&d.session_id));
+        if self.delegations.len() != before {
+            // The window may now start past the end.
+            self.slide_delegations(0);
+        }
+    }
+
     /// Slide the list by `step` delegations, older when negative. Back at the
     /// newest, it follows new ones again.
     pub(crate) fn slide_delegations(&mut self, step: isize) {

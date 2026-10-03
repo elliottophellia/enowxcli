@@ -476,6 +476,13 @@ fn key_spans(app: &App, figures: bool) -> Vec<Span<'static>> {
             Style::default().fg(t.muted),
         ));
     }
+    // A release to install, or one installed, until it is dealt with.
+    if let Some(note) = app.update_note() {
+        right_spans.push(Span::styled(
+            format!("{note}   "),
+            Style::default().fg(t.yellow),
+        ));
+    }
     // The keys that apply right now, where the tip used to rotate. A tip is
     // read once; a key is looked up, and looking it up is the reason to keep
     // a row of chrome at all.

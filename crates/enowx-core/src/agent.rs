@@ -1424,7 +1424,6 @@ impl Agent {
         cancel: &CancellationToken,
     ) -> Option<String> {
         use crate::agent_def::canonical_name;
-        use crate::comms::{corrections_message, parse_verdict, review_brief, Verdict};
         let team = self.config.agent.comms.clone();
         if !team.review_on() {
             return None;
@@ -1444,32 +1443,91 @@ impl Agent {
             ));
         }
         let rounds = team.review_rounds.clamp(1, 5);
+        // One reviewer for every round, in one session: between rounds it
+        // waits, listed as at work so the delegate can answer it, and each
+        // new round carries on from what it already read, which keeps its
+        // context and the provider's prompt cache.
+        let branch = self.store.load(branch_id).ok()?;
+        if files_touched(&branch).is_empty() {
+            // Nothing changed: an answer, not work to check.
+            return None;
+        }
+        let review = branch.branch(reviewer.clone());
+        self.store.save(&review).ok()?;
+        self.board.branch(&review.id, branch_id);
+        self.comms.branch(&review.id, branch_id);
+        if let Ok(mut running) = self.running.lock() {
+            running.insert(
+                review.id.clone(),
+                RunningBranch {
+                    agent: reviewer.clone(),
+                    parent: branch_id.to_owned(),
+                    task: format!("cross-review of {}'s work", delegation.to),
+                },
+            );
+        }
+        let _ = events
+            .send(Event::DelegationStarted {
+                agent: reviewer.clone(),
+                task: format!("cross-review of {}'s work", delegation.to),
+                session_id: review.id.clone(),
+            })
+            .await;
+        let (verdict, last_report) = self
+            .review_rounds(delegation, branch_id, &review, &reviewer, rounds, cancel)
+            .await;
+        // Done with it: off the list, its files freed, and its transcript
+        // cleared like any delegation that reported.
+        if let Ok(mut running) = self.running.lock() {
+            running.remove(&review.id);
+        }
+        self.board.release(&review.id);
+        let _ = events
+            .send(Event::DelegationFinished {
+                agent: reviewer.clone(),
+                summary: last_report,
+                session_id: review.id.clone(),
+                failed: false,
+            })
+            .await;
+        let _ = self.store.delete_family(&review.id);
+        verdict
+    }
+
+    /// The rounds of a cross-review: the reviewer checks, the delegate
+    /// fixes, the reviewer checks again in the same session. The verdict for
+    /// the caller, and the reviewer's last report.
+    async fn review_rounds(
+        &self,
+        delegation: &crate::routing::Delegation,
+        branch_id: &str,
+        review: &Session,
+        reviewer: &str,
+        rounds: u8,
+        cancel: &CancellationToken,
+    ) -> (Option<String>, String) {
+        use crate::comms::{
+            corrections_message, parse_verdict, recheck_brief, review_brief, Verdict,
+        };
         let mut fixes = 0u8;
+        let mut last_report = String::new();
         loop {
             // Stopped by the user: no more checking or fixing.
             if cancel.is_cancelled() {
-                return None;
+                return (None, last_report);
             }
-            let branch = self.store.load(branch_id).ok()?;
+            let Ok(branch) = self.store.load(branch_id) else {
+                return (None, last_report);
+            };
             let files = files_touched(&branch);
-            // Nothing changed: an answer, not work to check.
-            if files.is_empty() {
-                return None;
-            }
             let report = branch_summary(&branch);
-            let review = branch.branch(reviewer.clone());
-            self.store.save(&review).ok()?;
-            self.board.branch(&review.id, branch_id);
-            self.comms.branch(&review.id, branch_id);
-            let _ = events
-                .send(Event::DelegationStarted {
-                    agent: reviewer.clone(),
-                    task: format!("cross-review of {}'s work", delegation.to),
-                    session_id: review.id.clone(),
-                })
-                .await;
+            let prompt = if fixes == 0 {
+                review_brief(&delegation.to, &delegation.task, &report, &files)
+            } else {
+                recheck_brief(&delegation.to, &report, &files)
+            };
             let request = RunRequest {
-                prompt: review_brief(&delegation.to, &delegation.task, &report, &files),
+                prompt,
                 session_id: Some(review.id.clone()),
                 role: review.role,
                 attachments: Vec::new(),
@@ -1478,48 +1536,42 @@ impl Agent {
             let (sink, mut drain) = mpsc::channel::<Event>(64);
             tokio::spawn(async move { while drain.recv().await.is_some() {} });
             let outcome = Box::pin(self.run_inner(request, &sink, cancel.child_token())).await;
-            self.board.release(&review.id);
-            let reviewed = self.store.load(&review.id).unwrap_or(review);
-            let verdict_report = match outcome {
+            let reviewed = self
+                .store
+                .load(&review.id)
+                .unwrap_or_else(|_| review.clone());
+            last_report = match outcome {
                 Ok(()) => branch_summary(&reviewed),
                 Err(error) => format!("failed: {error:#}"),
             };
-            let _ = events
-                .send(Event::DelegationFinished {
-                    agent: reviewer.clone(),
-                    summary: verdict_report.clone(),
-                    session_id: reviewed.id.clone(),
-                    failed: false,
-                })
-                .await;
-            // The review's verdict reaches the caller; its transcript is not
-            // kept, like any delegation that reported.
-            let _ = self.store.delete_family(&reviewed.id);
-            match parse_verdict(&verdict_report) {
+            match parse_verdict(&last_report) {
                 Verdict::Pass => {
-                    return Some(if fixes == 0 {
+                    let verdict = if fixes == 0 {
                         format!("CROSS-REVIEW by {reviewer}: PASS")
                     } else {
                         format!(
                             "CROSS-REVIEW by {reviewer}: PASS after {fixes} correction round(s)"
                         )
-                    });
+                    };
+                    return (Some(verdict), last_report);
                 }
                 Verdict::Unclear => {
-                    return Some(format!(
-                        "CROSS-REVIEW by {reviewer}: no clear verdict. Its review:\n{verdict_report}"
-                    ));
+                    let verdict = format!(
+                        "CROSS-REVIEW by {reviewer}: no clear verdict. Its review:\n{last_report}"
+                    );
+                    return (Some(verdict), last_report);
                 }
                 Verdict::Fix(corrections) => {
                     if fixes >= rounds {
-                        return Some(format!(
+                        let verdict = format!(
                             "CROSS-REVIEW by {reviewer}: still FIX after {rounds} correction \
                              round(s). Open corrections:\n{corrections}"
-                        ));
+                        );
+                        return (Some(verdict), last_report);
                     }
                     fixes += 1;
                     let request = RunRequest {
-                        prompt: corrections_message(&reviewer, &corrections, fixes, rounds),
+                        prompt: corrections_message(reviewer, &corrections, fixes, rounds),
                         session_id: Some(branch_id.to_owned()),
                         role: branch.role,
                         attachments: Vec::new(),
@@ -1530,10 +1582,11 @@ impl Agent {
                     if let Err(error) =
                         Box::pin(self.run_inner(request, &sink, cancel.child_token())).await
                     {
-                        return Some(format!(
+                        let verdict = format!(
                             "CROSS-REVIEW by {reviewer}: corrections were asked for, and the \
                              fix failed: {error:#}\nCorrections:\n{corrections}"
-                        ));
+                        );
+                        return (Some(verdict), last_report);
                     }
                 }
             }

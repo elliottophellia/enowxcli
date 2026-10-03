@@ -862,6 +862,7 @@ dependencies = [
  "nix 0.29.0",
  "regex",
  "reqwest",
+ "ring",
  "russh",
  "rustls",
  "serde",

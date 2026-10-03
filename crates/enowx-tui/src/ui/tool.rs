@@ -248,6 +248,61 @@ fn diagnostic_counts(diagnostics: &str) -> (usize, usize) {
     (count(" error: "), count(" warning: "))
 }
 
+/// The changes an `edit_lines` result lists, as (old, new, first line) for
+/// the diff view: each change's context, removed and added lines. None for
+/// a result that has no `-` or `+` lines (written before they were).
+fn line_edit_diffs(result: &str) -> Option<Vec<(String, String, usize)>> {
+    // `  12#a3f:text` (an anchored line) to its number and text.
+    fn anchored(line: &str) -> Option<(usize, &str)> {
+        let line = line.trim_start();
+        let (number, rest) = line.split_once('#')?;
+        let (_, text) = rest.split_once(':')?;
+        Some((number.trim().parse().ok()?, text))
+    }
+    let mut diffs = Vec::new();
+    let mut marked = false;
+    for region in result
+        .lines()
+        .skip(1)
+        .collect::<Vec<_>>()
+        .split(|l| l.trim() == "…")
+    {
+        let (mut old, mut new) = (String::new(), String::new());
+        let mut first: Option<usize> = None;
+        for line in region {
+            if let Some(removed) = line.strip_prefix('-') {
+                marked = true;
+                let text = removed
+                    .strip_prefix("         ")
+                    .unwrap_or(removed.trim_start());
+                old.push_str(text);
+                old.push('\n');
+            } else if let Some(added) = line.strip_prefix('+') {
+                marked = true;
+                let Some((number, text)) = anchored(added) else {
+                    continue;
+                };
+                first.get_or_insert(number);
+                new.push_str(text);
+                new.push('\n');
+            } else if let Some(context) = line.strip_prefix(' ') {
+                let Some((number, text)) = anchored(context) else {
+                    continue;
+                };
+                first.get_or_insert(number);
+                old.push_str(text);
+                old.push('\n');
+                new.push_str(text);
+                new.push('\n');
+            }
+        }
+        if !old.is_empty() || !new.is_empty() {
+            diffs.push((old, new, first.unwrap_or(1)));
+        }
+    }
+    (marked && !diffs.is_empty()).then_some(diffs)
+}
+
 pub(super) fn classify<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRender<'a> {
     let (result, diagnostics) = match name {
         "write" | "edit" | "multi_edit" | "edit_lines" => split_diagnostics(result),
@@ -409,6 +464,10 @@ fn classify_result<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRender
                 body: ToolBody::Plain(result),
             }
         }
+        // `edit` sent line anchors runs as `edit_lines`, and shows as one.
+        "edit" if parsed.get("old_text").is_none() && parsed.get("new_text").is_none() => {
+            classify_result("edit_lines", args, result)
+        }
         "edit" => {
             let path = str_arg(&parsed, "path").unwrap_or("").to_string();
             let old = str_arg(&parsed, "old_text").unwrap_or("").to_string();
@@ -436,11 +495,33 @@ fn classify_result<'a>(name: &str, args: &'a str, result: &'a str) -> ToolRender
             let count = parsed
                 .get("edits")
                 .and_then(Value::as_array)
-                .map_or(0, Vec::len);
-            ToolRender::Detail {
-                header: RowParts::new("edit", path, counted(count, "edit", "edits")),
-                subtitle: None,
-                body: ToolBody::Plain(result),
+                .map_or(1, Vec::len);
+            // The result is a small diff per change (context, `-` removed,
+            // `+` added with its new anchor): drawn as a diff, like `edit`.
+            // An older result, with no `-`/`+` lines, stays as text.
+            match line_edit_diffs(result) {
+                Some(diffs) => {
+                    let (mut adds, mut dels) = (0, 0);
+                    for (old, new, _) in &diffs {
+                        let (a, d) = diff_counts(old, new);
+                        adds += a;
+                        dels += d;
+                    }
+                    ToolRender::Detail {
+                        header: RowParts::new(
+                            "edit",
+                            path,
+                            format!("+{adds} -{dels} · {}", counted(count, "edit", "edits")),
+                        ),
+                        subtitle: None,
+                        body: ToolBody::Diffs(diffs),
+                    }
+                }
+                None => ToolRender::Detail {
+                    header: RowParts::new("edit", path, counted(count, "edit", "edits")),
+                    subtitle: None,
+                    body: ToolBody::Plain(result),
+                },
             }
         }
         "multi_edit" => {

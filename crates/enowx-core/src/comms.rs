@@ -330,6 +330,24 @@ pub fn review_brief(agent: &str, task: &str, report: &str, files: &[String]) -> 
     )
 }
 
+/// The reviewer's next round, in the same session: the delegate made its
+/// fixes; check them, and the rest of the work again.
+pub fn recheck_brief(agent: &str, report: &str, files: &[String]) -> String {
+    format!(
+        "`{agent}` made its fixes. Its report now:\n\n{report}\n\n\
+         FILES IT HAS CHANGED\n{}\n\n\
+         Read what changed since your last review and check that each correction you \
+         asked for is right, and that the fixes broke nothing else. Do not change any \
+         file yourself. Start your report's DONE line with `VERDICT: PASS` or `VERDICT: \
+         FIX` followed by what is still wrong, as before.",
+        if files.is_empty() {
+            "(none recorded)".to_owned()
+        } else {
+            files.join("\n")
+        }
+    )
+}
+
 /// What the delegate is told when its work comes back.
 pub fn corrections_message(reviewer: &str, corrections: &str, round: u8, rounds: u8) -> String {
     format!(

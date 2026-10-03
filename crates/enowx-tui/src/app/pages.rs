@@ -28,10 +28,11 @@ pub(crate) enum Page {
     Skills,
     Sessions,
     Theme,
+    Updates,
 }
 
 /// The sections of Settings, in the order they are listed.
-pub(crate) const SECTIONS: [Page; 9] = [
+pub(crate) const SECTIONS: [Page; 10] = [
     Page::Models,
     Page::Providers,
     Page::Agents,
@@ -41,6 +42,7 @@ pub(crate) const SECTIONS: [Page; 9] = [
     Page::Skills,
     Page::Sessions,
     Page::Theme,
+    Page::Updates,
 ];
 
 /// The tabs at the top right.
@@ -71,6 +73,7 @@ impl Page {
             Page::Mcp => "MCP",
             Page::Rag => "RAG",
             Page::Team => "Team",
+            Page::Updates => "Updates",
             Page::Skills => "Skills",
             Page::Sessions => "Sessions",
             Page::Theme => "Theme",
@@ -88,6 +91,7 @@ impl Page {
             Modal::Mcp | Modal::McpForm | Modal::BuiltinMcp => Page::Mcp,
             Modal::Rag => Page::Rag,
             Modal::Team => Page::Team,
+            Modal::Updates => Page::Updates,
             Modal::Skills => Page::Skills,
             Modal::Sessions => Page::Sessions,
             Modal::Themes => Page::Theme,
@@ -143,6 +147,7 @@ impl App {
             Page::Mcp => self.open_mcp(),
             Page::Rag => self.open_rag(),
             Page::Team => self.open_team(),
+            Page::Updates => self.open_updates(),
             Page::Skills => self.open_skills(),
             Page::Sessions => self.open_sessions()?,
             Page::Theme => self.open_themes(),
@@ -207,6 +212,7 @@ impl App {
             | Modal::Mcp
             | Modal::Rag
             | Modal::Team
+            | Modal::Updates
             | Modal::Skills
             | Modal::Sessions
             | Modal::Themes

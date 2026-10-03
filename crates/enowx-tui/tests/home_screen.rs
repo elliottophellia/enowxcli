@@ -279,7 +279,7 @@ fn a_wide_window_gets_a_wide_composer_and_one_line_under_it() {
     let (_, bottom) = find(&rows, "╰").unwrap();
     let under = &rows[bottom + 1];
     assert!(
-        under.contains("READY") && under.contains("v0.1.0"),
+        under.contains("READY") && under.contains(concat!("v", env!("CARGO_PKG_VERSION"))),
         "{under}"
     );
     assert!(rows[bottom + 2].trim().is_empty(), "one line: {rows:#?}");

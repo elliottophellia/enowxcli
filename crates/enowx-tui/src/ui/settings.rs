@@ -36,6 +36,11 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &mut App, area: Rect) {
             "Overrides the detected values. Empty uses the catalogue or the id.".into(),
             format!("EDIT {}", app.settings.model.to_uppercase()),
         ),
+        Modal::Updates => (
+            "Tab field · ←→ choose · Enter save · Esc back",
+            "/update installs the latest now; `enx update` does it from a shell.".into(),
+            format!("UPDATES · ENX {}", enowx_core::update::current()),
+        ),
         Modal::Team => (
             "Tab field · ←→ choose · Enter save · Esc back",
             "Off by default. Saved to ~/.enx/config.toml; applies from the next step.".into(),
@@ -217,7 +222,9 @@ fn placeholder(app: &App, field: SettingsField) -> &'static str {
         | SettingsField::TeamBoard
         | SettingsField::TeamReview
         | SettingsField::ReviewRounds
-        | SettingsField::Reviewer => "←→ to choose",
+        | SettingsField::Reviewer
+        | SettingsField::UpdateCheck
+        | SettingsField::UpdateAuto => "←→ to choose",
         SettingsField::RagEnabled
         | SettingsField::AutoIndex
         | SettingsField::RagProvider

@@ -42,6 +42,12 @@ enum Command {
         #[command(subcommand)]
         command: ConfigCommand,
     },
+    /// List the models enx can run, and test whether one answers. For the
+    /// model-manager skill and for scripting model setup.
+    Models {
+        #[command(subcommand)]
+        command: ModelsCommand,
+    },
     /// The MCP servers built into enx (coolify, dokploy, vps): install them
     /// to offer them to agents.
     Mcp {
@@ -173,6 +179,27 @@ enum ConfigCommand {
     Path,
 }
 
+#[derive(Debug, Subcommand)]
+enum ModelsCommand {
+    /// The connected providers and the models each lists, the model in use,
+    /// the per-tier models, and the per-agent models.
+    #[command(alias = "ls")]
+    List {
+        /// One line per model as `provider/model`, nothing else, for scripts.
+        #[arg(long)]
+        plain: bool,
+    },
+    /// Make one tiny call to a model and say whether it answered, how fast,
+    /// and the tokens it used. Exits non-zero when it does not answer.
+    Test {
+        /// `provider/model`, e.g. `deepseek/deepseek-chat`.
+        model: String,
+        /// The prompt to send; a short word is enough.
+        #[arg(long, default_value = "Reply with: ok")]
+        prompt: String,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // The alternate-screen TUI owns stdout, so nothing here logs to it.
@@ -210,6 +237,7 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
+        Command::Models { command } => models_command(command).await,
         Command::Mcp { command } => match command {
             McpCommand::List => mcp::list(),
             McpCommand::Set {
@@ -305,5 +333,105 @@ async fn update(check_only: bool, force: bool) -> Result<()> {
             );
             Ok(())
         }
+    }
+}
+
+/// `enx models list` and `enx models test`.
+async fn models_command(command: ModelsCommand) -> Result<()> {
+    let config = Config::load()?;
+    match command {
+        ModelsCommand::List { plain } => {
+            let detected = enowx_core::provider::detected::Detected::load();
+            let connected = config.connected();
+            if plain {
+                for connection in &connected {
+                    if let Some(listing) = detected.listing(&connection.id) {
+                        for model in &listing.models {
+                            println!("{}/{}", connection.id, model.id);
+                        }
+                    }
+                }
+                return Ok(());
+            }
+            if connected.is_empty() {
+                println!("No providers connected. Add one with `enx auth login <provider>`.");
+            }
+            println!("Connected providers and their models:");
+            for connection in &connected {
+                match detected.listing(&connection.id) {
+                    Some(listing) if !listing.models.is_empty() => {
+                        println!("  {} ({}):", connection.name, connection.id);
+                        for model in &listing.models {
+                            println!("    {}/{}", connection.id, model.id);
+                        }
+                    }
+                    _ => println!(
+                        "  {} ({}): no model list cached. Open /model in enx, or Ctrl+R there, to fetch it.",
+                        connection.name, connection.id
+                    ),
+                }
+            }
+            println!("\nModel in use: {}", blank_as(&config.model.active, "none"));
+            println!("Per-tier models:");
+            println!(
+                "  cheap:    {}",
+                blank_as(
+                    &config.agent.tiers.cheap,
+                    "(falls back to the model in use)"
+                )
+            );
+            println!(
+                "  balanced: {}",
+                blank_as(
+                    &config.agent.tiers.balanced,
+                    "(falls back to the model in use)"
+                )
+            );
+            println!(
+                "  strong:   {}",
+                blank_as(
+                    &config.agent.tiers.strong,
+                    "(falls back to the model in use)"
+                )
+            );
+            println!("Per-agent models:");
+            if config.agent.models.is_empty() {
+                println!("  (none set; each agent runs on its tier's model or the model in use)");
+            } else {
+                for (agent, model) in &config.agent.models {
+                    println!("  {agent}: {model}");
+                }
+            }
+            Ok(())
+        }
+        ModelsCommand::Test { model, prompt } => {
+            print!("testing {model} ... ");
+            use std::io::Write;
+            std::io::stdout().flush().ok();
+            match enowx_core::provider::probe_model(&config, &model, &prompt).await {
+                Ok(probe) => {
+                    println!(
+                        "ok · {} ms · in {} out {} tokens",
+                        probe.elapsed.as_millis(),
+                        probe.usage.input_tokens,
+                        probe.usage.output_tokens
+                    );
+                    Ok(())
+                }
+                Err(error) => {
+                    println!("FAILED");
+                    Err(error.context(format!("{model} did not answer")))
+                }
+            }
+        }
+    }
+}
+
+fn blank_as(value: &str, fallback: &str) -> String {
+    let value = value.trim();
+    if value.is_empty() {
+        fallback.to_owned()
+    } else {
+        value.to_owned()
     }
 }

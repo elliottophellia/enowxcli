@@ -381,6 +381,7 @@ fn each_agent_carries_the_skills_for_its_work() {
             "brainstorm-api",
             "brainstorm-plan",
             "orchestration",
+            "model-manager",
             "rag"
         ]
     );

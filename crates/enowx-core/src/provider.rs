@@ -273,6 +273,44 @@ impl TierDrop {
     }
 }
 
+/// What a liveness probe found: the round trip time and the tokens the one
+/// tiny call used, so the model manager can report a model as alive and how
+/// fast it answered before assigning it to an agent.
+#[derive(Debug, Clone, Copy)]
+pub struct Probe {
+    pub elapsed: Duration,
+    pub usage: Usage,
+}
+
+/// Make one tiny call to `model` on its provider and report how it went.
+///
+/// Used by `enx models test` and the model-manager skill: a model is only
+/// worth assigning to an agent if it actually answers. `config` supplies the
+/// providers and keys; the model in use is not changed.
+pub async fn probe_model(config: &Config, model: &str, prompt: &str) -> Result<Probe> {
+    let mut probe_config = config.clone();
+    if !probe_config.use_model(model) {
+        bail!("`{model}` names no provider enx knows; write it as provider/model");
+    }
+    if let Some(reason) = config.model_unusable(model) {
+        bail!("{reason}");
+    }
+    let provider = Provider::from_config(&probe_config)?;
+    let (tx, mut rx) = mpsc::channel(64);
+    let messages = [Message::user(prompt)];
+    let started = std::time::Instant::now();
+    // Drain the stream so the sender is never blocked on a full channel.
+    let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+    let completion = provider.complete(&messages, &[], &tx).await;
+    drop(tx);
+    let _ = drain.await;
+    let completion = completion?;
+    Ok(Probe {
+        elapsed: started.elapsed(),
+        usage: completion.usage,
+    })
+}
+
 impl Provider {
     pub async fn complete(
         &self,
@@ -874,6 +912,36 @@ mod tests {
         assert!(parse_models(&serde_json::json!({"data":[]})).is_err());
         assert!(parse_models(&serde_json::json!({"error":"nope"})).is_err());
     }
+    /// A probe rejects a model it cannot even address before making a call,
+    /// so the model manager gets a clear reason instead of a network timeout.
+    #[tokio::test]
+    async fn probing_an_unusable_model_fails_fast() {
+        let mut config = Config::default();
+        config.model.active = "test/chat".into();
+        config.session_providers.insert(
+            "test".into(),
+            crate::config::ProviderEntry {
+                base_url: "http://127.0.0.1:1".into(),
+                ..Default::default()
+            },
+        );
+
+        // A provider with no key and a remote host is not connected, so the
+        // probe says so instead of calling it.
+        config.provider.insert(
+            "remote".into(),
+            crate::config::ProviderEntry {
+                base_url: "https://models.invalid/v1".into(),
+                ..Default::default()
+            },
+        );
+        let error = probe_model(&config, "remote/model", "ok")
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("not connected"), "{error}");
+    }
+
     #[tokio::test]
     async fn interleaved_tool_arguments_remain_paired() {
         let (tx, _rx) = mpsc::channel(8);

@@ -376,6 +376,10 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
         include_str!("../../skills/ui-stack-astro/SKILL.md"),
     ),
     ("rag", include_str!("../../skills/rag/SKILL.md")),
+    (
+        "model-manager",
+        include_str!("../../skills/model-manager/SKILL.md"),
+    ),
     ("canvas", include_str!("../../skills/canvas/SKILL.md")),
     (
         "canvas-interactive",

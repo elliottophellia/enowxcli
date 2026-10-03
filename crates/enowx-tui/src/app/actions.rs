@@ -669,6 +669,7 @@ impl App {
             Modal::Rag => return self.save_rag(),
             Modal::Team => return self.save_team(),
             Modal::Updates => return self.save_updates(),
+            Modal::General | Modal::Display => return self.save_prefs(),
             Modal::QuitConfirm => {
                 self.should_quit = true;
             }

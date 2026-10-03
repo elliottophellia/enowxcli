@@ -36,6 +36,16 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &mut App, area: Rect) {
             "Overrides the detected values. Empty uses the catalogue or the id.".into(),
             format!("EDIT {}", app.settings.model.to_uppercase()),
         ),
+        Modal::General => (
+            "Tab field · ←→ choose · Enter save · Esc back",
+            "Saved to ~/.enx/config.toml; used from the next turn.".into(),
+            "GENERAL · HOW THE AGENTS WORK".into(),
+        ),
+        Modal::Display => (
+            "Tab field · ←→ choose · Enter save · Esc back",
+            "Saved to ~/.enx/config.toml.".into(),
+            "DISPLAY".into(),
+        ),
         Modal::Updates => (
             "Tab field · ←→ choose · Enter save · Esc back",
             "/update installs the latest now; `enx update` does it from a shell.".into(),
@@ -231,6 +241,10 @@ fn placeholder(app: &App, field: SettingsField) -> &'static str {
         | SettingsField::EmbedModel
         | SettingsField::Dimension
         | SettingsField::Rerank => "←→ to choose",
+        SettingsField::Conf(i) => match crate::modal::CONF_FIELDS.get(i) {
+            Some((_, _, crate::modal::ConfKind::Text, hint)) => hint,
+            _ => "←→ to choose",
+        },
         SettingsField::KeyFile => "~/.ssh/id_ed25519 (blank: ssh-agent, ~/.ssh keys)",
         SettingsField::Passphrase | SettingsField::Password => "(blank keeps what is stored)",
     }

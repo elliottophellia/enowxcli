@@ -366,7 +366,8 @@ continues at once and `Esc` cancels the wait.
 
 Two tabs sit at the top right: Chat and Settings. Settings takes the main
 column in place of the chat, with its sections listed on the left (Models,
-Providers, Agents, Team, MCP, RAG, Skills, Sessions, Theme, Updates) and the chosen one beside
+General, Models, Providers, Agents, Team, MCP, RAG, Skills, TypeSafe,
+Sessions, Display, Theme, Updates) and the chosen one beside
 them. `Ctrl+P` switches between Chat and Settings. Settings opens with the
 section list focused: `Up`/`Down` pick a section, shown beside the list, and
 `Enter` goes into it. `Esc` steps back one level: from a form to its list,

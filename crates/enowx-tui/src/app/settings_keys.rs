@@ -143,6 +143,7 @@ impl App {
                 Modal::Rag => self.save_rag()?,
                 Modal::Team => self.save_team()?,
                 Modal::Updates => self.save_updates()?,
+                Modal::General | Modal::Display => self.save_prefs()?,
                 _ => {}
             },
             // A cycled choice (effort, vision) steps with Left/Right or

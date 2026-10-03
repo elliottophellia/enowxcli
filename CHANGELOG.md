@@ -6,6 +6,13 @@ All notable changes to enx. Dates are YYYY-MM-DD.
 
 ### Interface work
 
+- **Everything that can be set is in Settings.** New sections: General
+  (browser preview, language server checks, background delegation,
+  switching agent by itself, compaction and its threshold, model calls per
+  turn, the shell timeout, the model for each tier), Display (sidebar,
+  currency and rate) and TypeSafe. Each field is saved through the same
+  checks as `enx config set`, and a bad value is refused with why.
+
 - **Structure before styling: `ui-structure` and `ui-anatomy`.** The
   frontend, canvas and mobile agents now write a blueprint before any
   code: the screen's job and its one primary action, the regions its kind

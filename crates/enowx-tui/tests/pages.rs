@@ -166,6 +166,8 @@ fn settings_reopens_on_the_section_left_with_esc() {
 fn settings_opens_on_the_section_list_and_esc_steps_back_one_level() {
     let mut app = chat();
     app.press(KeyCode::Char('p'), true).unwrap();
+    // General first, then Models.
+    app.press_key(KeyCode::Down).unwrap();
     assert!(
         app.modal_title().contains("MODELS"),
         "{}",

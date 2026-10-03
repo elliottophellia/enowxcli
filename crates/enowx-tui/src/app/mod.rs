@@ -25,6 +25,7 @@ pub(crate) mod mcp_ui;
 pub(crate) mod model_picker;
 mod navigation;
 pub(crate) mod pages;
+mod prefs_ui;
 pub(crate) mod question;
 mod queue;
 mod rag_ui;
@@ -780,6 +781,11 @@ impl App {
             crate::modal::rag_fields(&self.settings.rag_provider)
         } else if self.modal == crate::modal::Modal::Team {
             crate::modal::team_fields(self.settings.team_enabled == "on")
+        } else if matches!(
+            self.modal,
+            crate::modal::Modal::General | crate::modal::Modal::Display
+        ) {
+            self.prefs_fields()
         } else if self.modal == crate::modal::Modal::Updates {
             &[
                 crate::modal::SettingsField::UpdateCheck,

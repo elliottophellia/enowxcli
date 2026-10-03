@@ -55,6 +55,11 @@ pub enum Modal {
     Team,
     /// Settings > Updates: the check at start, and installing by itself.
     Updates,
+    /// Settings > General: how the agents work (preview, language server,
+    /// background delegation, compaction, limits, the model per tier).
+    General,
+    /// Settings > Display: the sidebar and the currency prices are shown in.
+    Display,
     /// Ctrl+C in an empty composer: confirm before quitting.
     QuitConfirm,
     /// `/handoff`: carry on in a fresh session, keeping or deleting this
@@ -91,6 +96,8 @@ impl Modal {
             | Modal::Rag
             | Modal::Team
             | Modal::Updates
+            | Modal::General
+            | Modal::Display
             | Modal::ProviderKey => "",
         }
     }
@@ -109,6 +116,8 @@ impl Modal {
                 | Modal::Rag
                 | Modal::Team
                 | Modal::Updates
+                | Modal::General
+                | Modal::Display
         )
     }
 }
@@ -167,7 +176,133 @@ pub enum SettingsField {
     /// Settings > Updates.
     UpdateCheck,
     UpdateAuto,
+    /// A config key, by its place in `CONF_FIELDS`: General and Display.
+    Conf(usize),
 }
+
+/// How a config field is edited.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ConfKind {
+    /// On or off.
+    Bool,
+    /// One of these values, cycled with Left/Right.
+    Choice(&'static [&'static str]),
+    /// Typed.
+    Text,
+}
+
+/// The config keys General and Display edit: the dotted key `Config::set`
+/// takes, its label, how it is edited, and a placeholder for text.
+pub const CONF_FIELDS: [(&str, &str, ConfKind, &str); 15] = [
+    (
+        "agent.preview",
+        "Look at pages in a browser (preview)",
+        ConfKind::Bool,
+        "",
+    ),
+    (
+        "agent.lsp",
+        "Check edits with the language server",
+        ConfKind::Bool,
+        "",
+    ),
+    (
+        "agent.background_delegation",
+        "Delegations run in the background",
+        ConfKind::Bool,
+        "",
+    ),
+    (
+        "agent.auto_switch",
+        "Switch agent by itself",
+        ConfKind::Bool,
+        "",
+    ),
+    (
+        "agent.auto_compact",
+        "Compact the context by itself",
+        ConfKind::Bool,
+        "",
+    ),
+    (
+        "agent.auto_compact_at",
+        "Compact when the context is this full",
+        ConfKind::Choice(&["0.5", "0.6", "0.7", "0.75", "0.8", "0.85", "0.9", "0.95"]),
+        "",
+    ),
+    (
+        "agent.compact_keep_last",
+        "Turns kept as they were when compacting",
+        ConfKind::Choice(&["2", "4", "6", "8", "12"]),
+        "",
+    ),
+    (
+        "agent.max_steps",
+        "Model calls per turn at most",
+        ConfKind::Text,
+        "0 for no limit",
+    ),
+    (
+        "agent.shell_timeout_secs",
+        "Seconds a shell command may run",
+        ConfKind::Text,
+        "120",
+    ),
+    (
+        "agent.tiers.cheap",
+        "Model for cheap work",
+        ConfKind::Text,
+        "provider/model (blank: the one in use)",
+    ),
+    (
+        "agent.tiers.balanced",
+        "Model for balanced work",
+        ConfKind::Text,
+        "provider/model (blank: the one in use)",
+    ),
+    (
+        "agent.tiers.strong",
+        "Model for strong work",
+        ConfKind::Text,
+        "provider/model (blank: the one in use)",
+    ),
+    ("ui.show_sidebar", "Show the sidebar", ConfKind::Bool, ""),
+    (
+        "ui.currency",
+        "Currency shown beside prices",
+        ConfKind::Text,
+        "USD, IDR, EUR...",
+    ),
+    (
+        "ui.currency_rate",
+        "Rate from US dollars",
+        ConfKind::Text,
+        "1 for USD; 15800 for IDR",
+    ),
+];
+
+/// Settings > General's fields.
+pub const GENERAL_FIELDS: [SettingsField; 12] = [
+    SettingsField::Conf(0),
+    SettingsField::Conf(1),
+    SettingsField::Conf(2),
+    SettingsField::Conf(3),
+    SettingsField::Conf(4),
+    SettingsField::Conf(5),
+    SettingsField::Conf(6),
+    SettingsField::Conf(7),
+    SettingsField::Conf(8),
+    SettingsField::Conf(9),
+    SettingsField::Conf(10),
+    SettingsField::Conf(11),
+];
+
+/// Settings > Display's fields.
+pub const DISPLAY_FIELDS: [SettingsField; 3] = [
+    SettingsField::Conf(12),
+    SettingsField::Conf(13),
+    SettingsField::Conf(14),
+];
 
 impl SettingsField {
     pub fn label(self) -> &'static str {
@@ -204,6 +339,7 @@ impl SettingsField {
             SettingsField::Reviewer => "Reviewer",
             SettingsField::UpdateCheck => "Check for a new release at start",
             SettingsField::UpdateAuto => "Install it by itself (used from the next start)",
+            SettingsField::Conf(i) => CONF_FIELDS.get(i).map_or("", |f| f.1),
         }
     }
 
@@ -239,6 +375,9 @@ impl SettingsField {
                 | SettingsField::EmbedModel
                 | SettingsField::Dimension
                 | SettingsField::Rerank
+        ) || matches!(
+            self,
+            SettingsField::Conf(i) if CONF_FIELDS.get(i).is_some_and(|f| f.2 != ConfKind::Text)
         )
     }
 }
@@ -386,6 +525,8 @@ pub struct SettingsDraft {
     /// Settings > Updates: "on" or "off".
     pub update_check: String,
     pub update_auto: String,
+    /// The values of `CONF_FIELDS`, by index, as `Config::get` shows them.
+    pub conf: Vec<String>,
     /// The efforts this model offers, to cycle through on the Effort field.
     pub efforts: Vec<String>,
 }
@@ -440,6 +581,7 @@ impl SettingsDraft {
             SettingsField::Reviewer => &self.reviewer,
             SettingsField::UpdateCheck => &self.update_check,
             SettingsField::UpdateAuto => &self.update_auto,
+            SettingsField::Conf(i) => self.conf.get(i).map_or("", String::as_str),
         }
     }
 
@@ -477,6 +619,12 @@ impl SettingsDraft {
             SettingsField::Reviewer => &mut self.reviewer,
             SettingsField::UpdateCheck => &mut self.update_check,
             SettingsField::UpdateAuto => &mut self.update_auto,
+            SettingsField::Conf(i) => {
+                if self.conf.len() <= i {
+                    self.conf.resize(i + 1, String::new());
+                }
+                &mut self.conf[i]
+            }
         }
     }
 
@@ -550,6 +698,20 @@ impl SettingsDraft {
                 }
             }
             SettingsField::Reviewer => enowx_core::agent_def::display_name(&self.reviewer),
+            SettingsField::Conf(i) => {
+                let value = self.value(field);
+                match CONF_FIELDS.get(i).map(|f| f.2) {
+                    Some(ConfKind::Bool) => if value == "true" { "on" } else { "off" }.into(),
+                    // A fraction of the context, read as a percentage.
+                    Some(ConfKind::Choice(_)) if CONF_FIELDS[i].0 == "agent.auto_compact_at" => {
+                        value.parse::<f32>().map_or_else(
+                            |_| value.to_owned(),
+                            |f| format!("{}%", (f * 100.0).round()),
+                        )
+                    }
+                    _ => value.to_owned(),
+                }
+            }
             SettingsField::RagProvider => {
                 enowx_core::builtin_mcp::rag::Provider::parse(&self.rag_provider)
                     .label()
@@ -607,6 +769,34 @@ impl SettingsDraft {
                 let next = ((here - 1 + delta).rem_euclid(5)) + 1;
                 self.review_rounds = next.to_string();
             }
+            SettingsField::Conf(i) => match CONF_FIELDS.get(i).map(|f| f.2) {
+                Some(ConfKind::Bool) => {
+                    let next = if self.value(field) == "true" {
+                        "false"
+                    } else {
+                        "true"
+                    };
+                    *self.value_mut(field) = next.into();
+                }
+                Some(ConfKind::Choice(options)) => {
+                    let current = self.value(field).to_owned();
+                    // `0.85` and `0.850` are one value.
+                    let here = options
+                        .iter()
+                        .position(|o| {
+                            *o == current
+                                || o.parse::<f64>()
+                                    .ok()
+                                    .zip(current.parse::<f64>().ok())
+                                    .is_some_and(|(a, b)| (a - b).abs() < 1e-6)
+                        })
+                        .unwrap_or(0) as i32;
+                    let len = options.len() as i32;
+                    let next = (here + delta).rem_euclid(len);
+                    *self.value_mut(field) = options[next as usize].into();
+                }
+                _ => {}
+            },
             SettingsField::Reviewer => {
                 if self.reviewers.is_empty() {
                     return;

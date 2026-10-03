@@ -58,7 +58,15 @@ fn the_window_says_when_no_key_is_set() {
 fn it_is_not_offered_as_a_chat_provider() {
     let mut app = TestApp::new();
     app.run_command("/provider").expect("/provider");
-    let text = app.render_to_text(100, 30).join("\n").to_lowercase();
+    // The providers list itself, not the Settings section list beside it
+    // (where TypeSafe has a section of its own).
+    let text = app
+        .render_to_text(100, 30)
+        .iter()
+        .map(|row| row.chars().skip(21).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n")
+        .to_lowercase();
     assert!(
         !text.contains("typesafe") && !text.contains("jev"),
         "TypeSafe is not a chat provider: {text}"

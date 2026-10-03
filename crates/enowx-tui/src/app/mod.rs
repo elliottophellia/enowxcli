@@ -83,6 +83,8 @@ pub(crate) struct Delegation {
     pub(crate) task: String,
     pub(crate) session_id: String,
     pub(crate) state: DelegationState,
+    /// The model this sub-agent runs on, as resolved when it started.
+    pub(crate) model: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -365,13 +367,15 @@ pub(crate) struct App {
     /// at burst rates (dozens per second on macOS trackpads); we throttle so
     /// one physical scroll = one selector step.
     pub(crate) last_wheel: Option<Instant>,
-    /// Selection state for the QuitConfirm popup. `true` = Yes highlighted,
-    /// `false` = No. Defaults to `false` so hitting Enter accidentally does
-    /// not quit the session.
+    /// Selection state for the QuitConfirm and StopConfirm popups. `true` =
+    /// the action highlighted, `false` = cancel. Each popup opens on `false`
+    /// so an accidental Enter neither quits nor stops anything.
     pub(crate) quit_confirm_yes: bool,
-    /// Screen rects of the two QuitConfirm buttons this frame, so a click
-    /// can trigger the matching action without keyboard.
+    /// Screen rects of the two confirm buttons this frame, so a click can
+    /// trigger the matching action without keyboard.
     pub(crate) quit_confirm_rects: [(Rect, bool); 2],
+    /// The sub-agent StopConfirm asks about: its branch session and agent.
+    pub(crate) stop_target: Option<(String, String)>,
     /// (rect, path) markers for file paths in the transcript. Populated by
     /// tool renderers each frame; a click on `rect` opens `path` with the
     /// OS default app.
@@ -541,6 +545,7 @@ impl App {
             last_wheel: None,
             quit_confirm_yes: false,
             quit_confirm_rects: [(Rect::default(), false), (Rect::default(), false)],
+            stop_target: None,
             user_block_markers: Vec::new(),
             user_block_rects: Vec::new(),
             message_target: None,
@@ -695,12 +700,45 @@ impl App {
         self.agent_name = session.agent_or_default();
     }
 
+    /// The model the active agent runs on: its own when it has one that can
+    /// run, otherwise the conversation's. Core resolves the turn's model the
+    /// same way, so the footer always names what is answering.
+    pub(crate) fn running_model(&self) -> String {
+        let name = self.active_agent();
+        let tier = self
+            .discovery
+            .agents
+            .iter()
+            .find(|a| a.name == name)
+            .map(|a| a.tier)
+            .unwrap_or_default();
+        self.config.running_model(name, tier)
+    }
+
+    /// Whether the active agent runs on a model of its own rather than the
+    /// conversation's.
+    pub(crate) fn agent_has_own_model(&self) -> bool {
+        let name = self.active_agent();
+        let tier = self
+            .discovery
+            .agents
+            .iter()
+            .find(|a| a.name == name)
+            .map(|a| a.tier)
+            .unwrap_or_default();
+        self.config.agent_has_own_model(name, tier)
+    }
+
     /// Model name shown in the composer footer: the model in use, with its
     /// provider.
     pub(crate) fn model_label(&self) -> String {
-        let m = self.config.model.active.trim();
+        let running = self.running_model();
+        let m = running.as_str();
         if m.is_empty() {
             "no model".to_string()
+        } else if m != self.config.model.active.trim() {
+            // The agent's own model: the conversation's effort is not its.
+            m.to_string()
         } else if !self.config.model.effort.is_empty() {
             // The effort beside the model it applies to.
             format!("{m} · effort {}", self.config.model.effort)

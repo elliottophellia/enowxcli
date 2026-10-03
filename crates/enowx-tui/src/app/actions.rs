@@ -673,6 +673,10 @@ impl App {
             Modal::QuitConfirm => {
                 self.should_quit = true;
             }
+            Modal::StopConfirm => {
+                let stop = self.quit_confirm_yes;
+                self.answer_stop(stop);
+            }
             Modal::Handoff => {
                 let choice = self
                     .modal_items

@@ -349,6 +349,7 @@ impl App {
                 agent,
                 task,
                 session_id,
+                model,
             } => {
                 self.push(
                     TranscriptKind::Brief {
@@ -361,13 +362,18 @@ impl App {
                 );
                 self.logs.push(
                     crate::logs::LogKind::Agent,
-                    format!("delegate → {agent}: {task}"),
+                    if model.is_empty() {
+                        format!("delegate → {agent}: {task}")
+                    } else {
+                        format!("delegate → {agent} ({model}): {task}")
+                    },
                 );
                 self.delegations.push(crate::app::Delegation {
                     agent,
                     task,
                     session_id,
                     state: crate::app::DelegationState::Running,
+                    model,
                 });
                 self.select_tab(crate::ui::AGENTS_TAB);
             }

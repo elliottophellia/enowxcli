@@ -833,6 +833,12 @@ impl TestApp {
         self.inner.config.model.active.clone()
     }
 
+    /// The model the footer shows: the active agent's own when it has one
+    /// that can run, otherwise the conversation's.
+    pub fn footer_model(&self) -> String {
+        self.inner.model_label()
+    }
+
     pub fn context_window(&self) -> u32 {
         self.inner.config.model.context_window
     }
@@ -850,6 +856,11 @@ impl TestApp {
 
     pub fn open_model_picker(&mut self) {
         self.inner.open_model_picker(None);
+    }
+
+    /// Pick `raw` as the model, the way choosing it in `/model` does.
+    pub fn pick_model(&mut self, raw: &str) -> anyhow::Result<()> {
+        self.inner.choose_model(raw)
     }
 
     /// The model list's rows as text: `# heading`, `- note`, or a model's
@@ -1365,12 +1376,25 @@ impl TestApp {
 
 impl TestApp {
     pub fn deliver_delegation_started(&mut self, agent: &str, task: &str, session_id: &str) {
+        let model = self.resolve_agent_model(agent);
         self.inner
             .apply_event(enowx_core::Event::DelegationStarted {
                 agent: agent.to_owned(),
                 task: task.to_owned(),
                 session_id: session_id.to_owned(),
+                model,
             });
+    }
+
+    /// The model a delegated agent runs on, resolved like core does: its own
+    /// or its tier's when usable, else the conversation's.
+    fn resolve_agent_model(&self, agent: &str) -> String {
+        let tier = enowx_core::agent_def::builtin_agents()
+            .into_iter()
+            .find(|a| a.name == agent)
+            .map(|a| a.tier)
+            .unwrap_or_default();
+        self.inner.config.running_model(agent, tier)
     }
 
     pub fn deliver_delegation_finished(&mut self, agent: &str, session_id: &str, failed: bool) {

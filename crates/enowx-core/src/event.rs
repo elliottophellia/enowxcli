@@ -89,6 +89,9 @@ pub enum Event {
         agent: String,
         task: String,
         session_id: String,
+        /// The model the sub-agent will run on: its own, its tier's, or the
+        /// conversation's, resolved the same way the turn resolves it.
+        model: String,
     },
     /// A sub-agent finished; its transcript lives in its own branch session.
     DelegationFinished {

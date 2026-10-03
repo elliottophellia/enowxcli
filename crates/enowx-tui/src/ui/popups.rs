@@ -31,7 +31,28 @@ pub(super) fn draw_popup(frame: &mut Frame, app: &mut App) -> bool {
             true
         }
         Modal::QuitConfirm => {
-            draw_quit_confirm(frame, app);
+            draw_confirm(
+                frame,
+                app,
+                "Quit Enx? Unsent input will be lost.",
+                "Y quit · N stay · Enter confirm",
+                ("Yes", "No"),
+            );
+            true
+        }
+        Modal::StopConfirm => {
+            let name = app
+                .stop_target
+                .as_ref()
+                .map(|(_, agent)| enowx_core::agent_def::display_name(agent))
+                .unwrap_or_else(|| "the sub-agent".into());
+            draw_confirm(
+                frame,
+                app,
+                &format!("Stop {name}? Its caller is told, with what it changed."),
+                "S stop · K keep · Enter confirm",
+                ("Stop", "Keep"),
+            );
             true
         }
         _ => false,
@@ -350,29 +371,29 @@ fn value_is_empty(field: &McpFormField, app: &App) -> bool {
     }
 }
 
-/// Simple confirm dialog for Ctrl+C on an empty composer. Y/Enter quits,
-/// N/Esc cancels. Kept small so it never covers the transcript.
-fn draw_quit_confirm(frame: &mut Frame, app: &mut App) {
+/// A yes/no dialog: Ctrl+C on an empty composer, a right-click that would
+/// stop a sub-agent. Kept small so it never covers the transcript.
+fn draw_confirm(
+    frame: &mut Frame,
+    app: &mut App,
+    question: &str,
+    hint: &str,
+    (yes, no): (&str, &str),
+) {
     // The question, a blank row, and the buttons.
-    let (_, content) = overlay(
-        frame,
-        app,
-        46,
-        3,
-        app.modal.title(),
-        "Y quit · N stay · Enter confirm",
-    );
+    let width = (question.chars().count() as u16 + 4).clamp(46, 72);
+    let (_, content) = overlay(frame, app, width, 3, app.modal.title(), hint);
     let t = app.theme;
     frame.render_widget(
-        Paragraph::new("Quit Enx? Unsent input will be lost.").style(Style::default().fg(t.text)),
+        Paragraph::new(question.to_owned()).style(Style::default().fg(t.text)),
         Rect::new(content.x, content.y, content.width, 1),
     );
 
     // Two buttons centred on the content's last row: `[  Yes  ]  [  No  ]`.
     // The active one uses the selection band and the accent so keyboard
     // focus is obvious; the idle one is muted. Both are click targets.
-    let yes_label = "  Yes  ";
-    let no_label = "  No  ";
+    let yes_label = format!("  {yes}  ");
+    let no_label = format!("  {no}  ");
     let gap = 2usize;
     let total_w = yes_label.chars().count() + gap + no_label.chars().count() + 4;
     let start = content.x + (content.width.saturating_sub(total_w as u16)) / 2;

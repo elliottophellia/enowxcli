@@ -560,6 +560,20 @@ fn detail_lines(app: &App, width: usize) -> Detail {
                             Style::default().fg(t.text).add_modifier(Modifier::BOLD),
                         ),
                     ]));
+                    // The model this sub-agent runs on, so a glance at the
+                    // list shows what is answering each one. Shown short
+                    // (model id without the provider) to fit the column.
+                    if !delegation.model.is_empty() {
+                        let short = delegation
+                            .model
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or(&delegation.model);
+                        lines.push(Line::styled(
+                            format!("  {}", trim(short, width.saturating_sub(2).max(1))),
+                            Style::default().fg(t.muted),
+                        ));
+                    }
                     // The task says which delegation this is when the same
                     // agent has been used more than once. Its first line
                     // only: a brief runs to dozens, and printing the whole of

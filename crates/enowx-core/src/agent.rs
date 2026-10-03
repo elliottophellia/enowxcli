@@ -860,6 +860,26 @@ impl Agent {
     /// A session naming an agent that has since been deleted from disk would
     /// otherwise have no prompt at all; routing from the orchestrator is a
     /// better failure than running with an empty system message.
+    /// The model a named agent will run on, resolved like the turn does: its
+    /// own or its tier's when that can run, otherwise the conversation's. The
+    /// tier comes from the roster, falling back to a built-in agent.
+    fn model_for_agent(&self, name: &str) -> String {
+        let tier = self
+            .discovery
+            .agents
+            .iter()
+            .find(|a| a.name == name)
+            .map(|a| a.tier)
+            .or_else(|| {
+                crate::agent_def::builtin_agents()
+                    .into_iter()
+                    .find(|a| a.name == name)
+                    .map(|a| a.tier)
+            })
+            .unwrap_or_default();
+        self.config.running_model(name, tier)
+    }
+
     fn active_agent(&self, session: &Session) -> crate::agent_def::AgentDef {
         let wanted = session.agent_or_default();
         let roster = &self.discovery.agents;
@@ -1114,7 +1134,7 @@ impl Agent {
         // fail again, on the key rather than the model.
         let step = loop {
             let step = ladder.next(&self.config)?;
-            if agent_model_unusable(agent_config, &step.model).is_none() {
+            if agent_config.model_unusable(&step.model).is_none() {
                 break step;
             }
         };
@@ -1277,6 +1297,7 @@ impl Agent {
                         agent: delegation.to.clone(),
                         task: delegation.task.clone(),
                         session_id: branch.id.clone(),
+                        model: self.model_for_agent(&delegation.to),
                     })
                     .await;
                 started.push(Ok(branch));
@@ -1317,6 +1338,7 @@ impl Agent {
                     agent: delegation.to.clone(),
                     task: delegation.task.clone(),
                     session_id: branch.id.clone(),
+                    model: self.model_for_agent(&delegation.to),
                 })
                 .await;
             started.push(Ok(branch));
@@ -1534,6 +1556,7 @@ impl Agent {
                 agent: reviewer.clone(),
                 task: format!("cross-review of {}'s work", delegation.to),
                 session_id: review.id.clone(),
+                model: self.model_for_agent(&reviewer),
             })
             .await;
         let (verdict, last_report) = self
@@ -1968,7 +1991,7 @@ impl Agent {
         let model = self.config.model_for(&active.name, active.tier);
         let mut agent_config = self.config.clone();
         if !model.is_empty() && model != agent_config.model.active {
-            if let Some(notice) = agent_model_unusable(&agent_config, &model) {
+            if let Some(notice) = agent_config.model_unusable(&model) {
                 let _ = events.send(Event::Notice { message: notice }).await;
             } else {
                 agent_config.use_model(&model);
@@ -3280,26 +3303,6 @@ fn files_touched(branch: &Session) -> Vec<String> {
         }
     }
     out
-}
-
-/// Why an agent cannot run on `model`, its own or its tier's: a provider
-/// enx does not know, or one with no key. The agent then runs on the model
-/// in use, and the user is told, rather than every call failing on a
-/// missing key.
-fn agent_model_unusable(config: &Config, model: &str) -> Option<String> {
-    let Some(parsed) = config.parse_model(model) else {
-        return Some(format!(
-            "`{model}` names no provider enx knows; staying on {}",
-            config.model.active
-        ));
-    };
-    let connection = config.connection(&parsed.provider)?;
-    (!connection.is_connected()).then(|| {
-        format!(
-            "{} is not connected, so {parsed} cannot run; staying on {}. Connect it in /provider.",
-            connection.name, config.model.active
-        )
-    })
 }
 
 #[cfg(test)]

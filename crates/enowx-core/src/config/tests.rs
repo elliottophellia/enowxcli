@@ -459,3 +459,52 @@ fn thinking_efforts_come_from_the_catalogue_and_the_choice_is_kept() {
     again.set_effort("default").unwrap();
     assert!(!home.read("model.json").contains("openai/gpt-5\": "));
 }
+
+/// The footer and the turn agree on the model: an agent's own model when it
+/// can run, the conversation's when it cannot.
+#[test]
+fn the_running_model_is_the_agents_own_when_it_can_run() {
+    let mut config = Config::default();
+    config
+        .set("provider.lab.base_url", "http://127.0.0.1:11434/v1")
+        .unwrap();
+    config.model.active = "lab/chat".into();
+    assert_eq!(
+        config.running_model("orchestrator", Tier::Strong),
+        "lab/chat"
+    );
+    assert!(!config.agent_has_own_model("orchestrator", Tier::Strong));
+
+    config
+        .agent
+        .models
+        .insert("orchestrator".into(), "lab/planner".into());
+    assert_eq!(
+        config.running_model("orchestrator", Tier::Strong),
+        "lab/planner"
+    );
+    assert!(config.agent_has_own_model("orchestrator", Tier::Strong));
+
+    // The same model as the conversation's is still the agent's own: a
+    // later /model must change it too, or the agent stays where it was.
+    config
+        .agent
+        .models
+        .insert("orchestrator".into(), "lab/chat".into());
+    assert!(config.agent_has_own_model("orchestrator", Tier::Strong));
+
+    // A model on a provider with no key falls back, and does not count as
+    // its own.
+    config
+        .set("provider.remote.base_url", "https://models.invalid/v1")
+        .unwrap();
+    config
+        .agent
+        .models
+        .insert("orchestrator".into(), "remote/planner".into());
+    assert_eq!(
+        config.running_model("orchestrator", Tier::Strong),
+        "lab/chat"
+    );
+    assert!(!config.agent_has_own_model("orchestrator", Tier::Strong));
+}

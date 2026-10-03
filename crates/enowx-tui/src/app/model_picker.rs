@@ -127,7 +127,7 @@ impl App {
         self.modal = Modal::Models;
         self.modal_search.clear();
         self.modal_error.clear();
-        let active = self.config.model.active.clone();
+        let active = self.running_model();
         let rows = self.picker_rows();
         let on_active = rows
             .iter()
@@ -221,7 +221,9 @@ impl App {
     /// provider's models; with a search, only the models that match it.
     pub(crate) fn picker_rows(&self) -> Vec<PickerRow> {
         let search = self.modal_search.trim().to_lowercase();
-        let active = self.config.model.active.as_str();
+        // The model answering now: the active agent's own when it has one.
+        let running = self.running_model();
+        let active = running.as_str();
         let pin = self.config.model.default.as_str();
         let provider_of = |model: &str| {
             ModelRef::parse(model)
@@ -400,6 +402,18 @@ impl App {
             self.set_agent_model(&agent, Some(&model.to_string()))?;
             self.return_to_agents(&agent);
             return Ok(());
+        }
+        // The active agent has a model of its own, which would win over the
+        // conversation's: picking here means "answer with this", so the
+        // agent's own model changes too, and Settings > Agents shows it.
+        if self.agent_has_own_model() {
+            let agent = enowx_core::agent_def::canonical_name(self.active_agent()).to_owned();
+            let mut state = ModelState::load();
+            state.remember(&model.to_string());
+            state.save()?;
+            self.modal = Modal::None;
+            self.modal_search.clear();
+            return self.set_agent_model(&agent, Some(&model.to_string()));
         }
         let mut next = self.config.clone();
         next.use_model(&model.to_string());

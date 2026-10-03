@@ -30,6 +30,7 @@ impl App {
         if key.modifiers.contains(KeyModifiers::CONTROL)
             && key.code == KeyCode::Char('p')
             && self.modal != Modal::QuitConfirm
+            && self.modal != Modal::StopConfirm
         {
             return self.switch_tab();
         }
@@ -39,6 +40,28 @@ impl App {
         if self.modal != Modal::None {
             if self.modal.is_form() && self.modal != Modal::McpForm {
                 return self.settings_key(key);
+            }
+            if self.modal == Modal::StopConfirm {
+                match key.code {
+                    KeyCode::Char('y')
+                    | KeyCode::Char('Y')
+                    | KeyCode::Char('s')
+                    | KeyCode::Char('S') => self.answer_stop(true),
+                    KeyCode::Char('n')
+                    | KeyCode::Char('N')
+                    | KeyCode::Char('k')
+                    | KeyCode::Char('K')
+                    | KeyCode::Esc => self.answer_stop(false),
+                    KeyCode::Left | KeyCode::Right | KeyCode::Tab | KeyCode::BackTab => {
+                        self.quit_confirm_yes = !self.quit_confirm_yes;
+                    }
+                    KeyCode::Enter => {
+                        let stop = self.quit_confirm_yes;
+                        self.answer_stop(stop);
+                    }
+                    _ => {}
+                }
+                return Ok(());
             }
             if self.modal == Modal::QuitConfirm {
                 match key.code {
@@ -319,7 +342,8 @@ impl App {
                         self.cursor = 0;
                         self.status = "input cleared".into();
                     } else {
-                        // Empty composer: open the confirm popup.
+                        // Empty composer: open the confirm popup, on No.
+                        self.quit_confirm_yes = false;
                         self.modal = Modal::QuitConfirm;
                     }
                 }

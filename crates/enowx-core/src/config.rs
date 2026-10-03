@@ -495,6 +495,47 @@ impl Config {
             .to_owned()
     }
 
+    /// The model `agent` actually runs on: its own (or its tier's) when that
+    /// one can run, otherwise the conversation's. The turn uses this, and so
+    /// does every label that names the model in use, so they never disagree.
+    pub fn running_model(&self, agent: &str, tier: crate::agent_def::Tier) -> String {
+        let model = self.model_for(agent, tier);
+        if model.is_empty() || model == self.model.active || self.model_unusable(&model).is_some() {
+            self.model.active.trim().to_owned()
+        } else {
+            model
+        }
+    }
+
+    /// Whether `agent` runs on a model set for it, its own or its tier's,
+    /// rather than the conversation's. An unusable one does not count: the
+    /// agent falls back to the conversation's model then.
+    pub fn agent_has_own_model(&self, agent: &str, tier: crate::agent_def::Tier) -> bool {
+        let canonical = crate::agent_def::canonical_name(agent);
+        let explicit = self.agent.models.iter().any(|(name, id)| {
+            crate::agent_def::canonical_name(name) == canonical && !id.trim().is_empty()
+        }) || self.agent.tiers.get(tier).is_some();
+        explicit && self.model_unusable(&self.model_for(agent, tier)).is_none()
+    }
+
+    /// Why `model` cannot run, or `None` when it can: a provider enx does not
+    /// know, or one that is not connected.
+    pub fn model_unusable(&self, model: &str) -> Option<String> {
+        let Some(parsed) = self.parse_model(model) else {
+            return Some(format!(
+                "`{model}` names no provider enx knows; staying on {}",
+                self.model.active
+            ));
+        };
+        let connection = self.connection(&parsed.provider)?;
+        (!connection.is_connected()).then(|| {
+            format!(
+                "{} is not connected, so {parsed} cannot run; staying on {}. Connect it in /provider.",
+                connection.name, self.model.active
+            )
+        })
+    }
+
     /// `raw` when it is a `provider/model` ref to a provider enx knows.
     fn known_ref(&self, raw: &str) -> Option<ModelRef> {
         ModelRef::parse(raw).filter(|model| self.connection(&model.provider).is_some())

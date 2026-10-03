@@ -72,8 +72,8 @@ impl App {
     pub(crate) fn mouse(&mut self, event: MouseEvent) -> Result<()> {
         let position = Position::new(event.column, event.row);
         match event.kind {
-            // Right-click on a sub-agent in the sidebar stops it. Its caller
-            // is told it was stopped, with what it did, and goes on from there.
+            // Right-click on a sub-agent in the sidebar asks to stop it. Its
+            // caller is told it was stopped, with what it did, and goes on.
             MouseEventKind::Down(MouseButton::Right)
                 if self
                     .delegation_rects
@@ -86,7 +86,7 @@ impl App {
                     .find(|(rect, _)| rect.contains(position))
                     .map(|(_, index)| *index)
                 {
-                    self.kill_delegation(index);
+                    self.ask_stop_delegation(index);
                 }
             }
             // A tab at the top right opens its page.
@@ -140,6 +140,16 @@ impl App {
                         .is_some_and(|area| area.contains(position))
                 {
                     self.settings_nav = false;
+                }
+                // StopConfirm buttons: a click on Stop or Keep acts at once.
+                if self.modal == Modal::StopConfirm {
+                    for (rect, is_yes) in self.quit_confirm_rects {
+                        if rect.contains(position) {
+                            self.answer_stop(is_yes);
+                            return Ok(());
+                        }
+                    }
+                    return Ok(());
                 }
                 // QuitConfirm buttons: single click on Yes/No acts immediately.
                 if self.modal == Modal::QuitConfirm {

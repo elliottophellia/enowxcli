@@ -62,6 +62,8 @@ pub enum Modal {
     Display,
     /// Ctrl+C in an empty composer: confirm before quitting.
     QuitConfirm,
+    /// Right-click on a sub-agent at work: confirm before stopping it.
+    StopConfirm,
     /// `/handoff`: carry on in a fresh session, keeping or deleting this
     /// one's history.
     Handoff,
@@ -86,6 +88,7 @@ impl Modal {
             Modal::Mcp => " MCP SERVERS ",
             Modal::McpForm => " ADD MCP SERVER ",
             Modal::QuitConfirm => " QUIT ENX ",
+            Modal::StopConfirm => " STOP SUB-AGENT ",
             Modal::Handoff => " HAND OFF TO A NEW SESSION ",
             // Forms draw their own heading, so the generic title is empty.
             Modal::None

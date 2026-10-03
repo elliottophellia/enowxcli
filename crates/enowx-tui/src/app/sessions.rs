@@ -170,6 +170,16 @@ impl App {
                                 task: task.clone(),
                                 session_id: record.session_id.clone(),
                                 state,
+                                // Not recorded in the transcript; a resumed
+                                // row names the model that agent runs on now.
+                                model: self.config.running_model(
+                                    agent,
+                                    enowx_core::agent_def::builtin_agents()
+                                        .into_iter()
+                                        .find(|a| a.name == *agent)
+                                        .map(|a| a.tier)
+                                        .unwrap_or_default(),
+                                ),
                             });
                         }
                         self.show(
@@ -301,17 +311,36 @@ impl App {
     /// Deliberately not `resume`: that adopts the session as the one being
     /// worked in. This keeps the main conversation as the live one and puts
     /// its blocks aside to restore on the way back.
-    /// Stop the sub-agent at `index` in the sidebar, if it is at work.
-    pub(crate) fn kill_delegation(&mut self, index: usize) {
+    /// Ask before stopping the sub-agent at `index` in the sidebar: a
+    /// right-click is easy to make by accident, and a stop cannot be undone.
+    pub(crate) fn ask_stop_delegation(&mut self, index: usize) {
         let Some(delegation) = self.delegations.get(index).cloned() else {
             return;
         };
-        let name = enowx_core::agent_def::display_name(&delegation.agent);
         if delegation.state != crate::app::DelegationState::Running {
-            self.status = format!("{name} is not running");
+            self.status = format!(
+                "{} is not running",
+                enowx_core::agent_def::display_name(&delegation.agent)
+            );
             return;
         }
-        self.status = if self.agent.kill_delegation(&delegation.session_id) {
+        self.stop_target = Some((delegation.session_id, delegation.agent));
+        self.quit_confirm_yes = false;
+        self.modal = Modal::StopConfirm;
+    }
+
+    /// The answer to StopConfirm: stop the sub-agent, or leave it at work.
+    pub(crate) fn answer_stop(&mut self, stop: bool) {
+        self.modal = Modal::None;
+        let Some((session_id, agent)) = self.stop_target.take() else {
+            return;
+        };
+        let name = enowx_core::agent_def::display_name(&agent);
+        if !stop {
+            self.status = format!("{name} keeps working");
+            return;
+        }
+        self.status = if self.agent.kill_delegation(&session_id) {
             format!("stopping {name}; its caller is told, with what it did")
         } else {
             format!("{name} already finished")

@@ -2663,6 +2663,40 @@ const LAYOUT_SCRIPT: &str = r#"(async () => {
     if (tight.length) out.push('sections run into each other: ' + tight.slice(0, 3).map(g => g.between + ' ' + px(g.gap)).join(', ')
       + ': separate sections with the spacing scale\'s section step (ui-layout)');
   }
+  // 4b. The page's gutter: words or controls that touch the window's edge,
+  // and words or controls cut off past it (a page that hides its overflow
+  // does not scroll sideways, but what is past the edge is still gone).
+  // Inside a container that scrolls sideways on purpose (a tab list, a
+  // wide table) neither counts.
+  const scrollsSideways = el => {
+    for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+      const cs = getComputedStyle(a);
+      if (/(auto|scroll)/.test(cs.overflowX) && a.scrollWidth > a.clientWidth + 1) return true;
+    }
+    return false;
+  };
+  const gutter = W < 768 ? 12 : 16;
+  const touching = [], cut = [];
+  const edgeThings = [...new Set(texts.concat([...document.querySelectorAll('button, a[href], input, select, textarea')].filter(seen)))];
+  for (const el of edgeThings) {
+    if (scrollsSideways(el)) continue;
+    const r = place(el);
+    if (r.right > W + 1 || r.left < -1) {
+      if (cut.length < 5) cut.push(describe(el) + (r.right > W + 1 ? ' ' + px(r.right - W) + ' past the right edge' : ' ' + px(-r.left) + ' past the left edge'));
+    } else if (r.left < gutter || W - r.right < gutter) {
+      if (touching.length < 5) touching.push(describe(el) + ' ' + (r.left < gutter ? px(r.left) + ' from the left' : px(W - r.right) + ' from the right'));
+    }
+  }
+  if (cut.length) out.push('content cut off at the window\'s edge: ' + cut.join(', ')
+    + ': nothing may run past the window; let it wrap, shrink or scroll inside its own container (ui-structure)');
+  if (touching.length) out.push('content touches the window\'s edge: ' + touching.join(', ')
+    + ': give every section one container with a gutter of ' + (W < 768 ? '16px' : W < 1024 ? '24px' : '32px') + ' (ui-structure)');
+  // 4c. A theme toggle with words on it: it is an icon button (ui-anatomy).
+  const themeToggles = [...document.querySelectorAll('button, [role=button], [role=switch]')].filter(el => seen(el)
+    && /\b(theme|dark|light)\b/i.test((el.getAttribute('aria-label') || '') + ' ' + (el.textContent || ''))
+    && (el.textContent || '').trim().length > 2);
+  if (themeToggles.length) out.push('the theme toggle shows text ("' + (themeToggles[0].textContent || '').trim().slice(0, 40)
+    + '"): make it an icon button, sun or moon, named by aria-label alone (ui-anatomy)');
   // 5. What overlaps.
   const overlaps = [];
   const things = texts.concat(media).slice(0, 700);

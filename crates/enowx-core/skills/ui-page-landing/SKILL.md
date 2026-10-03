@@ -11,7 +11,9 @@ hero with a slogan, a row of logos nobody agreed to, three icon cards
 three price tiers with "Most popular" in the middle, a generic FAQ and a
 "Get started" band. None of it says what this product does, for whom, or
 why anyone should believe it. This skill starts from the product's story,
-lets it choose the sections, and fills each with evidence.
+lets it choose the sections, and fills each with evidence. Write the
+blueprint first (`ui-structure` has the landing page's regions in order and
+the skeleton in numbers) and build each control to `ui-anatomy`.
 
 One kind of page. The measures are in `ui-layout`, section compositions in
 `ui-part-sections`, the concept in the `ui` skill (section 1), the words in

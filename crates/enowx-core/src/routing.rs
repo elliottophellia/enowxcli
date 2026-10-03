@@ -554,6 +554,31 @@ pub enum HandOff {
     BackToOrchestrator,
 }
 
+/// `stop_delegation`, for an agent that delegates: stop one of its
+/// delegations still at work.
+pub fn stop_delegation_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": "stop_delegation",
+            "description":
+                "Stop one of your delegations that is still at work: when it is going the \
+                 wrong way, its task is no longer needed, or another agent's work makes it \
+                 wrong. It stops at its next step and its report comes back saying it was \
+                 stopped and why, with what it had changed; its transcript is kept for \
+                 `delegation_log` or `resume`. Not for one that is slow but right.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "session": {"type": "string", "description": "its session id, from the list of delegations still at work"},
+                    "reason": {"type": "string", "description": "why, in one sentence; it goes into its report"}
+                },
+                "required": ["session", "reason"]
+            }
+        }
+    })
+}
+
 /// `delegation_log`, for an agent that delegates: read what one of its
 /// delegations did, from its transcript.
 pub fn delegation_log_schema() -> serde_json::Value {

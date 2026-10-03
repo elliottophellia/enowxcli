@@ -5,8 +5,10 @@ description: "How to build a dashboard or an application's overview: the shell, 
 
 # Dashboard or application overview
 
-One kind of page. The measures (container, grid, spacing, type) are in
-`ui-layout`; each part it uses (sidebar, header, tables, charts, cards,
+One kind of page. Write its blueprint first (`ui-structure`: the regions
+in order, the skeleton in numbers, the components and their states), and
+build each control to its contract in `ui-anatomy`. The measures
+(container, grid, spacing, type) are in `ui-layout`; each part it uses (sidebar, header, tables, charts, cards,
 pagination, loading) has its own `ui-part-*` skill. Build it from the
 component library (the `ui` skill), themed with the tokens.
 

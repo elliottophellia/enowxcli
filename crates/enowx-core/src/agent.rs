@@ -362,7 +362,9 @@ pub struct Agent {
     /// The token that stops each delegation at work, by its session.
     cancels: std::sync::Mutex<std::collections::HashMap<String, CancellationToken>>,
     /// Delegations the user stopped, until their report is written.
-    killed: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// Delegations stopped on purpose, by session: who stopped it (`None`
+    /// for the user) and why, until their report is written.
+    killed: std::sync::Mutex<std::collections::HashMap<String, Option<(String, String)>>>,
 }
 
 /// A delegated branch at work: who runs it, for whom, on what.
@@ -376,7 +378,7 @@ struct RunningBranch {
 /// What the agent holding `parent`'s conversation is told about the
 /// delegations it started that are still at work, so it neither resumes one
 /// (running the same session twice at once) nor starts the same work again.
-fn running_note(running: &[RunningBranch]) -> String {
+fn running_note(running: &[(String, RunningBranch)]) -> String {
     if running.is_empty() {
         return String::new();
     }
@@ -384,9 +386,10 @@ fn running_note(running: &[RunningBranch]) -> String {
         "\n\nStill at work in the background, delegated by you earlier. Each reports \
          back on its own when it finishes. Do not resume these sessions and do not \
          delegate the same work again: wait for the report, or give the user an update, \
-         or do other work that does not touch theirs.\n",
+         or do other work that does not touch theirs. One going the wrong way, or no \
+         longer needed, is stopped with `stop_delegation` and its session.\n",
     );
-    for branch in running {
+    for (id, branch) in running {
         let task: String = branch.task.chars().take(200).collect();
         let more = if branch.task.chars().count() > 200 {
             "…"
@@ -394,7 +397,7 @@ fn running_note(running: &[RunningBranch]) -> String {
             ""
         };
         note.push_str(&format!(
-            "- {}: {}{more}\n",
+            "- {} (session `{id}`): {}{more}\n",
             branch.agent,
             task.replace('\n', " ")
         ));
@@ -450,7 +453,7 @@ impl Agent {
             waiting: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             running: Arc::default(),
             cancels: std::sync::Mutex::new(std::collections::HashMap::new()),
-            killed: std::sync::Mutex::new(std::collections::HashSet::new()),
+            killed: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -600,6 +603,12 @@ impl Agent {
     /// stopped, with what it had changed and where its transcript is, and
     /// the transcript is kept. False when it is not running.
     pub fn kill_delegation(&self, session_id: &str) -> bool {
+        self.stop_branch(session_id, None)
+    }
+
+    /// Stop a delegation at work: by the user (`by` None) or by the agent
+    /// that delegated it, with its reason. False when it is not running.
+    fn stop_branch(&self, session_id: &str, by: Option<(String, String)>) -> bool {
         let token = self
             .cancels
             .lock()
@@ -609,10 +618,54 @@ impl Agent {
             return false;
         };
         if let Ok(mut killed) = self.killed.lock() {
-            killed.insert(session_id.to_owned());
+            killed.insert(session_id.to_owned(), by);
         }
         token.cancel();
         true
+    }
+
+    /// `stop_delegation`: the agent in `session` stops one of its own
+    /// delegations that is still at work.
+    fn stop_delegation(
+        &self,
+        session: &Session,
+        agent: &str,
+        args: &serde_json::Value,
+    ) -> ToolOutput {
+        let text = |key: &str| args.get(key).and_then(|v| v.as_str()).unwrap_or("").trim();
+        let (id, reason) = (text("session"), text("reason"));
+        if id.is_empty() || reason.is_empty() {
+            return ToolOutput::error("stop_delegation needs `session` (from its report or the running list) and `reason`");
+        }
+        let ours = self
+            .running
+            .lock()
+            .map(|running| {
+                running
+                    .get(id)
+                    .map(|b| (b.parent == session.id, b.agent.clone()))
+            })
+            .unwrap_or(None);
+        match ours {
+            None => ToolOutput::error(format!(
+                "`{id}` is not at work: nothing to stop. A finished delegation is read with \
+                 `delegation_log`, or continued with `resume`."
+            )),
+            Some((false, _)) => ToolOutput::error(format!(
+                "`{id}` was delegated by another agent: only the one that delegated it may stop it"
+            )),
+            Some((true, to)) => {
+                if self.stop_branch(id, Some((agent.to_owned(), reason.to_owned()))) {
+                    ToolOutput::ok(format!(
+                        "Stopping `{to}` ({id}) at its next step. Its report comes back saying it \
+                         was stopped, with what it had changed; its transcript is kept for \
+                         `delegation_log` or `resume`."
+                    ))
+                } else {
+                    ToolOutput::error(format!("`{id}` finished before it could be stopped"))
+                }
+            }
+        }
     }
 
     /// `delegation_log`: what a delegation of `session` did, read from its
@@ -1285,14 +1338,14 @@ impl Agent {
     }
 
     /// The delegations `parent` started that are still at work.
-    fn running_for(&self, parent: &str) -> Vec<RunningBranch> {
+    fn running_for(&self, parent: &str) -> Vec<(String, RunningBranch)> {
         self.running
             .lock()
             .map(|running| {
                 running
-                    .values()
-                    .filter(|branch| branch.parent == parent)
-                    .cloned()
+                    .iter()
+                    .filter(|(_, branch)| branch.parent == parent)
+                    .map(|(id, branch)| (id.clone(), branch.clone()))
                     .collect()
             })
             .unwrap_or_default()
@@ -1370,13 +1423,14 @@ impl Agent {
             let (outcome, review) = outcome;
             // Reload: the nested run owns the branch on disk from here.
             let branch = self.store.load(&branch.id).unwrap_or(branch);
-            let killed = self
+            let stopped = self
                 .killed
                 .lock()
-                .map(|mut killed| killed.remove(&branch.id))
-                .unwrap_or(false);
-            let summary = if killed {
-                killed_summary(&branch)
+                .ok()
+                .and_then(|mut killed| killed.remove(&branch.id));
+            let killed = stopped.is_some();
+            let summary = if let Some(by) = stopped {
+                killed_summary(&branch, by.as_ref())
             } else {
                 match outcome {
                     Ok(()) => match review {
@@ -1966,6 +2020,7 @@ impl Agent {
             };
             schemas.extend(crate::routing::routing_schemas(hand_off));
             schemas.push(crate::routing::delegation_log_schema());
+            schemas.push(crate::routing::stop_delegation_schema());
         }
         // Working together, when it is on (Settings > Team).
         let team = self.config.agent.comms.clone();
@@ -2365,6 +2420,12 @@ impl Agent {
                                 && active.delegation != crate::agent_def::Delegation::None =>
                         {
                             self.delegation_log(&session, &args)
+                        }
+                        Ok(args @ serde_json::Value::Object(_))
+                            if call.name == "stop_delegation"
+                                && active.delegation != crate::agent_def::Delegation::None =>
+                        {
+                            self.stop_delegation(&session, &active.name, &args)
                         }
                         Ok(args @ serde_json::Value::Object(_))
                             if crate::comms::is_comms_tool(&call.name) =>
@@ -2940,9 +3001,10 @@ fn branch_sink(up: &mpsc::Sender<Event>, agent: &str, session_id: &str) -> mpsc:
     sink
 }
 
-/// The report of a delegation the user stopped: what it had changed, what
-/// it was doing last, and where to read the rest.
-fn killed_summary(branch: &Session) -> String {
+/// The report of a delegation stopped on purpose (by the user, or by the
+/// agent that delegated it, with why): what it had changed, what it was
+/// doing last, and where to read the rest.
+fn killed_summary(branch: &Session, by: Option<&(String, String)>) -> String {
     let touched = files_touched(branch);
     let last = branch
         .turns
@@ -2953,14 +3015,24 @@ fn killed_summary(branch: &Session) -> String {
         })
         .map(|t| clip(t.message.content.trim(), 600))
         .unwrap_or_else(|| "(nothing said yet)".into());
+    let (head, tail) = match by {
+        None => (
+            "KILLED by the user before it finished.".to_owned(),
+            "The user stopped it on purpose: do not resume or redo it unless they ask.",
+        ),
+        Some((agent, reason)) => (
+            format!("STOPPED by {agent} before it finished: {reason}"),
+            "Brief what is left as a new delegation, or `resume` this one with a corrected \
+             brief, so nothing it already did is done twice.",
+        ),
+    };
     format!(
-        "KILLED by the user before it finished.\n\
+        "{head}\n\
          Already changed: {}\n\
          What it said last: {last}\n\
          Its transcript is kept: read what it did with `delegation_log` (session `{}`) \
          before you brief the next delegation, so the work done is not redone and the \
-         new brief starts where this one stopped. The user stopped it on purpose: do not \
-         resume or redo it unless they ask.",
+         new brief starts where this one stopped. {tail}",
         if touched.is_empty() {
             "none".to_owned()
         } else {

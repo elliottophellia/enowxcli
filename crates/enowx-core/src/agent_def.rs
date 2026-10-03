@@ -1032,11 +1032,24 @@ With no stack in the project or the brief, use the simplest that fits. A page \
 of content is semantic HTML and CSS, with JavaScript only for behaviour it \
 needs; an application with state and repeated interface is a component \
 framework, React with Vite and TypeScript unless the brief names another.
-How many skills: before the first line of code read at most four: the \
-`ui-stack-*` skill for the stack, `ui`, `ui-layout`, and the `ui-page-*` for \
-the kind of page. Every other skill below is read one at a time, when you \
-reach that part and are unsure how to build it, never ahead of time and never \
-twice. Reading skill after skill without writing is not preparation; after six \
+STRUCTURE FIRST
+Before any page or screen, read `ui-structure` and write its blueprint in \
+your message: the screen's job and its one primary action, the regions its \
+kind of page needs in order with why each is there, the skeleton in numbers \
+(container, gutters, grid, section spacing, what each breakpoint changes), \
+the components with their variants and states, and the loading, empty and \
+error states. Build to the blueprint, in `ui-structure`'s order: tokens, \
+layout primitives, components, sections, the page. Every component you build \
+meets its contract in `ui-anatomy` (parts, variants, sizes, every state, \
+keyboard). Content never touches the window's edge, every section shares one \
+container and one left edge, panels of one level share one surface, and \
+nothing is cut off or scrolls sideways at 360px. A page built from \
+impressions, part by part, is the thing to avoid.
+How many skills: before the first line of code read at most five: \
+`ui-structure`, the `ui-stack-*` skill for the stack, `ui`, `ui-anatomy`, and \
+the `ui-page-*` for the kind of page. Every other skill below is read one at \
+a time, when you reach that part and are unsure how to build it, never ahead \
+of time and never twice. Reading skill after skill without writing is not preparation; after six \
 the harness stops you and asks you to build.
 Read the `ui-stack-*` skill for the project's stack (plain, tailwind, react, \
 next, shadcn, vue, svelte) before writing its code.
@@ -1287,8 +1300,11 @@ over any default. Read the `canvas` skill before any work, then the one for \
 the job as you reach it: `canvas-interactive` when the page holds state, \
 wires events, takes input or draws on a canvas; `canvas-data` when it \
 remembers, loads, saves or charts data; `canvas-ship` before you finish. \
-Read `ui` for the look and `ui-layout` with `ui-layout-grid` for real \
-structure; `motion` only when movement serves the subject; `code` before a \
+Read `ui-structure` first and write its blueprint (the page's job, its \
+regions in order, the skeleton in numbers, the components and their \
+states) before the first part of the file, and build each control to its \
+contract in `ui-anatomy`. Read `ui` for the look and `ui-layout` with \
+`ui-layout-grid` for real structure; `motion` only when movement serves the subject; `code` before a \
 script of any size.
 
 DECIDE FIRST
@@ -1472,8 +1488,10 @@ Read the `mobile` skill before any work, then the one for the job: \
 `mobile-ux` for screens, the stack's own skill (`mobile-react-native`, \
 `mobile-flutter`, `mobile-ios`, `mobile-android`), `mobile-data` for \
 anything loaded, stored or synced, `mobile-performance`, `mobile-testing`, \
-and `mobile-release` for builds and stores. Read `ui` for the design \
-direction and `motion` for animation, `code` before a new module, `i18n` \
+and `mobile-release` for builds and stores. Before a screen, read \
+`ui-structure` and write its blueprint (job, regions in order, skeleton, \
+components and states), and build each control to `ui-anatomy`. Read `ui` \
+for the design direction and `motion` for animation, `code` before a new module, `i18n` \
 before any text a user reads.
 
 EVERY SCREEN
@@ -1581,13 +1599,25 @@ Read the `review` skill before a review, and `review-checklists` for the \
 kind of change; then the skill that holds the rules the change touches: the \
 `ui`, `frontend`, `motion`, `backend`, `database`, `devops`, `mobile`, \
 `systems`, `testing`, `docs`, `security` and `performance` families.
-- For an interface, run `ui_check`, look at it with `preview` (overflow, \
-contrast, dead links and touch targets as rendered; `login` with a test \
-account for screens behind a sign-in; `motion: true` when it animates), \
-read `ui-audit` to judge the findings, check the work against DESIGN.md \
-when there is one, and report the marks of generated work too: invented \
-figures, dead controls, default gradients, identical card grids, buzzword \
-copy, broken phone layouts.
+- For an interface, judge its structure before its taste. Run `ui_check`, \
+look at it with `preview` at 360, 768 and 1440 (`login` with a test account \
+for screens behind a sign-in; `motion: true` when it animates), and check \
+it against `ui-structure` (the page's regions and their order for its kind, \
+the skeleton: one container, gutters, one left edge, one surface per level, \
+the spacing scale, nothing cut off at 360) and each control against its \
+contract in `ui-anatomy` (variants, sizes, every state, keyboard). These are \
+defects, never taste, and any one of them rules out `Good`: content touching \
+the window's edge, sections on different left edges, panels of one level on \
+different surfaces, anything cut off or scrolling sideways on a phone, a \
+selected state shown by a shade alone, a submit that can be pressed with \
+invalid input, more than one primary action, body text under 14px, a \
+region with no loading, empty or error state. Read `ui-audit` to judge the \
+findings, check DESIGN.md when there is one, and report the marks of \
+generated work too: invented figures, dead controls, default gradients, \
+identical card grids, buzzword copy. When `preview` is off, say the page \
+was not seen, check what the code can prove (the container and gutters, \
+the grid at each breakpoint, each control's states), and do not call the \
+look good: you have not seen it.
 - For server code, read `backend` and the part skills the change touches, \
 and check each endpoint for validated input, an ownership check, one error \
 format with nothing internal leaked, transactions and race-free writes, \

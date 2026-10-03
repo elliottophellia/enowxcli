@@ -2,6 +2,34 @@
 
 All notable changes to enx. Dates are YYYY-MM-DD.
 
+## Unreleased
+
+### Interface work
+
+- **Structure before styling: `ui-structure` and `ui-anatomy`.** The
+  frontend, canvas and mobile agents now write a blueprint before any
+  code: the screen's job and its one primary action, the regions its kind
+  of page needs in order (homepage, dashboard, list, detail, settings,
+  form, sign-in, pricing, docs, article, checkout) with why each is there,
+  the skeleton in numbers (container, gutters, grid, spacing, what each
+  breakpoint changes), and the components with their states. They build
+  in a fixed order (tokens, layout primitives, components, sections, the
+  page) and every control meets its contract in `ui-anatomy`: parts,
+  variants, sizes, every state, keyboard.
+- **Reviewers judge structure before taste.** Content touching the
+  window's edge, sections on different left edges, mixed surfaces, cut-off
+  phone layouts, selected states shown by a shade, invalid submits and
+  missing loading, empty or error states rule out `Good`; a page not seen
+  in a browser is never called good to look at.
+- **`preview` reports more**: content touching the window's edge (no
+  gutter), content cut off past it, and a theme toggle with text on it.
+
+### Agents and delegation
+
+- **The orchestrator and maestro can stop a delegation** at work with
+  `stop_delegation` and a reason; its report says who stopped it and why,
+  and the list of delegations still running now gives their sessions.
+
 ## v0.2.0 (2026-10-03)
 
 Still an early release: expect rough edges, and please report them in

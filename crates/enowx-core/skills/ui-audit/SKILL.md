@@ -29,7 +29,15 @@ wrong with it produces a different generic page.
    `login` and a test account; without it the preview shows only the sign-in
    form. Then the layout against the checks in the `ui-layout` skill:
    positioning, focal point, text measure, rhythm, phone layout.
-5. **Report** (section 4), then fix what the task covers.
+5. **Check the structure** against `ui-structure`: does the page have the
+   regions its kind needs, in an order that answers the reader's questions,
+   on one skeleton (one container, gutters, one left edge, one surface per
+   level, the spacing scale, a breakpoint plan)? Then each control against
+   its contract in `ui-anatomy`: its variant fits its job, its size is on
+   the scale, it shows every state, the keyboard drives it. Structure comes
+   before taste: a tidy palette on a page with three left edges is a broken
+   page.
+6. **Report** (section 4), then fix what the task covers.
 
 ## 2. What to search for
 
@@ -131,9 +139,14 @@ when the only answer is "it looks modern" or there is no answer.
 
 Rank what is left:
 
-- **High**: dishonest or broken. Invented figures, testimonials or logos,
-  dead controls, removed focus, contrast below AA, horizontal scroll on a
-  phone, missing error states.
+- **High**: dishonest, broken or structurally wrong. Invented figures,
+  testimonials or logos, dead controls, removed focus, contrast below AA,
+  horizontal scroll or content cut off on a phone, content touching the
+  window's edge, sections on different left edges, panels of one level on
+  different surfaces, a page missing a region its kind needs (a dashboard
+  with no page header, a landing page with no clear primary action), a
+  selected state shown by a shade alone, a submit that accepts invalid
+  input, missing loading, empty or error states.
 - **Medium**: generated look. Default gradients and glass, identical card
   grids, centred everything, buzzword copy, generic actions, emoji icons,
   one composition repeated.
@@ -142,8 +155,9 @@ Rank what is left:
 
 ## 4. Reporting
 
-Open with one verdict, the same scale as `review`: `Good` (tidy, nothing
-generated-looking left), `Good with fixes`, `Needs work`, or `Bad` (the
+Open with one verdict, the same scale as `review`: `Good` (sound
+structure, tidy, nothing generated-looking left; never with a high
+finding open, and never for a page you have not seen rendered), `Good with fixes`, `Needs work`, or `Bad` (the
 layout or direction is wrong at the root; say what should replace it). Say
 it plainly: an untidy screen is untidy, a good one is good, with the reason.
 Drifting spacing, cards of different sizes and controls of different

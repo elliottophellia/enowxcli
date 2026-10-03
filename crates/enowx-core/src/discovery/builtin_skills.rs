@@ -96,6 +96,14 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
         include_str!("../../skills/backend-stack-rails/SKILL.md"),
     ),
     ("ui", include_str!("../../skills/ui/SKILL.md")),
+    (
+        "ui-structure",
+        include_str!("../../skills/ui-structure/SKILL.md"),
+    ),
+    (
+        "ui-anatomy",
+        include_str!("../../skills/ui-anatomy/SKILL.md"),
+    ),
     ("ui-layout", include_str!("../../skills/ui-layout/SKILL.md")),
     (
         "ui-layout-grid",

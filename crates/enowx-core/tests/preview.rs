@@ -31,6 +31,7 @@ const CLEAN: &str = r##"<!doctype html>
 <style>
 body { margin: 0; font: 16px/1.5 system-ui; background: #fff; color: #1a1a1a; }
 main { max-width: 60ch; margin: 0 auto; padding: 24px 16px; }
+nav { padding: 0 16px; }
 nav a { display: inline-block; min-height: 44px; min-width: 44px; padding: 12px; color: #1a1a1a; }
 button { min-height: 44px; min-width: 44px; padding: 0 16px; font: inherit; color: #fff; background: #1d4ed8; border: 0; }
 .skip { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -919,5 +920,33 @@ async fn a_page_built_without_a_shared_layout_is_reported() {
     assert!(has("overlap"), "{text}");
     assert!(has("still invisible after scrolling"), "{text}");
     assert!(has("body text is 13px"), "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A page with no gutter, and a theme toggle with words on it: both are
+/// reported, at a phone width and on a desktop.
+#[tokio::test]
+async fn no_gutter_and_a_worded_theme_toggle_are_reported() {
+    if no_chrome() {
+        return;
+    }
+    let dir = folder(
+        r##"<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Edge</title>
+<style>body { margin: 0; font: 16px/1.5 system-ui; }
+header { display: flex; justify-content: space-between; }
+button { min-height: 44px; padding: 0 12px; }</style></head>
+<body><header><strong>Observatory</strong>
+<button type="button" aria-label="Switch to dark theme"><svg width="16" height="16" aria-hidden="true"></svg> Switch to dark theme</button></header>
+<main><h1>Market workspace</h1><p>Prices and orders.</p></main>
+</body></html>"##,
+    );
+    let reports = preview::preview(&dir, Target::File(dir.clone()), None, &dir.join("shots"))
+        .await
+        .expect("preview");
+    let text = preview::report("index.html", &reports);
+    assert!(text.contains("content touches the window's edge"), "{text}");
+    assert!(text.contains("the theme toggle shows text"), "{text}");
     let _ = std::fs::remove_dir_all(&dir);
 }

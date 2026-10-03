@@ -3723,7 +3723,7 @@ mod rag_skill_tests {
             mcp_servers: vec![McpServer {
                 name: "rag".into(),
                 scope: SkillScope::Builtin,
-                command_or_url: "enx".into(),
+                command_or_url: "enowx".into(),
                 args: Vec::new(),
                 env: Default::default(),
                 transport: McpTransport::Stdio,

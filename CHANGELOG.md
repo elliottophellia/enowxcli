@@ -1,8 +1,47 @@
 # Changelog
 
-All notable changes to enx. Dates are YYYY-MM-DD.
+All notable changes to enowx. Dates are YYYY-MM-DD.
 
 ## Unreleased
+
+## v0.2.2 (2026-10-03)
+
+### Renamed to enowx
+
+- **The command is now `enowx`, not `enx`.** The project name and the binary
+  are `enowx` everywhere; `enx auth login` becomes `enowx auth login`, and so
+  on. The install scripts, release archives (`enowx-<target>`), docs and the
+  website use `enowx`. Your data in `~/.enx/` is left where it is, so settings,
+  keys and sessions carry over; only the command you type changed. Old
+  `ENX_*` environment knobs still work alongside the new `ENOWX_*` ones.
+
+### Models and agents
+
+- **A model manager that tests before it assigns.** A new `model-manager`
+  skill (carried by the orchestrator and maestro) helps set a model per agent:
+  `enowx models list` shows the connected providers and their models, and
+  `enowx models test provider/model` makes one tiny call and reports whether
+  it answered, how fast, and the tokens. The skill lists what you own,
+  brainstorms a mapping, tests every candidate, and sets only the ones that
+  answered.
+- **The footer and `/model` follow the active agent's model.** Setting an
+  agent to another model shows at once; picking a model while an agent has its
+  own changes that agent's model, not the conversation's.
+- **Each delegated sub-agent shows the model it runs on**, in the sidebar list
+  and the log.
+- **Stopping a sub-agent asks first** (a right-click opens a confirm that
+  defaults to keeping it).
+
+### Agents
+
+- **Brainstorm no longer asks how the work is built.** It asks only what is
+  yours to decide (purpose, scope, look, content) and reads the one relevant
+  skill before offering options, so it never invents tool choices or asks you
+  to do a step a tool can do.
+- **A `motion-video` skill**: render a video file (an explainer, an animated
+  logo) from code with synthesised sound, instead of reaching for video
+  software or asking you to record.
+
 
 ## v0.2.1 (2026-10-03)
 

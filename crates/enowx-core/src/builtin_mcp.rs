@@ -123,7 +123,7 @@ pub fn builtin_servers(
     enabled: impl Fn(&str) -> bool,
 ) -> Vec<McpServer> {
     let config = BuiltinConfig::load().unwrap_or_default();
-    let exe = std::env::current_exe().unwrap_or_else(|_| "enx".into());
+    let exe = std::env::current_exe().unwrap_or_else(|_| "enowx".into());
     NAMES
         .iter()
         .map(|name| {

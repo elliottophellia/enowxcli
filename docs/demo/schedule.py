@@ -4,14 +4,14 @@ FPS = 30
 SECONDS = 24
 TOTAL = FPS * SECONDS
 
-# Colours (the enx / enowx dark palette).
+# Colours (the enowx dark palette).
 BG      = (8, 9, 10)
 PANEL   = (16, 18, 21)
 LINE    = (38, 41, 47)
 TEXT    = (228, 230, 234)
 DIM     = (138, 145, 158)
 FAINT   = (90, 96, 107)
-ACCENT  = (240, 241, 242)   # near-white, the enx accent
+ACCENT  = (240, 241, 242)   # near-white, the enowx accent
 GREEN   = (120, 200, 150)
 YELLOW  = (210, 180, 120)
 RED     = (232, 80, 90)

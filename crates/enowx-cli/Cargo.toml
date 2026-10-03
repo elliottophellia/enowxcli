@@ -8,7 +8,7 @@ description = "enowxcli coding agent with the enowx terminal interface"
 # Keep the shipped binary named `enx` so `enx` on PATH still runs the same
 # command after the crate rename.
 [[bin]]
-name = "enx"
+name = "enowx"
 path = "src/main.rs"
 
 [dependencies]

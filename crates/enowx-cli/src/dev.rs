@@ -121,7 +121,7 @@ fn build() -> Result<bool> {
     io::stdout().flush().ok();
     let started = Instant::now();
     let status = Command::new(env!("CARGO"))
-        .args(["build", "--quiet", "-p", "enx"])
+        .args(["build", "--quiet", "-p", "enowx"])
         .status()
         .context("running cargo build")?;
     if status.success() {

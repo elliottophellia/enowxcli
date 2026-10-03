@@ -32,7 +32,7 @@ impl IconTool {
     fn client() -> Result<reqwest::Client> {
         Ok(reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(15))
-            .user_agent("enx")
+            .user_agent("enowx")
             .build()?)
     }
 

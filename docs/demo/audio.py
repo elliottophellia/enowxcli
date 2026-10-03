@@ -1,5 +1,5 @@
 import sys, os, numpy as np, wave, struct
-sys.path.insert(0, '.')
+sys.path.insert(0, '/Volumes/SSD/.ctmp/demo')
 import schedule as S
 
 SR = 44100
@@ -76,7 +76,7 @@ out = np.tanh(buf * master * 1.4)
 out = out / (np.max(np.abs(out)) + 1e-9) * 0.9
 pcm = (out * 32767).astype(np.int16)
 
-with wave.open("./audio.wav", "w") as w:
+with wave.open("/Volumes/SSD/.ctmp/demo/audio.wav", "w") as w:
     w.setnchannels(1); w.setsampwidth(2); w.setframerate(SR)
     w.writeframes(pcm.tobytes())
 print("audio.wav written")

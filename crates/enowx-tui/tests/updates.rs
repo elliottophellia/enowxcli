@@ -21,7 +21,7 @@ fn the_updates_section_saves_its_switches() {
     app.press(KeyCode::Char('p'), true).unwrap();
     app.press_key(KeyCode::Up).unwrap();
     let screen = app.render_to_text(150, 44).join("\n");
-    assert!(screen.contains("UPDATES · ENX"), "{screen}");
+    assert!(screen.contains("UPDATES · ENOWX"), "{screen}");
     assert!(
         screen.contains("Check for a new release at start"),
         "{screen}"

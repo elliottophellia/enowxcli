@@ -10,9 +10,9 @@ mod mcp;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "enx",
+    name = "enowx",
     version,
-    about = "Rust coding agent with the enowxcli terminal interface"
+    about = "enowx: an open-source AI coding agent for your terminal"
 )]
 struct Cli {
     #[command(subcommand)]

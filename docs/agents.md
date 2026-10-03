@@ -10,7 +10,7 @@ loop in `agent.rs` resolves an agent per turn. What remains is listed under
 
 > Not to be confused with `/AGENTS.md` at the repo root, which is an
 > instruction file for agents working *on this repository*. This document
-> describes a feature *of* enx.
+> describes a feature *of* enowx.
 
 ## The shape
 
@@ -404,8 +404,8 @@ value gives it back to its tier. The model is named with its provider, so it
 can be on any connected provider, not only the one in use:
 
 ```sh
-enx config set agent.models.fe "openrouter/anthropic/claude-sonnet-4.5"
-enx config set agent.models.fe ""
+enowx config set agent.models.fe "openrouter/anthropic/claude-sonnet-4.5"
+enowx config set agent.models.fe ""
 ```
 
 An agent whose model is on a provider with no key runs on the model in use,

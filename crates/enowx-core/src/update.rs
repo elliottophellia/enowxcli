@@ -179,11 +179,11 @@ pub async fn install(tag: &str) -> Result<PathBuf> {
         bail!("{archive} does not match its published checksum; nothing was installed");
     }
 
-    let exe = std::env::current_exe().context("finding the running enx")?;
+    let exe = std::env::current_exe().context("finding the running enowx")?;
     let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
     let folder = exe
         .parent()
-        .context("the running enx has no folder")?
+        .context("the running enowx has no folder")?
         .to_path_buf();
     let work = folder.join(format!(".enx-update-{}", std::process::id()));
     std::fs::create_dir_all(&work)
@@ -215,7 +215,7 @@ fn unpack_and_replace(
     if !status.success() {
         bail!("tar could not unpack {archive}");
     }
-    let name = if cfg!(windows) { "enx.exe" } else { "enx" };
+    let name = if cfg!(windows) { "enowx.exe" } else { "enowx" };
     let fresh = work.join(format!("enx-{target}")).join(name);
     if !fresh.is_file() {
         bail!("{archive} has no {name}");
@@ -234,7 +234,7 @@ fn unpack_and_replace(
         // Windows will not replace a running .exe, but will rename it.
         let old = exe.with_extension("old.exe");
         let _ = std::fs::remove_file(&old);
-        std::fs::rename(exe, &old).context("moving the running enx aside")?;
+        std::fs::rename(exe, &old).context("moving the running enowx aside")?;
         if let Err(error) = std::fs::rename(&staged, exe) {
             let _ = std::fs::rename(&old, exe);
             return Err(error).context("putting the new enx in place");

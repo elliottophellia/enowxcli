@@ -1,4 +1,4 @@
-<h1 align="center">enx</h1>
+<h1 align="center">enowx</h1>
 
 <p align="center">
   <b>An open-source AI coding agent for your terminal.</b><br>
@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/demo.gif" alt="enx: a team of AI agents in your terminal building a landing page and pricing API" width="760">
+  <img src="docs/demo.gif" alt="enowx: a team of AI agents in your terminal building a landing page and pricing API" width="760">
 </p>
 
 ```sh
@@ -29,11 +29,11 @@ curl -fsSL https://enowx.ai/install.sh | sh     # macOS / Linux
 irm https://enowx.ai/install.ps1 | iex          # Windows (PowerShell)
 ```
 
-Then run `enx`.
+Then run `enowx`.
 
-## Why enx
+## Why enowx
 
-Most coding agents are one model editing your files, locked to one vendor. enx
+Most coding agents are one model editing your files, locked to one vendor. enowx
 is different:
 
 - **A team, not one model.** It splits a task across specialist agents (plan,
@@ -52,10 +52,10 @@ is different:
 > moving. Bug reports, ideas and PRs are welcome.
 
 ```
-enx                          # open the terminal interface (default)
-enx auth login deepseek      # store a provider's API key (typed, not echoed)
-enx config set model.default deepseek/deepseek-flash   # pin the model to start on
-enx models list              # the connected providers and their models
+enowx                          # open the terminal interface (default)
+enowx auth login deepseek      # store a provider's API key (typed, not echoed)
+enowx config set model.default deepseek/deepseek-flash   # pin the model to start on
+enowx models list              # the connected providers and their models
 ```
 
 ## Install
@@ -66,7 +66,7 @@ enx models list              # the connected providers and their models
 Prebuilt binaries are published on the [releases page](https://github.com/enowdev/enowxcli/releases)
 for macOS, Linux and Windows, on Intel/AMD (x86_64) and ARM (aarch64). The
 installers are served from [enowx.ai](https://enowx.ai) and download the
-binary from those releases. The binary is `enx`.
+binary from those releases. The binary is `enowx`.
 
 ### macOS (Apple Silicon and Intel)
 
@@ -75,9 +75,9 @@ curl -fsSL https://enowx.ai/install.sh | sh
 ```
 
 The script picks the right build, checks its SHA-256, installs to
-`~/.local/bin/enx`, signs it ad hoc so Gatekeeper lets it run, and adds
+`~/.local/bin/enowx`, signs it ad hoc so Gatekeeper lets it run, and adds
 `~/.local/bin` to `PATH` in your shell's rc file (`.zshrc`, `.bash_profile`,
-fish's `config.fish`, or `.profile`). Open a new terminal and run `enx`.
+fish's `config.fish`, or `.profile`). Open a new terminal and run `enowx`.
 
 ### Linux (x86_64 and ARM64)
 
@@ -96,7 +96,7 @@ In PowerShell:
 irm https://enowx.ai/install.ps1 | iex
 ```
 
-It installs to `%LOCALAPPDATA%\Programs\enx\enx.exe` and adds that folder to
+It installs to `%LOCALAPPDATA%\Programs\enowx\enowx.exe` and adds that folder to
 your user `PATH`; open a new terminal afterwards. The `bash` tool runs commands
 with the `sh` from [Git for Windows](https://git-scm.com/download/win) when it
 is installed, and with PowerShell otherwise. Windows Terminal renders the
@@ -113,23 +113,23 @@ curl -fsSL https://enowx.ai/install.sh | ENX_VERSION=v0.1.0 ENX_INSTALL_DIR=/usr
 ```
 
 To install by hand, download the archive for your platform from the releases
-page, check it against its `.sha256` file, and put `enx` (`enx.exe`) on your
+page, check it against its `.sha256` file, and put `enowx` (`enowx.exe`) on your
 `PATH`:
 
 | Platform | Archive |
 |---|---|
-| macOS, Apple Silicon | `enx-aarch64-apple-darwin.tar.gz` |
-| macOS, Intel | `enx-x86_64-apple-darwin.tar.gz` |
-| Linux, x86_64 | `enx-x86_64-unknown-linux-musl.tar.gz` |
-| Linux, ARM64 | `enx-aarch64-unknown-linux-musl.tar.gz` |
-| Windows, x64 | `enx-x86_64-pc-windows-msvc.zip` |
-| Windows, ARM64 | `enx-aarch64-pc-windows-msvc.zip` |
+| macOS, Apple Silicon | `enowx-aarch64-apple-darwin.tar.gz` |
+| macOS, Intel | `enowx-x86_64-apple-darwin.tar.gz` |
+| Linux, x86_64 | `enowx-x86_64-unknown-linux-musl.tar.gz` |
+| Linux, ARM64 | `enowx-aarch64-unknown-linux-musl.tar.gz` |
+| Windows, x64 | `enowx-x86_64-pc-windows-msvc.zip` |
+| Windows, ARM64 | `enowx-aarch64-pc-windows-msvc.zip` |
 
 ### Updating
 
 ```sh
-enx update            # install the latest release in place of this one
-enx update --check    # only say whether there is one
+enowx update            # install the latest release in place of this one
+enowx update --check    # only say whether there is one
 ```
 
 The interface also looks for a new release when it starts and says so in
@@ -146,7 +146,7 @@ cargo install --git https://github.com/enowdev/enowxcli enowx-cli
 ```
 
 Or build it yourself (see [Build](#build)). Check the install with
-`enx --version`.
+`enowx --version`.
 
 enowxcli opens on a home screen: the wordmark, `enow` in pixel letters with the
 mark (an X of lit cells, its centre in orange) as the X, and the composer under
@@ -223,7 +223,7 @@ Active testing of a domain requires verifiable authorization, not a claim in
 the chat. `authorize_target` checks that a connected Cloudflare account controls
 the domain's DNS zone, which proves control of the domain, and records the
 domain, its subdomains and the addresses it resolves to as the scope the team
-may test. A domain the account does not control is refused. Connect the account with `enx auth login cloudflare`: it asks which scope
+may test. A domain the account does not control is refused. Connect the account with `enowx auth login cloudflare`: it asks which scope
 (minimal `Zone:Read`, medium, or full, all read-only), opens the Cloudflare
 token page with that template pre-filled, verifies the token you paste reads
 zones, and saves it. For the longest-lived token leave its validity
@@ -239,7 +239,7 @@ you are authorized to test, such as your own project before release.
 
 ## Built-in MCP servers
 
-enx ships four MCP servers of its own, served by the `enx` binary (no Node
+enowx ships four MCP servers of its own, served by the `enowx` binary (no Node
 or Python needed). All four are always listed in `/mcp`, **off by default**.
 Turn one on with `Tab`; a server with no credentials opens its config form
 instead, which you also reach with `c`. Changes take effect in the running
@@ -253,19 +253,19 @@ session, no restart.
 | `rag` | Code search over the workspace: `index`, `search`, `status`, `forget` (set up in Settings > RAG, see below) |
 
 Fill a server in from the TUI (`c` on its row), or from the CLI, which an
-agent can run for you: enx reloads MCP the moment the credentials land, so you
+agent can run for you: enowx reloads MCP the moment the credentials land, so you
 never restart the session.
 
 ```sh
-enx mcp set coolify --url https://coolify.example.com --token <token>
-enx mcp set dokploy --url https://dokploy.example.com --token <token>
-enx vps add prod --host 203.0.113.5 --user root --key ~/.ssh/id_ed25519
-enx vps add db --host 203.0.113.6 --user root --password <password>
-enx vps add lab                     # an alias from ~/.ssh/config, keys or ssh-agent
-enx mcp list
-enx vps list
-enx vps remove db
-enx mcp clear dokploy        # forget its setup and turn it off
+enowx mcp set coolify --url https://coolify.example.com --token <token>
+enowx mcp set dokploy --url https://dokploy.example.com --token <token>
+enowx vps add prod --host 203.0.113.5 --user root --key ~/.ssh/id_ed25519
+enowx vps add db --host 203.0.113.6 --user root --password <password>
+enowx vps add lab                     # an alias from ~/.ssh/config, keys or ssh-agent
+enowx mcp list
+enowx vps list
+enowx vps remove db
+enowx mcp clear dokploy        # forget its setup and turn it off
 ```
 
 A VPS signs in the way `ssh` would, trying in turn: the key file you gave
@@ -281,14 +281,14 @@ use a key there. In the TUI, `c` on the vps row has the same fields.
 URLs, hosts and users are kept in `~/.enx/builtin-mcp.json`; tokens and VPS
 passwords and key passphrases in `~/.enx/auth.json` (readable by you alone), never in the
 transcript. Ask the agent to set one up ("connect my Coolify at … with this
-token") and it runs `enx mcp set` for you, then the server is live without a
+token") and it runs `enowx mcp set` for you, then the server is live without a
 restart. Secret-looking fields and environment variable values are
 redacted from what the tools return. A VPS's host key is recorded on the
 first connection (`~/.enx/vps_known_hosts`) and a different key later is
 refused before any password is sent. A server you declared yourself under
 the same name (for example in `~/.claude/mcp.json`) keeps the name.
 
-Other MCP clients can run them too: the command is `enx mcp serve coolify`
+Other MCP clients can run them too: the command is `enowx mcp serve coolify`
 (or `dokploy`, `vps`, `rag`) over stdio.
 
 ### Code search (`rag`)
@@ -300,7 +300,7 @@ lets agents search it by meaning. It has a section of its own in Settings
 | Field | Choices |
 |---|---|
 | Code search (RAG) | on or off (off by default) |
-| Database | a Postgres with pgvector, local (`postgres://localhost/enx`) or cloud (Neon, Supabase, RDS, with `?sslmode=require`) |
+| Database | a Postgres with pgvector, local (`postgres://localhost/enowx`) or cloud (Neon, Supabase, RDS, with `?sslmode=require`) |
 | Embedding provider | Voyage AI, OpenAI, or Custom: any OpenAI-compatible `/embeddings` endpoint (Ollama, LM Studio, Jina, Mistral, a gateway) |
 | API key | the provider's; optional for a local endpoint |
 | Embedding model | picked from the provider's (`voyage-code-3`, `voyage-3.5`, `text-embedding-3-small`, ...), typed for a custom endpoint |
@@ -311,9 +311,9 @@ lets agents search it by meaning. It has a section of its own in Settings
 The same from the CLI, which an agent can run for you:
 
 ```sh
-enx mcp set rag --dsn postgres://localhost/enx --token <voyage key>
-enx mcp set rag --provider openai --model text-embedding-3-large --dimension 1024 --token <key>
-enx mcp set rag --provider custom --url http://localhost:11434/v1 --model nomic-embed-text --dimension 768
+enowx mcp set rag --dsn postgres://localhost/enowx --token <voyage key>
+enowx mcp set rag --provider openai --model text-embedding-3-large --dimension 1024 --token <key>
+enowx mcp set rag --provider custom --url http://localhost:11434/v1 --model nomic-embed-text --dimension 768
 ```
 
 Files are cut along their syntax (tree-sitter for Rust, TypeScript,
@@ -376,7 +376,7 @@ the old session's history (it stays in `/resume`) or delete it, with its
 delegations' transcripts and the size it takes on disk.
 
 The SESSION card in the sidebar shows what the session costs the machine,
-read every two seconds: the memory of enx and the processes it started (MCP
+read every two seconds: the memory of enowx and the processes it started (MCP
 servers, language servers, the preview browser), their CPU, and the history
 on disk with its delegations.
 
@@ -445,7 +445,7 @@ takes a shortcut for itself, a second form does the same thing:
 
 `Ctrl+Enter` and `Shift+Enter` are told apart from `Enter` only by terminals
 that speak the kitty keyboard protocol (kitty, WezTerm, foot, Ghostty,
-Alacritty, iTerm2) and by Windows Terminal; enx turns it on where it is
+Alacritty, iTerm2) and by Windows Terminal; enowx turns it on where it is
 offered. Elsewhere (Terminal.app, GNOME Terminal, tmux) use `Ctrl+S` and
 `Alt+Enter`. AltGr characters type normally on Windows, and a multi-line
 paste there arrives as one paste. Shortcuts are `Ctrl` and `Alt`
@@ -493,7 +493,7 @@ Three files under `~/.enx` (or `ENX_HOME`), each with one job:
 | File | Holds |
 |---|---|
 | `config.toml` | Custom providers, a pinned start model, and every other setting. No keys |
-| `auth.json` | One API key per provider, readable by the user alone. `enx auth login/logout` edits it |
+| `auth.json` | One API key per provider, readable by the user alone. `enowx auth login/logout` edits it |
 | Cloudflare token | In `auth.json` under `cloudflare` (or `CLOUDFLARE_API_TOKEN`); proves domain control for a security assessment |
 | `model.json` | The recent and favourite models picked in `/model` |
 
@@ -534,7 +534,7 @@ resume against a different one.
 
 Skills, MCP servers, and per-project agent instructions are discovered from
 `.agents/`, `.enx/`, `.claude/`, `.cursor/`, `.gemini/`, and the standard
-`~/.config` locations. Skills ship inside enx for interface work (`ui`,
+`~/.config` locations. Skills ship inside enowx for interface work (`ui`,
 `ui-layout`, `ui-audit`, one `ui-page-*` per kind of page and one `ui-part-*`
 per part), for server work (`backend`, one `backend-*` per part such as the
 API, auth, data, jobs and tests, and one `backend-stack-*` per stack: Next.js,
@@ -570,11 +570,11 @@ Every change an agent makes goes through three checks before it lands:
 - **Rules.** Markdown rules (a pattern, the files it applies to, and what to
   do instead) are checked on the code the change adds. `block` refuses the
   change and returns the rule; `remind` lets it through with the rule
-  attached. enx ships rules for secrets in code, `any`, empty catches, index
+  attached. enowx ships rules for secrets in code, `any`, empty catches, index
   keys, `Box::leak`, deprecated Go and Python APIs, `transition: all` and
   removed focus outlines; add or override them in `~/.enx/rules/` or the
   project's `.enx/rules/` (`severity: off` turns one off). A line with
-  `enx-allow: <rule>` passes a blocking rule.
+  `enowx-allow: <rule>` passes a blocking rule.
 - **Syntax.** Rust, TypeScript, TSX, JavaScript, Python, Go, JSON and CSS
   files are parsed before and after the change. When a change breaks a file
   that parsed, a quick model call mends the changed region; when that fails,
@@ -600,7 +600,7 @@ the start.
 
 `preview` shares one headless Chrome across every look, each in a throwaway
 browser context, two at a time; the browser closes after 90 seconds without
-a look and never outlives enx. Looking again at a page with no file changed
+a look and never outlives enowx. Looking again at a page with no file changed
 returns the last result instead of opening a browser.
 
 File tools reject paths and symlinks outside the workspace. `bash` runs with
@@ -614,17 +614,17 @@ cargo build --release
 cargo test --workspace
 ```
 
-Install the binary (cargo emits it as `enx`, per `[[bin]]` in
+Install the binary (cargo emits it as `enowx`, per `[[bin]]` in
 `crates/enowx-cli/Cargo.toml`):
 
 ```sh
-which -a enx                                     # expect no output before installing
-install -m 755 target/release/enx ~/.local/bin/enx
+which -a enowx                                     # expect no output before installing
+install -m 755 target/release/enowx ~/.local/bin/enowx
 ```
 
 ### Releasing
 
-Pushing a `v*` tag runs `.github/workflows/release.yml`: it builds `enx` for
+Pushing a `v*` tag runs `.github/workflows/release.yml`: it builds `enowx` for
 the six platforms above and publishes the archives and their checksums as a
 GitHub release. Running the workflow by hand builds without publishing.
 
@@ -635,12 +635,12 @@ git tag v0.1.0 && git push origin v0.1.0
 ## Live reload while developing
 
 ```sh
-enx dev                     # rebuild and relaunch the interface on every source change
-enx dev --session <id>      # pin one conversation across reloads
-enx tui --session <id>      # resume a session directly
+enowx dev                     # rebuild and relaunch the interface on every source change
+enowx dev --session <id>      # pin one conversation across reloads
+enowx tui --session <id>      # resume a session directly
 ```
 
-Run `enx dev` from this checkout. It watches `crates/` and `Cargo.toml`,
+Run `enowx dev` from this checkout. It watches `crates/` and `Cargo.toml`,
 keeps the interface in the foreground, and on each save rebuilds and relaunches
 it while resuming the newest session in this workspace.
 

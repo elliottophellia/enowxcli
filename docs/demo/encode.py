@@ -1,10 +1,10 @@
 import sys, os, subprocess
-sys.path.insert(0, '.')
+sys.path.insert(0, '/Volumes/SSD/.ctmp/demo')
 import schedule as S
 from render import render, W, H
 from multiprocessing import Pool
 
-OUT = "./enx-demo.mp4"
+OUT = "/Volumes/SSD/.ctmp/demo/enowx-demo.mp4"
 
 def frame_bytes(i):
     return render(i).tobytes()

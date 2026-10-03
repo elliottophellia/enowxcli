@@ -5,7 +5,7 @@ description: "Setting up which model each agent runs on, together with the user:
 
 # Setting up a model per agent
 
-Every agent in enx runs on a model. By default it is the one model in use, or
+Every agent in enowx runs on a model. By default it is the one model in use, or
 the model its tier declares. A user who has connected several providers can do
 better: a fast cheap model for mechanical work, a strong one for the agent
 whose mistakes are expensive, a long-context one for the agent that reads a lot.
@@ -38,26 +38,26 @@ first.
 The commands, run through the shell tool:
 
 ```
-enx models list                 the connected providers and their models,
+enowx models list                 the connected providers and their models,
                                  the model in use, the per-tier and per-agent
                                  models
-enx models list --plain         one provider/model per line, for picking from
-enx models test provider/model  one tiny call; prints ok + latency + tokens,
+enowx models list --plain         one provider/model per line, for picking from
+enowx models test provider/model  one tiny call; prints ok + latency + tokens,
                                  or fails with the provider's error
-enx config set agent.models.<agent> provider/model    assign a model
-enx config get agent.models.<agent>                   read one
-enx config set agent.models.<agent> ""                clear it (back to tier)
+enowx config set agent.models.<agent> provider/model    assign a model
+enowx config get agent.models.<agent>                   read one
+enowx config set agent.models.<agent> ""                clear it (back to tier)
 ```
 
-`enx models test` is the gate: assign a model to an agent only after it has
+`enowx models test` is the gate: assign a model to an agent only after it has
 answered.
 
 ## The steps
 
-1. **See what the user has.** Run `enx models list`. It shows the connected
+1. **See what the user has.** Run `enowx models list`. It shows the connected
    providers and the models each lists, the model in use, the per-tier models,
    and whatever is already set per agent. If a provider shows no cached list,
-   tell the user to open `/model` in enx once (or press Ctrl+R there) so enx
+   tell the user to open `/model` in enowx once (or press Ctrl+R there) so enowx
    fetches it; you cannot test a model you cannot name.
 
 2. **Learn which agents matter and what the user wants.** Ask, in one `ask`
@@ -76,19 +76,19 @@ answered.
    whole codebases. Check it with the user before touching anything.
 
 4. **Test every candidate before assigning it.** For each distinct model in
-   the mapping, run `enx models test provider/model`. Report what came back:
+   the mapping, run `enowx models test provider/model`. Report what came back:
    alive and how fast, or the error. Never assign a model that failed; offer
    the user an alternative from the list instead. Testing spends a few tokens
    per model, so say so if the list is long, and test only the models you are
    about to assign.
 
-5. **Apply the ones that passed.** For each, `enx config set agent.models.<agent> provider/model`.
+5. **Apply the ones that passed.** For each, `enowx config set agent.models.<agent> provider/model`.
    Use the agent's id (`fe`, `reviewer`, `security-recon`), not its display
    name. To put an agent back on its tier or the shared model, set the value
    to `""`.
 
-6. **Confirm.** Run `enx models list` again and show the user the new per-agent
-   block. Tell them a running enx picks up the change on its next turn; the
+6. **Confirm.** Run `enowx models list` again and show the user the new per-agent
+   block. Tell them a running enowx picks up the change on its next turn; the
    footer and the agent roster then show each agent's model. If you changed the
    model for the agent leading the current conversation, note that the footer
    updates as soon as the change is saved.
@@ -97,9 +97,9 @@ answered.
 
 - Test before you assign. "It should work" is not "it answered".
 - Do not invent models. Only assign a `provider/model` that appears in
-  `enx models list`, so the provider is connected and the id is real.
+  `enowx models list`, so the provider is connected and the id is real.
 - Do not touch keys or providers here. If a provider the user wants is not
-  connected, say so and point them to `/provider` in enx or `enx auth login`;
+  connected, say so and point them to `/provider` in enowx or `enowx auth login`;
   connecting it is their step, not this skill's.
 - Report a failed test as a failure, with the provider's own message, not as a
   model you quietly skipped.

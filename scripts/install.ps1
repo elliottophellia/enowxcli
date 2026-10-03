@@ -1,24 +1,25 @@
-# Install enx from the latest GitHub release (Windows).
+# Install enowx from the latest GitHub release (Windows).
 #   irm https://enowx.ai/install.ps1 | iex
-# $env:ENX_VERSION = "v0.1.0" picks a release; $env:ENX_INSTALL_DIR sets where
-# enx goes (default %LOCALAPPDATA%\Programs\enx).
+# $env:ENOWX_VERSION = "v0.2.2" picks a release; $env:ENOWX_INSTALL_DIR sets where
+# enowx goes (default %LOCALAPPDATA%\Programs\enowx).
 $ErrorActionPreference = "Stop"
 
 $repo = "enowdev/enowxcli"
-$dir = if ($env:ENX_INSTALL_DIR) { $env:ENX_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "Programs\enx" }
+$dir = if ($env:ENOWX_INSTALL_DIR) { $env:ENOWX_INSTALL_DIR } elseif ($env:ENX_INSTALL_DIR) { $env:ENX_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "Programs\enowx" }
 $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "aarch64" } else { "x86_64" }
 $target = "$arch-pc-windows-msvc"
-$url = if ($env:ENX_VERSION) {
-  "https://github.com/$repo/releases/download/$($env:ENX_VERSION)/enx-$target.zip"
+$ver = if ($env:ENOWX_VERSION) { $env:ENOWX_VERSION } elseif ($env:ENX_VERSION) { $env:ENX_VERSION } else { "" }
+$url = if ($ver) {
+  "https://github.com/$repo/releases/download/$ver/enowx-$target.zip"
 } else {
-  "https://github.com/$repo/releases/latest/download/enx-$target.zip"
+  "https://github.com/$repo/releases/latest/download/enowx-$target.zip"
 }
 
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid())
 New-Item -ItemType Directory $tmp | Out-Null
 try {
-  Write-Host "Downloading enx for $target"
-  $zip = Join-Path $tmp "enx.zip"
+  Write-Host "Downloading enowx for $target"
+  $zip = Join-Path $tmp "enowx.zip"
   Invoke-WebRequest $url -OutFile $zip -UseBasicParsing
   Invoke-WebRequest "$url.sha256" -OutFile "$zip.sha256" -UseBasicParsing
   $expected = (Get-Content "$zip.sha256").Split(" ")[0].Trim()
@@ -27,7 +28,7 @@ try {
 
   Expand-Archive $zip -DestinationPath $tmp
   New-Item -ItemType Directory -Force $dir | Out-Null
-  Copy-Item (Join-Path $tmp "enx-$target\enx.exe") (Join-Path $dir "enx.exe") -Force
+  Copy-Item (Join-Path $tmp "enowx-$target\enowx.exe") (Join-Path $dir "enowx.exe") -Force
 } finally {
   Remove-Item -Recurse -Force $tmp
 }
@@ -35,8 +36,8 @@ try {
 $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
 if (($userPath -split ";") -notcontains $dir) {
   [Environment]::SetEnvironmentVariable("Path", "$userPath;$dir", "User")
-  Write-Host "Added $dir to your PATH; open a new terminal to use enx."
+  Write-Host "Added $dir to your PATH; open a new terminal to use enowx."
 }
-$version = ((& (Join-Path $dir "enx.exe") --version) -split " ")[1]
-Write-Host "Installed enx $version to $dir\enx.exe"
+$version = ((& (Join-Path $dir "enowx.exe") --version) -split " ")[1]
+Write-Host "Installed enowx $version to $dir\enowx.exe"
 

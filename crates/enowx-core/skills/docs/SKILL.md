@@ -166,7 +166,7 @@ The sentence rules are in `writing`. On top of them:
   the screen shows them: **Settings > API keys**.
 - The code's name and the reader's name for a thing can differ: give both
   once ("workspaces, called `tenant` in the API"), then keep to one.
-- Name the actor: "the server retries", "enx stores". Not "we", which
+- Name the actor: "the server retries", "enowx stores". Not "we", which
   could mean the company, the maintainers or the code.
 - Numbers as digits with units (30 seconds, 5 MB), dates as `2026-09-29`.
   No "new", "recently" or "currently": they age without anyone noticing.

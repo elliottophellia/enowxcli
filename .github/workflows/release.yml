@@ -1,6 +1,6 @@
 name: release
 
-# A `v*` tag builds `enx` for every platform and publishes the archives as a
+# A `v*` tag builds `enowx` for every platform and publishes the archives as a
 # GitHub release. Run it by hand to build without publishing.
 on:
   push:
@@ -49,9 +49,9 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          name=enx-${{ matrix.target }}
+          name=enowx-${{ matrix.target }}
           mkdir "$name"
-          cp target/${{ matrix.target }}/release/enx README.md LICENSE NOTICE "$name"/
+          cp target/${{ matrix.target }}/release/enowx README.md LICENSE NOTICE "$name"/
           tar czf "$name.tar.gz" "$name"
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
 
@@ -59,18 +59,18 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $name = "enx-${{ matrix.target }}"
+          $name = "enowx-${{ matrix.target }}"
           New-Item -ItemType Directory $name | Out-Null
-          Copy-Item target/${{ matrix.target }}/release/enx.exe, README.md, LICENSE, NOTICE $name
+          Copy-Item target/${{ matrix.target }}/release/enowx.exe, README.md, LICENSE, NOTICE $name
           Compress-Archive -Path $name -DestinationPath "$name.zip"
           (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower() + "  $name.zip" | Out-File -Encoding ascii "$name.zip.sha256"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: enx-${{ matrix.target }}
+          name: enowx-${{ matrix.target }}
           path: |
-            enx-${{ matrix.target }}.tar.gz*
-            enx-${{ matrix.target }}.zip*
+            enowx-${{ matrix.target }}.tar.gz*
+            enowx-${{ matrix.target }}.zip*
 
   release:
     needs: build

@@ -99,7 +99,7 @@ delegated one after another: the specialist plans its own steps.
 - **Files.** Each brief names the files or folders its part owns. A file
   every part needs (the router, the package manifest, the shared
   stylesheet, the root layout, a shared types module) belongs to the
-  foundation or to one part alone. enx closes a file one agent is editing
+  foundation or to one part alone. enowx closes a file one agent is editing
   to the others until it finishes; an agent refused a file goes on with its
   other files and reports what it needed, so shared ownership turns into
   waiting or half-done work.
@@ -169,7 +169,7 @@ Done when: <it builds, its tests pass, preview is clean at 360, 768 and 1440px,
 - After a failure of judgement (it misread the problem, went in circles),
   re-delegate one tier up with the problem named. A failure from a missing
   fact is fixed in the brief, not with the tier.
-- When a model cannot be reached, enx falls back a tier and says so in the
+- When a model cannot be reached, enowx falls back a tier and says so in the
   transcript; weigh that part's report accordingly.
 
 ## 7. Track it with `todo`

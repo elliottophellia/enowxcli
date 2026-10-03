@@ -407,7 +407,7 @@ pub fn builtin_agents() -> Vec<AgentDef> {
     // A self-contained HTML page built like a product: the look and the
     // stack it shares with the interface agents, plus its own family.
     let canvas_family = family("canvas");
-    let canvas = join(&[&canvas_family, &ui, &["motion", "code", "writing"]]);
+    let canvas = join(&[&canvas_family, &ui, &["motion", "motion-video", "code", "writing"]]);
     let mobile = join(&[&mobile_family, &ui, &motion_family, &["code", "i18n"]]);
     // The backend writes the data access too, and the errors and emails
     // users read.

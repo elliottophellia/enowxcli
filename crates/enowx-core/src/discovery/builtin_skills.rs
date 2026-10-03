@@ -430,6 +430,10 @@ pub(super) const BUILTIN: &[(&str, &str)] = &[
         "motion-stacks",
         include_str!("../../skills/motion-stacks/SKILL.md"),
     ),
+    (
+        "motion-video",
+        include_str!("../../skills/motion-video/SKILL.md"),
+    ),
     ("frontend", include_str!("../../skills/frontend/SKILL.md")),
     (
         "frontend-accessibility",

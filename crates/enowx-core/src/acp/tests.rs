@@ -27,7 +27,7 @@ fn an_agent_runs_on_its_engine_and_enowx_means_none() {
     assert_eq!(acp.engine_for("be"), Some("opencode"));
     assert_eq!(
         acp.engine_ids(),
-        vec!["claude", "codex", "gemini", "opencode"]
+        vec!["claude", "codex", "gemini", "kiro", "opencode"]
     );
 }
 
@@ -150,6 +150,43 @@ fn claude_sign_in_is_read_without_the_email() {
         }
     );
     assert!(!parse_login("claude", false, r#"{"loggedIn":false}"#, "").signed_in);
+}
+
+#[test]
+fn kiro_sign_in_is_read_without_the_email() {
+    let s = parse_login(
+        "kiro",
+        true,
+        r#"{"accountType":"SocialGoogle","email":"a@b.c"}"#,
+        "",
+    );
+    assert_eq!(
+        s,
+        LoginStatus {
+            signed_in: true,
+            label: Some("Google".into())
+        }
+    );
+    assert!(!parse_login("kiro", false, "", "not logged in").signed_in);
+}
+
+#[test]
+fn kiro_speaks_acp_itself_and_is_not_installed_by_enowx() {
+    let kiro = kind("kiro").expect("built in");
+    assert!(!kiro.installable());
+    assert_eq!((kiro.bin, kiro.args), ("kiro-cli", &["acp"][..]));
+    let error = install(kiro, |_| {}).expect_err("enowx does not install it");
+    assert!(error.contains("kiro.dev"), "{error}");
+    let old = Detection {
+        id: "kiro".into(),
+        adapter: Some("/x/kiro-cli".into()),
+        cli_version: Some("kiro-cli 1.20.0".into()),
+        problem: Some("1.20.0 is older than 1.25.0, which ACP needs: update it".into()),
+        ..Detection::default()
+    };
+    assert!(!old.ready(), "too old to speak ACP");
+    assert!(old.line().contains("update it"));
+    assert!(!old.line().contains("Node.js"), "Kiro needs no Node.js");
 }
 
 #[test]

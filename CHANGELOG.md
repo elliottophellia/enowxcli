@@ -20,7 +20,7 @@ All notable changes to enowx. Dates are YYYY-MM-DD.
 
 ### ACP agents
 
-- **Run the session on Claude Code, Codex, Gemini CLI or any ACP agent.**
+- **Run the session on Claude Code, Codex, Gemini CLI, Kiro CLI or any ACP agent.**
   `/acp claude` puts the lead and every specialist on it, after installing its
   adapter into `~/.enx/acp` if needed (never globally) and checking the
   sign-in; names complete as you type. `/model` and `/effort` then list what
@@ -38,6 +38,11 @@ All notable changes to enowx. Dates are YYYY-MM-DD.
   enowx's own, Esc cancels its turn, and it stays warm between turns. `e` in
   the roster puts one agent on another engine, for mixing. `enowx acp status`
   and `enowx acp install <engine>` work from a shell.
+- **Kiro CLI is built in.** `/acp kiro` runs the session on `kiro-cli acp`
+  (1.25 or newer, found on the `PATH`, never installed by enowx); its card
+  shows the version and the account type signed in, without the email, and
+  `/model` lists Kiro's models. An agent's error now carries its reason (the
+  model not available on the plan, say) instead of "Internal error".
 
 ### Install and update
 

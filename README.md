@@ -389,7 +389,7 @@ The same settings live in `config.toml` under `[agent.comms]`: `enabled`,
 ## Claude Code, Codex and other ACP agents
 
 enowx can run on another coding agent instead of the configured model:
-Claude Code, Codex, Gemini CLI, or any program that speaks the
+Claude Code, Codex, Gemini CLI, Kiro CLI, or any program that speaks the
 [Agent Client Protocol](https://agentclientprotocol.com) on stdio. The agent
 runs with your own sign-in and subscription; enowx is its client, the way an
 editor is, and gives it enowx's prompt for each role, its skills, delegation
@@ -397,6 +397,7 @@ to enowx's specialists and questions to you, over a local MCP server.
 
 ```text
 /acp claude     run this session on Claude Code: the lead and every specialist
+/acp kiro       the same on Kiro CLI (or codex, gemini, a custom agent's name)
 /model          pick one of Claude Code's models (arrows, Enter); its efforts follow
 /effort         pick its thinking effort
 /acp off        back to enowx's own model (/native does the same)
@@ -406,8 +407,17 @@ to enowx's specialists and questions to you, over a local MCP server.
 `/acp <name>` gets the agent ready first: it installs the adapter into
 `~/.enx/acp` with npm if it is missing (never globally; Node.js 20 or newer is
 needed), checks that you are signed in, and starts it. If you are not, it says
-how: `claude` then `/login`, `codex login`, or run `gemini` once. Names
-complete as you type: `/acp c` offers `claude` and `codex`.
+how: `claude` then `/login`, `codex login`, `kiro-cli login`, or run `gemini`
+once. Names complete as you type: `/acp c` offers `claude` and `codex`.
+
+Kiro CLI speaks ACP itself (`kiro-cli acp`, version 1.25 or newer), so there
+is no adapter: enowx finds `kiro-cli` on your `PATH` and never installs it.
+Get it from [kiro.dev/downloads](https://kiro.dev/downloads) and sign in with
+`kiro-cli login`; the card shows its version and the account type you signed
+in with. Kiro offers models but no effort setting, and loads the MCP servers
+from your own Kiro config as well as enowx's. If its default model is not
+available on your plan, the error says so: pick another with `/model`
+(`auto`, for one).
 
 While an agent runs the session, `/model` and `/effort` list what that agent
 offers, read from it, and the choice is kept per agent. Specialists use the

@@ -32,9 +32,11 @@ use serde_json::Value;
 pub struct Kind {
     pub id: &'static str,
     pub title: &'static str,
-    /// The npm package that provides it.
+    /// The npm package that provides it; empty for a CLI that speaks ACP
+    /// itself, which enowx does not install.
     pub package: &'static str,
-    /// The version enowx was tested against, and installs.
+    /// The version enowx was tested against and installs; for a CLI that
+    /// speaks ACP itself, the oldest that does.
     pub version: &'static str,
     /// The executable the package installs.
     pub bin: &'static str,
@@ -43,6 +45,15 @@ pub struct Kind {
     /// The vendor CLI the user signs in with.
     pub cli: &'static str,
     pub login_hint: &'static str,
+    /// Where to get it, for a CLI enowx does not install.
+    pub install_hint: &'static str,
+}
+
+impl Kind {
+    /// Whether enowx installs it (an npm adapter) rather than the user.
+    pub fn installable(&self) -> bool {
+        !self.package.is_empty()
+    }
 }
 
 /// The engines enowx knows. Others are added as custom agents.
@@ -56,6 +67,7 @@ pub const KINDS: &[Kind] = &[
         args: &[],
         cli: "claude",
         login_hint: "Run `claude` in a terminal and sign in with /login.",
+        install_hint: "",
     },
     Kind {
         id: "codex",
@@ -66,6 +78,7 @@ pub const KINDS: &[Kind] = &[
         args: &[],
         cli: "codex",
         login_hint: "Run `codex login` in a terminal.",
+        install_hint: "",
     },
     Kind {
         id: "gemini",
@@ -76,6 +89,19 @@ pub const KINDS: &[Kind] = &[
         args: &["--acp"],
         cli: "gemini",
         login_hint: "Run `gemini` in a terminal once and sign in.",
+        install_hint: "",
+    },
+    Kind {
+        id: "kiro",
+        title: "Kiro CLI",
+        package: "",
+        version: "1.25.0",
+        bin: "kiro-cli",
+        args: &["acp"],
+        cli: "kiro-cli",
+        login_hint: "Run `kiro-cli login` in a terminal.",
+        install_hint: "Install Kiro CLI from kiro.dev/downloads (see \
+                       kiro.dev/docs/getting-started/installation), then run `kiro-cli login`.",
     },
 ];
 
@@ -292,6 +318,9 @@ fn version_of(program: &Path) -> Option<String> {
 
 /// The adapter enowx installed for `kind`, and its version.
 fn installed_entry(kind: &Kind) -> Option<(PathBuf, String)> {
+    if !kind.installable() {
+        return None;
+    }
     let package = install_dir().join("node_modules").join(kind.package);
     let manifest: Value =
         serde_json::from_str(&std::fs::read_to_string(package.join("package.json")).ok()?).ok()?;
@@ -326,12 +355,16 @@ pub struct Detection {
     pub cli: Option<String>,
     pub cli_version: Option<String>,
     pub login: Option<LoginStatus>,
+    /// Why it cannot run although it is there: too old a version.
+    pub problem: Option<String>,
 }
 
 impl Detection {
     /// Whether it can start now.
     pub fn ready(&self) -> bool {
-        self.adapter.is_some() && (self.source != Some("enowx") || self.node.is_some())
+        self.adapter.is_some()
+            && self.problem.is_none()
+            && (self.source != Some("enowx") || self.node.is_some())
     }
 
     /// One line for Settings.
@@ -342,16 +375,25 @@ impl Detection {
                 None => "its command is not found".into(),
             };
         }
+        let native = kind(&self.id).is_some_and(|k| !k.installable());
         let mut parts = Vec::new();
         match (&self.adapter, self.source) {
             (Some(_), Some("enowx")) => parts.push(format!(
                 "adapter {} in ~/.enx/acp",
                 self.adapter_version.as_deref().unwrap_or("?")
             )),
+            (Some(_), _) if native => parts.push(format!(
+                "{} on PATH",
+                self.cli_version.as_deref().unwrap_or("installed")
+            )),
             (Some(_), _) => parts.push("adapter on PATH".into()),
+            (None, _) if native => parts.push("not installed: see kiro.dev/downloads".into()),
             (None, _) => parts.push("not installed".into()),
         }
-        if self.node.is_none() {
+        if let Some(problem) = &self.problem {
+            parts.push(problem.clone());
+        }
+        if self.node.is_none() && !native {
             parts.push("Node.js not found".into());
         }
         match &self.login {
@@ -384,6 +426,19 @@ pub async fn detect(config: &AcpConfig) -> Vec<Detection> {
             Some(_) => login_status(kind).await.ok(),
             None => None,
         };
+        let cli_version = cli.as_deref().and_then(version_of);
+        // A CLI that speaks ACP itself must be new enough to.
+        let problem = cli_version
+            .as_deref()
+            .filter(|_| !kind.installable())
+            .and_then(|v| v.split_whitespace().last())
+            .filter(|v| crate::update::is_newer(kind.version, v))
+            .map(|v| {
+                format!(
+                    "{v} is older than {}, which ACP needs: update it",
+                    kind.version
+                )
+            });
         out.push(Detection {
             id: kind.id.into(),
             title: kind.title.into(),
@@ -392,9 +447,10 @@ pub async fn detect(config: &AcpConfig) -> Vec<Detection> {
             adapter: adapter.map(|p| p.display().to_string()),
             adapter_version,
             wanted_version: Some(kind.version),
-            cli_version: cli.as_deref().and_then(version_of),
+            cli_version,
             cli: cli.map(|p| p.display().to_string()),
             login,
+            problem,
         });
     }
     for (name, custom) in &config.custom {
@@ -414,6 +470,12 @@ pub async fn detect(config: &AcpConfig) -> Vec<Detection> {
 /// of npm's output. Never global.
 pub fn install(kind: &Kind, mut progress: impl FnMut(&str)) -> Result<(), String> {
     use std::io::BufRead;
+    if !kind.installable() {
+        return Err(format!(
+            "{} is not installed by enowx. {}",
+            kind.title, kind.install_hint
+        ));
+    }
     let npm = which("npm").ok_or(
         "Node.js with npm is needed to run this agent. Install Node.js 20 or newer from \
          nodejs.org, then try again.",
@@ -535,6 +597,12 @@ pub fn launch(config: &AcpConfig, id: &str) -> Result<Launch, String> {
             env,
         });
     }
+    if !kind.installable() {
+        return Err(format!(
+            "{} is not installed. {}",
+            kind.title, kind.install_hint
+        ));
+    }
     Err(format!(
         "{} is not set up: install it in Settings > ACP agents",
         kind.title
@@ -556,6 +624,7 @@ pub async fn login_status(kind: &Kind) -> Result<LoginStatus, String> {
     let args: &[&str] = match kind.id {
         "claude" => &["auth", "status"],
         "codex" => &["login", "status"],
+        "kiro" => &["whoami", "--format", "json"],
         _ => return Err("this CLI has no sign-in check".into()),
     };
     let cli = which(kind.cli).ok_or("not installed")?;
@@ -578,6 +647,27 @@ pub async fn login_status(kind: &Kind) -> Result<LoginStatus, String> {
 }
 
 pub fn parse_login(id: &str, ok: bool, stdout: &str, stderr: &str) -> LoginStatus {
+    if id == "kiro" {
+        // `whoami --format json` names the account type; the email beside
+        // it is never read.
+        let account = serde_json::from_str::<Value>(stdout).ok().and_then(|v| {
+            v.get("accountType")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        });
+        let label = account.map(|a| {
+            let plain = a.strip_prefix("Social").unwrap_or(&a);
+            if plain.is_empty() {
+                a.clone()
+            } else {
+                plain.to_owned()
+            }
+        });
+        return LoginStatus {
+            signed_in: ok && label.is_some(),
+            label: label.filter(|_| ok),
+        };
+    }
     if id == "claude" {
         if let Ok(v) = serde_json::from_str::<Value>(stdout) {
             let signed_in = v.get("loggedIn").and_then(Value::as_bool).unwrap_or(false);

@@ -219,14 +219,22 @@ impl Process {
                     return;
                 };
                 let result = match message.get("error") {
-                    Some(error) => Err(AcpError::Rpc {
-                        code: error.get("code").and_then(Value::as_i64).unwrap_or(-32603),
-                        message: error
+                    Some(error) => {
+                        let mut message = error
                             .get("message")
                             .and_then(Value::as_str)
                             .unwrap_or("the agent reported an error")
-                            .to_owned(),
-                    }),
+                            .to_owned();
+                        // The reason is often only in `data` ("Internal
+                        // error" alone says nothing).
+                        if let Some(data) = error.get("data").and_then(Value::as_str) {
+                            message = format!("{message}: {data}");
+                        }
+                        Err(AcpError::Rpc {
+                            code: error.get("code").and_then(Value::as_i64).unwrap_or(-32603),
+                            message,
+                        })
+                    }
                     None => Ok(message.get("result").cloned().unwrap_or(Value::Null)),
                 };
                 let _ = tx.send(result);

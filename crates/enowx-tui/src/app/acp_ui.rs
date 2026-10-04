@@ -772,7 +772,7 @@ async fn ready(
         let kind = acp::kind(id).ok_or_else(|| {
             format!("{title}'s command was not found; fix it in Settings > ACP agents")
         })?;
-        if mine.node.is_none() {
+        if mine.node.is_none() && kind.installable() {
             return Err(format!(
                 "{title} needs Node.js 20 or newer. Install it from nodejs.org, then run /acp {id} again."
             ));
@@ -788,6 +788,9 @@ async fn ready(
         .await
         .map_err(|e| e.to_string())??;
         let _ = tx.send(AcpNews::Detected(acp::detect(config).await));
+    }
+    if let Some(problem) = &mine.problem {
+        return Err(format!("{title}: {problem}."));
     }
     if mine.login.as_ref().is_some_and(|l| !l.signed_in) {
         return Err(format!(

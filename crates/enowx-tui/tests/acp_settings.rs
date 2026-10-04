@@ -17,7 +17,7 @@ fn acp_alone_lists_the_agents_and_enowx_itself() {
     app.run_command("/acp").unwrap();
     let text = screen(&mut app);
     assert!(text.contains("RUN THIS SESSION ON"), "{text}");
-    for name in ["enowx", "Claude Code", "Codex", "Gemini CLI"] {
+    for name in ["enowx", "Claude Code", "Codex", "Gemini CLI", "Kiro CLI"] {
         assert!(text.contains(name), "{name}: {text}");
     }
     assert!(text.contains("enowx's own model · in use"), "{text}");
@@ -44,7 +44,7 @@ fn an_unknown_agent_is_refused_with_the_names_there_are() {
     let mut app = TestApp::new();
     let error = app.run_command("/acp nope").unwrap_err().to_string();
     assert!(error.contains("no ACP agent named `nope`"), "{error}");
-    assert!(error.contains("claude, codex, gemini"), "{error}");
+    assert!(error.contains("claude, codex, gemini, kiro"), "{error}");
 }
 
 #[test]
@@ -134,7 +134,7 @@ fn a_custom_agent_is_added_with_its_args_and_env() {
         app.press_key(KeyCode::Down).unwrap();
     }
     app.press_key(KeyCode::Enter).unwrap();
-    for _ in 0..3 {
+    for _ in 0..4 {
         app.press_key(KeyCode::Down).unwrap(); // the row that adds one
     }
     app.press_key(KeyCode::Enter).unwrap();
@@ -164,7 +164,7 @@ fn a_taken_name_is_refused_for_a_custom_agent() {
         app.press_key(KeyCode::Down).unwrap();
     }
     app.press_key(KeyCode::Enter).unwrap();
-    for _ in 0..3 {
+    for _ in 0..4 {
         app.press_key(KeyCode::Down).unwrap();
     }
     app.press_key(KeyCode::Enter).unwrap();
@@ -184,7 +184,7 @@ fn e_in_the_roster_still_moves_one_agent() {
     let (agent, engine) = agents.iter().next().expect("one agent moved");
     assert_eq!(engine, "claude");
     assert!(screen(&mut app).contains("Claude Code (ACP)"));
-    for _ in 0..3 {
+    for _ in 0..4 {
         app.press_key(KeyCode::Char('e')).unwrap();
     }
     let agents = enowx_core::Config::load().unwrap().acp.agents;

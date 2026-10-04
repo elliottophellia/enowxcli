@@ -302,7 +302,12 @@ fn draw_chat_box(frame: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
-pub(super) fn draw_palette(frame: &mut Frame, app: &mut App, area: Rect, matches: &[(&str, &str)]) {
+pub(super) fn draw_palette(
+    frame: &mut Frame,
+    app: &mut App,
+    area: Rect,
+    matches: &[(String, String)],
+) {
     let t = app.theme;
     app.composer_palette = Some(area);
     let inner = panel_box(frame, area, t.border, t.panel);

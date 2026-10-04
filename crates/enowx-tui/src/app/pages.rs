@@ -104,7 +104,7 @@ impl Page {
             Modal::Rag => Page::Rag,
             Modal::Team => Page::Team,
             Modal::Decision => Page::Decision,
-            Modal::Acp => Page::Acp,
+            Modal::Acp | Modal::AcpEngine | Modal::AcpCustom => Page::Acp,
             Modal::Updates => Page::Updates,
             Modal::General => Page::General,
             Modal::Display => Page::Display,
@@ -218,6 +218,17 @@ impl App {
         match self.modal {
             Modal::Models if !self.modal_search.is_empty() || self.picking_for_agent.is_some() => {
                 Ok(false)
+            }
+            Modal::AcpEngine | Modal::AcpCustom => {
+                let id = self.settings.provider_id.clone();
+                self.modal_error.clear();
+                self.open_acp();
+                self.modal_cursor = self
+                    .modal_items
+                    .iter()
+                    .position(|(row, _)| *row == id)
+                    .unwrap_or(0);
+                Ok(true)
             }
             Modal::McpForm | Modal::BuiltinMcp => {
                 let at = self.modal_cursor;

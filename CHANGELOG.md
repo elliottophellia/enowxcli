@@ -20,20 +20,24 @@ All notable changes to enowx. Dates are YYYY-MM-DD.
 
 ### ACP agents
 
-- **Claude Code, Codex, Gemini CLI or any ACP agent as the brain of an enowx
-  agent.** Settings > ACP agents (or `/acp`) installs the official adapters
-  into `~/.enx/acp` (never globally), shows whether you are signed in, and
-  sets each engine's model, thinking effort and permissions: ask me (the
-  default), enowx's rules, or bypass (only when chosen, with a warning). A
-  custom ACP agent takes its own command, arguments and environment. In the
-  roster, `e` moves an agent between the engines and the configured model,
-  so the lead can be Claude Code while a specialist is Codex. The engine
-  gets the role's prompt, and enowx's skills, delegation to its specialists
-  and questions to you over a local MCP server (127.0.0.1, a random bearer
-  token per session); its messages, reasoning, tool calls, diffs and plan
-  show as enowx's own, and Esc cancels its turn. Engines stay warm between
-  turns. `enowx acp status` and `enowx acp install <engine>` do the same
-  from a shell.
+- **Run the session on Claude Code, Codex, Gemini CLI or any ACP agent.**
+  `/acp claude` puts the lead and every specialist on it, after installing its
+  adapter into `~/.enx/acp` if needed (never globally) and checking the
+  sign-in; names complete as you type. `/model` and `/effort` then list what
+  that agent offers, read from it, chosen with the arrows and kept per agent;
+  specialists use the same model. `/acp off` (or `/native`) goes back to
+  enowx's own model, and `/acp` alone lists the agents with their status.
+  The status bar always says which is in use, with its model, effort and
+  permissions. Settings > ACP agents has a card per agent (status, default
+  model and effort from its list, permissions, run the session on it) and a
+  row to add a custom ACP agent. Permissions are ask me by default, enowx's
+  rules, or bypass (only when chosen, with a warning). The agent gets the
+  role's prompt, and enowx's skills, delegation to its specialists and
+  questions to you over a local MCP server (127.0.0.1, a random bearer token
+  per session); its messages, reasoning, tool calls, diffs and plan show as
+  enowx's own, Esc cancels its turn, and it stays warm between turns. `e` in
+  the roster puts one agent on another engine, for mixing. `enowx acp status`
+  and `enowx acp install <engine>` work from a shell.
 
 ### Install and update
 

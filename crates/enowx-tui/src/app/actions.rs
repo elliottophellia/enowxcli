@@ -185,19 +185,42 @@ impl App {
         self.modal_error.clear();
     }
 
-    pub(crate) fn command_matches(&self) -> Vec<(&'static str, &'static str)> {
+    pub(crate) fn command_matches(&self) -> Vec<(String, String)> {
         // While a question waits, what is typed is the answer, commands
         // included.
-        if self.question.is_some()
-            || !self.input.starts_with('/')
-            || self.input.contains(char::is_whitespace)
-        {
+        if self.question.is_some() || !self.input.starts_with('/') {
+            return Vec::new();
+        }
+        // `/acp ` completes the agent's name.
+        if let Some(typed) = self.input.strip_prefix("/acp ") {
+            if typed.contains(char::is_whitespace) {
+                return Vec::new();
+            }
+            let typed = typed.to_lowercase();
+            let mut names: Vec<(String, String)> = self
+                .config
+                .acp
+                .engine_ids()
+                .into_iter()
+                .map(|id| {
+                    let summary = format!("run this session on {}", enowx_core::acp::title(&id));
+                    (id, summary)
+                })
+                .collect();
+            names.push(("off".into(), "back to enowx's own model".into()));
+            return names
+                .into_iter()
+                .filter(|(id, _)| id.starts_with(&typed))
+                .map(|(id, summary)| (format!("acp {id}"), summary))
+                .collect();
+        }
+        if self.input.contains(char::is_whitespace) {
             return Vec::new();
         }
         COMMANDS
             .iter()
-            .copied()
             .filter(|(name, _)| name.starts_with(&self.input[1..]))
+            .map(|(name, summary)| ((*name).to_owned(), (*summary).to_owned()))
             .collect()
     }
 
@@ -243,6 +266,7 @@ impl App {
             "resume" => self.open_sessions()?,
             "agent" if !args.trim().is_empty() => self.force_agent(args.trim())?,
             "agent" => self.open_agents(),
+            "model" if self.acp_engine().is_some() => self.open_acp_models(),
             "model" if !args.trim().is_empty() => self.choose_model(args.trim())?,
             "model" => self.open_model_picker(None),
             "provider" => self.open_providers(),
@@ -254,8 +278,10 @@ impl App {
             }
             "attach" => self.open_attach()?,
             "decision" => self.open_decision(),
-            "acp" => self.open_acp(),
+            "acp" => self.acp_command(args)?,
+            "native" => self.acp_off()?,
             "theme" => self.open_themes(),
+            "effort" if self.acp_engine().is_some() => self.open_acp_efforts(),
             "effort" if !args.trim().is_empty() => self.choose_effort(args)?,
             "effort" => self.open_effort()?,
             "skills" => self.open_skills(),
@@ -509,7 +535,11 @@ impl App {
             Modal::Rag => return self.save_rag(),
             Modal::Team => return self.save_team(),
             Modal::Decision => return self.save_decision(),
-            Modal::Acp => return self.save_acp(),
+            Modal::Acp => self.accept_acp_row(),
+            Modal::AcpPick => return self.accept_acp_pick(),
+            Modal::AcpModels | Modal::AcpEfforts => return self.accept_acp_choice(),
+            Modal::AcpEngine => return self.save_acp_engine(),
+            Modal::AcpCustom => return self.save_acp_custom(),
             Modal::Updates => return self.save_updates(),
             Modal::General | Modal::Display => return self.save_prefs(),
             Modal::QuitConfirm => {

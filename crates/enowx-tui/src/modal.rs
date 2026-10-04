@@ -62,8 +62,18 @@ pub enum Modal {
     Handoff,
     /// Settings > Decision model.
     Decision,
-    /// Settings > ACP agents.
+    /// Settings > ACP agents: one card per agent.
     Acp,
+    /// One ACP agent's card: status, model, effort, permissions.
+    AcpEngine,
+    /// A custom ACP agent's command, arguments and environment.
+    AcpCustom,
+    /// `/acp`: pick the agent the session runs on.
+    AcpPick,
+    /// `/model` while an ACP agent runs the session: its models.
+    AcpModels,
+    /// `/effort` while an ACP agent runs the session: its efforts.
+    AcpEfforts,
 }
 
 impl Modal {
@@ -94,11 +104,16 @@ impl Modal {
             | Modal::Rag
             | Modal::Team
             | Modal::Decision
-            | Modal::Acp
+            | Modal::AcpEngine
+            | Modal::AcpCustom
             | Modal::Updates
             | Modal::General
             | Modal::Display
             | Modal::ProviderKey => "",
+            Modal::Acp => " ACP AGENTS ",
+            Modal::AcpPick => " RUN THIS SESSION ON ",
+            Modal::AcpModels => " MODEL ",
+            Modal::AcpEfforts => " THINKING EFFORT ",
         }
     }
 
@@ -115,7 +130,8 @@ impl Modal {
                 | Modal::Rag
                 | Modal::Team
                 | Modal::Decision
-                | Modal::Acp
+                | Modal::AcpEngine
+                | Modal::AcpCustom
                 | Modal::Updates
                 | Modal::General
                 | Modal::Display
@@ -185,16 +201,19 @@ pub enum SettingsField {
     Acp(AcpField),
 }
 
-/// The fields of Settings > ACP agents. The number is the engine's place in
-/// `enowx_core::acp::KINDS`.
+/// The fields of an ACP agent's card and of the custom agent form.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum AcpField {
     /// What is installed and signed in. Enter installs the adapter, or
-    /// checks again.
-    Status(usize),
-    Model(usize),
-    Effort(usize),
-    Permission(usize),
+    /// checks again and reads the agent's models.
+    Status,
+    Model,
+    Effort,
+    Permission,
+    /// Enter runs this session on the agent.
+    Use,
+    /// Enter edits a custom agent's command.
+    Edit,
     CustomName,
     CustomCommand,
     CustomArgs,
@@ -205,51 +224,61 @@ pub enum AcpField {
 impl AcpField {
     /// Its slot in the draft.
     pub fn key(self) -> String {
-        let id = |i: usize| enowx_core::acp::KINDS.get(i).map_or("?", |k| k.id);
         match self {
-            AcpField::Status(i) => format!("{}.status", id(i)),
-            AcpField::Model(i) => format!("{}.model", id(i)),
-            AcpField::Effort(i) => format!("{}.effort", id(i)),
-            AcpField::Permission(i) => format!("{}.permission", id(i)),
-            AcpField::CustomName => "custom.name".into(),
-            AcpField::CustomCommand => "custom.command".into(),
-            AcpField::CustomArgs => "custom.args".into(),
-            AcpField::CustomEnv => "custom.env".into(),
-            AcpField::CustomPermission => "custom.permission".into(),
+            AcpField::Status => "status",
+            AcpField::Model => "model",
+            AcpField::Effort => "effort",
+            AcpField::Permission | AcpField::CustomPermission => "permission",
+            AcpField::Use => "use",
+            AcpField::Edit => "edit",
+            AcpField::CustomName => "name",
+            AcpField::CustomCommand => "command",
+            AcpField::CustomArgs => "args",
+            AcpField::CustomEnv => "env",
         }
+        .into()
     }
 
     fn label(self) -> &'static str {
         match self {
-            AcpField::Status(i) => enowx_core::acp::KINDS.get(i).map_or("?", |k| k.title),
-            AcpField::Model(_) => "  model (blank: its default)",
-            AcpField::Effort(_) => "  thinking effort",
-            AcpField::Permission(_) | AcpField::CustomPermission => "  permissions",
-            AcpField::CustomName => "Custom ACP agent: name (blank: none)",
-            AcpField::CustomCommand => "  command",
-            AcpField::CustomArgs => "  arguments",
-            AcpField::CustomEnv => "  environment (KEY=value; KEY2=value)",
+            AcpField::Status => "Status",
+            AcpField::Model => "Default model",
+            AcpField::Effort => "Thinking effort",
+            AcpField::Permission | AcpField::CustomPermission => "Permissions",
+            AcpField::Use => "Run this session on it",
+            AcpField::Edit => "Command, arguments and environment",
+            AcpField::CustomName => "Name",
+            AcpField::CustomCommand => "Command",
+            AcpField::CustomArgs => "Arguments",
+            AcpField::CustomEnv => "Environment (KEY=value; KEY2=value)",
         }
     }
 }
 
-/// Efforts offered for an engine; blank is its default.
+/// Efforts offered before the agent has said which it has.
 pub const ACP_EFFORTS: [&str; 6] = ["", "low", "medium", "high", "xhigh", "max"];
 
-/// Settings > ACP agents' fields: each built-in engine, then one custom agent.
-pub const ACP_FIELDS: [SettingsField; 17] = [
-    SettingsField::Acp(AcpField::Status(0)),
-    SettingsField::Acp(AcpField::Model(0)),
-    SettingsField::Acp(AcpField::Effort(0)),
-    SettingsField::Acp(AcpField::Permission(0)),
-    SettingsField::Acp(AcpField::Status(1)),
-    SettingsField::Acp(AcpField::Model(1)),
-    SettingsField::Acp(AcpField::Effort(1)),
-    SettingsField::Acp(AcpField::Permission(1)),
-    SettingsField::Acp(AcpField::Status(2)),
-    SettingsField::Acp(AcpField::Model(2)),
-    SettingsField::Acp(AcpField::Effort(2)),
-    SettingsField::Acp(AcpField::Permission(2)),
+/// A built-in agent's card.
+pub const ACP_CARD: [SettingsField; 5] = [
+    SettingsField::Acp(AcpField::Status),
+    SettingsField::Acp(AcpField::Model),
+    SettingsField::Acp(AcpField::Effort),
+    SettingsField::Acp(AcpField::Permission),
+    SettingsField::Acp(AcpField::Use),
+];
+
+/// A custom agent's card: the same, and its command.
+pub const ACP_CARD_CUSTOM: [SettingsField; 6] = [
+    SettingsField::Acp(AcpField::Status),
+    SettingsField::Acp(AcpField::Model),
+    SettingsField::Acp(AcpField::Effort),
+    SettingsField::Acp(AcpField::Permission),
+    SettingsField::Acp(AcpField::Use),
+    SettingsField::Acp(AcpField::Edit),
+];
+
+/// Adding or editing a custom agent.
+pub const ACP_CUSTOM: [SettingsField; 5] = [
     SettingsField::Acp(AcpField::CustomName),
     SettingsField::Acp(AcpField::CustomCommand),
     SettingsField::Acp(AcpField::CustomArgs),
@@ -591,10 +620,13 @@ impl SettingsField {
         ) || matches!(
             self,
             SettingsField::Acp(
-                AcpField::Status(_)
-                    | AcpField::Effort(_)
-                    | AcpField::Permission(_)
+                AcpField::Status
+                    | AcpField::Model
+                    | AcpField::Effort
+                    | AcpField::Permission
                     | AcpField::CustomPermission
+                    | AcpField::Use
+                    | AcpField::Edit
             )
         )
     }
@@ -604,7 +636,8 @@ impl SettingsField {
     pub fn is_action(self) -> bool {
         matches!(
             self,
-            SettingsField::Dec(DecField::Test) | SettingsField::Acp(AcpField::Status(_))
+            SettingsField::Dec(DecField::Test)
+                | SettingsField::Acp(AcpField::Status | AcpField::Use | AcpField::Edit)
         )
     }
 }
@@ -756,8 +789,12 @@ pub struct SettingsDraft {
     pub conf: Vec<String>,
     /// Settings > Decision model, by `DecField::key`.
     pub dec: std::collections::BTreeMap<&'static str, String>,
-    /// Settings > ACP agents, by `AcpField::key`.
+    /// An ACP agent's card or the custom agent form, by `AcpField::key`.
     pub acp: std::collections::BTreeMap<String, String>,
+    /// The models and efforts the agent offers, as (value, name), to cycle
+    /// through; empty until it has been asked.
+    pub acp_models: Vec<(String, String)>,
+    pub acp_efforts: Vec<(String, String)>,
     /// The efforts this model offers, to cycle through on the Effort field.
     pub efforts: Vec<String>,
 }
@@ -976,9 +1013,19 @@ impl SettingsDraft {
             }
             SettingsField::Acp(acp) => {
                 let value = self.value(field);
+                let name_in = |list: &[(String, String)]| {
+                    list.iter()
+                        .find(|(v, _)| v == value)
+                        .map_or_else(|| value.to_owned(), |(_, n)| n.clone())
+                };
                 match acp {
-                    AcpField::Effort(_) if value.is_empty() => "default".into(),
-                    AcpField::Permission(_) | AcpField::CustomPermission => match value {
+                    AcpField::Model if value.is_empty() && self.acp_models.is_empty() => {
+                        "its default (Enter on Status lists its models)".into()
+                    }
+                    AcpField::Model | AcpField::Effort if value.is_empty() => "its default".into(),
+                    AcpField::Model => name_in(&self.acp_models),
+                    AcpField::Effort => name_in(&self.acp_efforts),
+                    AcpField::Permission | AcpField::CustomPermission => match value {
                         "enowx" => "enowx's rules (like enowx's own tools)".into(),
                         "bypass" => "bypass: it asks nothing (careful)".into(),
                         _ => "ask me".into(),
@@ -1068,13 +1115,24 @@ impl SettingsDraft {
             }
             SettingsField::Acp(acp) => {
                 let current = self.value(field).to_owned();
-                let options: &[&str] = match acp {
-                    AcpField::Effort(_) => &ACP_EFFORTS,
-                    AcpField::Permission(_) | AcpField::CustomPermission => {
-                        &enowx_core::acp::PERMISSIONS
+                let listed = |list: &[(String, String)]| -> Vec<String> {
+                    std::iter::once(String::new())
+                        .chain(list.iter().map(|(v, _)| v.clone()))
+                        .collect()
+                };
+                let owned: Vec<String> = match acp {
+                    AcpField::Model => listed(&self.acp_models),
+                    AcpField::Effort if !self.acp_efforts.is_empty() => listed(&self.acp_efforts),
+                    AcpField::Effort => ACP_EFFORTS.iter().map(|s| (*s).to_owned()).collect(),
+                    AcpField::Permission | AcpField::CustomPermission => {
+                        enowx_core::acp::PERMISSIONS
+                            .iter()
+                            .map(|s| (*s).to_owned())
+                            .collect()
                     }
                     _ => return,
                 };
+                let options: Vec<&str> = owned.iter().map(String::as_str).collect();
                 let here = options.iter().position(|o| *o == current).unwrap_or(0) as i32;
                 let next = options[(here + delta).rem_euclid(options.len() as i32) as usize];
                 *self.value_mut(field) = next.to_owned();

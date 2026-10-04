@@ -204,6 +204,11 @@ pub(crate) struct App {
     pub(crate) decision_test: Option<mpsc::Receiver<std::result::Result<String, String>>>,
     /// Detection and installs for Settings > ACP agents.
     pub(crate) acp_news: Option<std::sync::mpsc::Receiver<acp_ui::AcpNews>>,
+    pub(crate) acp_tx: Option<std::sync::mpsc::Sender<acp_ui::AcpNews>>,
+    /// What was last found installed and signed in, per ACP agent.
+    pub(crate) acp_detected: Vec<enowx_core::acp::Detection>,
+    /// What each ACP agent offers (models, efforts), once asked.
+    pub(crate) acp_offers: HashMap<String, enowx_core::acp::manager::Offer>,
     pub(crate) cancel: Option<CancellationToken>,
     pub(crate) events: Option<mpsc::Receiver<Event>>,
     pub(crate) task: Option<tokio::task::JoinHandle<()>>,
@@ -464,6 +469,9 @@ impl App {
             started: Instant::now(),
             decision_test: None,
             acp_news: None,
+            acp_tx: None,
+            acp_detected: Vec::new(),
+            acp_offers: HashMap::new(),
             cancel: None,
             events: None,
             task: None,
@@ -730,6 +738,21 @@ impl App {
     /// Model name shown in the composer footer: the model in use, with its
     /// provider.
     pub(crate) fn model_label(&self) -> String {
+        // An ACP agent runs this one: say which, and how it is set.
+        if let Some(engine) = self.acp_engine() {
+            let mut label = format!("ACP {}", self.config.acp.label(&engine));
+            if let Some(offer) = self.acp_offers.get(&engine) {
+                let model = self.config.acp.engine(&engine).model;
+                if !model.is_empty() {
+                    label = label.replacen(
+                        &format!(" · {model} · "),
+                        &format!(" · {} · ", offer.model_name(&model)),
+                        1,
+                    );
+                }
+            }
+            return label;
+        }
         let running = self.running_model();
         let m = running.as_str();
         if m.is_empty() {
@@ -819,8 +842,11 @@ impl App {
             crate::modal::team_fields(self.settings.team_enabled == "on")
         } else if self.modal == crate::modal::Modal::Decision {
             self.decision_fields()
-        } else if self.modal == crate::modal::Modal::Acp {
-            &crate::modal::ACP_FIELDS
+        } else if matches!(
+            self.modal,
+            crate::modal::Modal::AcpEngine | crate::modal::Modal::AcpCustom
+        ) {
+            self.acp_fields()
         } else if matches!(
             self.modal,
             crate::modal::Modal::General | crate::modal::Modal::Display

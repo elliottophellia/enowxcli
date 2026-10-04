@@ -32,6 +32,56 @@ fn an_agent_runs_on_its_engine_and_enowx_means_none() {
 }
 
 #[test]
+fn the_active_engine_runs_every_agent_except_its_exceptions() {
+    let mut acp = AcpConfig {
+        active: "codex".into(),
+        ..AcpConfig::default()
+    };
+    assert_eq!(acp.engine_for("orchestrator"), Some("codex"));
+    assert_eq!(
+        acp.engine_for("fe"),
+        Some("codex"),
+        "specialists follow the lead"
+    );
+    acp.agents.insert("fe".into(), "enowx".into());
+    acp.agents.insert("be".into(), "claude".into());
+    assert_eq!(acp.engine_for("fe"), None, "an explicit native exception");
+    assert_eq!(acp.engine_for("be"), Some("claude"));
+    assert!(acp.any_assigned());
+    acp.active = "gone".into();
+    assert_eq!(
+        acp.engine_for("orchestrator"),
+        None,
+        "an engine that no longer exists is off"
+    );
+    assert!(acp
+        .label("claude")
+        .contains("Claude Code · default · effort default · ask me"));
+}
+
+#[test]
+fn an_offer_is_read_from_config_options_and_groups() {
+    let created = json!({"configOptions": [
+        {"id": "model", "currentValue": "default", "options": [
+            {"group": "Main", "options": [{"value": "default", "name": "Default"}, {"value": "opus", "name": "Opus"}]},
+            {"value": "haiku", "name": "Haiku"}
+        ]},
+        {"id": "effort", "currentValue": "high", "options": [{"value": "low", "name": "Low"}, {"value": "high", "name": "High"}]}
+    ]});
+    let offer = manager::Offer::read(&created);
+    let models: Vec<&str> = offer.models.iter().map(|c| c.value.as_str()).collect();
+    assert_eq!(models, vec!["default", "opus", "haiku"]);
+    assert_eq!(offer.efforts.len(), 2);
+    assert_eq!(
+        (offer.model.as_str(), offer.effort.as_str()),
+        ("default", "high")
+    );
+    assert_eq!(offer.model_name("opus"), "Opus");
+    let older = json!({"models": {"currentModelId": "a", "availableModels": [{"modelId": "a", "name": "A"}]}});
+    assert_eq!(manager::Offer::read(&older).models[0].name, "A");
+}
+
+#[test]
 fn the_acp_table_round_trips_through_toml() {
     let text = "[acp.agents]\norchestrator = \"claude\"\n\n\
                 [acp.engines.claude]\nmodel = \"opus\"\npermission = \"enowx\"\n\n\

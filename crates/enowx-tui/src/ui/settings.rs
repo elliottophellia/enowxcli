@@ -58,12 +58,17 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &mut App, area: Rect) {
                 .into(),
             "DECISION MODEL · SMALL TYPED JUDGEMENTS".into(),
         ),
-        Modal::Acp => (
-            "Tab field · ←→ choose · Enter save (on a name: install or check) · Esc back",
-            "Put an agent on one with /agent, then e. Each uses your own sign-in; nothing \
-             is installed globally."
+        Modal::AcpEngine => (
+            "Tab field · ←→ choose · Enter save or act · Esc back",
+            "Uses your own sign-in; adapters go to ~/.enx/acp, never globally. /acp <name> \
+             runs a session on it, /acp off goes back."
                 .into(),
-            "ACP AGENTS · CLAUDE CODE, CODEX AND OTHERS".into(),
+            format!("ACP · {}", app.settings.name.to_uppercase()),
+        ),
+        Modal::AcpCustom => (
+            "Tab field · ←→ choose · Enter save · Esc back",
+            "Any program that speaks the Agent Client Protocol on stdio.".into(),
+            "ACP · CUSTOM AGENT".into(),
         ),
         Modal::Rag => (
             "Tab field · ←→ choose · Enter save · Esc chat",
@@ -289,7 +294,6 @@ fn placeholder(app: &App, field: SettingsField) -> &'static str {
         SettingsField::Acp(field) => {
             use crate::modal::AcpField;
             match field {
-                AcpField::Model(_) => "e.g. opus, sonnet, gpt-5 (blank: its default)",
                 AcpField::CustomName => "e.g. opencode",
                 AcpField::CustomCommand => "a program that speaks ACP on stdio, e.g. opencode",
                 AcpField::CustomArgs => "e.g. acp",

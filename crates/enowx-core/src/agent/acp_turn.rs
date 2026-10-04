@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use serde_json::{json, Value};
 
 use super::*;
-use crate::acp::manager::{manager, Bound, Engine, Incoming};
+use crate::acp::manager::{configure, manager, Bound, Incoming};
 use crate::acp::{mcp_host, EngineConfig};
 
 /// What an engine is told about running inside enowx.
@@ -157,141 +157,6 @@ fn option_of(params: &Value, prefix: &str) -> Option<String> {
     pick(&format!("{prefix}_once")).or_else(|| pick(&format!("{prefix}_always")))
 }
 
-/// Set a config option to the offered value that matches `wanted`.
-async fn set_option(
-    engine: &Engine,
-    session: &str,
-    options: &Value,
-    ids: &[&str],
-    wanted: &(dyn Fn(&str) -> bool + Sync),
-) -> Option<String> {
-    let option = options.as_array()?.iter().find(|o| {
-        o.get("id")
-            .and_then(Value::as_str)
-            .is_some_and(|id| ids.contains(&id))
-    })?;
-    let id = option.get("id")?.as_str()?;
-    let value = option
-        .get("options")
-        .and_then(Value::as_array)?
-        .iter()
-        .filter_map(|v| {
-            let value = v.get("value").and_then(Value::as_str)?;
-            let name = v.get("name").and_then(Value::as_str).unwrap_or(value);
-            (wanted(value) || wanted(name)).then_some(value)
-        })
-        .next()?;
-    engine
-        .process
-        .request(
-            "session/set_config_option",
-            json!({ "sessionId": session, "configId": id, "value": value }),
-        )
-        .await
-        .ok()?;
-    Some(value.to_owned())
-}
-
-/// Apply the engine's settings to a new session. What could not be applied
-/// is said, never silently dropped.
-async fn configure(
-    engine: &Engine,
-    session: &str,
-    created: &Value,
-    settings: &EngineConfig,
-) -> Vec<String> {
-    let mut notes = Vec::new();
-    let options = created.get("configOptions").cloned().unwrap_or(Value::Null);
-    let model = settings.model.trim().to_lowercase();
-    if !model.is_empty() {
-        let matches = |v: &str| v.to_lowercase() == model || v.to_lowercase().contains(&model);
-        let mut done = set_option(engine, session, &options, &["model"], &matches).await;
-        if done.is_none() {
-            // Older adapters list models apart from config options.
-            let chosen = created
-                .pointer("/models/availableModels")
-                .and_then(Value::as_array)
-                .and_then(|models| {
-                    models.iter().find_map(|m| {
-                        let id = m.get("modelId").and_then(Value::as_str)?;
-                        let name = m.get("name").and_then(Value::as_str).unwrap_or(id);
-                        (matches(id) || matches(name)).then(|| id.to_owned())
-                    })
-                });
-            if let Some(id) = chosen {
-                if engine
-                    .process
-                    .request(
-                        "session/set_model",
-                        json!({ "sessionId": session, "modelId": id }),
-                    )
-                    .await
-                    .is_ok()
-                {
-                    done = Some(id);
-                }
-            }
-        }
-        if done.is_none() {
-            notes.push(format!(
-                "model `{}` is not one this agent offers; it uses its default",
-                settings.model
-            ));
-        }
-    }
-    let effort = settings.effort.trim().to_lowercase();
-    if !effort.is_empty()
-        && set_option(
-            engine,
-            session,
-            &options,
-            &["effort", "reasoning_effort", "thought_level", "thinking"],
-            &|v: &str| v.to_lowercase() == effort,
-        )
-        .await
-        .is_none()
-    {
-        notes.push(format!(
-            "effort `{}` is not one this agent offers",
-            settings.effort
-        ));
-    }
-    if settings.permission == "bypass" {
-        let bypass = |v: &str| {
-            let v = v.to_lowercase();
-            v.contains("bypass") || v.contains("full") || v.contains("yolo")
-        };
-        let mut done = set_option(engine, session, &options, &["mode"], &bypass)
-            .await
-            .is_some();
-        if !done {
-            let mode = created
-                .pointer("/modes/availableModes")
-                .and_then(Value::as_array)
-                .and_then(|modes| {
-                    modes.iter().find_map(|m| {
-                        let id = m.get("id").and_then(Value::as_str)?;
-                        bypass(id).then(|| id.to_owned())
-                    })
-                });
-            if let Some(id) = mode {
-                done = engine
-                    .process
-                    .request(
-                        "session/set_mode",
-                        json!({ "sessionId": session, "modeId": id }),
-                    )
-                    .await
-                    .is_ok();
-            }
-        }
-        if !done {
-            notes.push("this agent has no bypass mode; its prompts are allowed instead".into());
-        }
-    }
-    notes
-}
-
 /// A data URL as an ACP image block.
 fn image_block(attachment: &Attachment) -> Option<Value> {
     let rest = attachment.data_url.strip_prefix("data:")?;
@@ -330,6 +195,10 @@ impl Agent {
             None => {
                 let host = mcp_host::host().map_err(|e| anyhow::anyhow!(e))?;
                 let (route, entry) = host.route();
+                // Offered before the session exists: an agent lists the
+                // server's tools while `session/new` runs, and keeps that list.
+                let (tools, instructions) = self.acp_tools(active, holds_conversation).await;
+                route.offer(tools, instructions);
                 let mut prompt = self.agent_prompt(active, &workspace.to_string_lossy());
                 if session.parent.is_some() {
                     prompt.push_str(REPORT_CONTRACT);
@@ -373,7 +242,9 @@ impl Agent {
                         })
                         .await;
                 }
+                manager().remember(&engine, &created);
                 let bound = Bound {
+                    engine: engine_id.to_owned(),
                     acp_session,
                     route,
                     generation: engine.generation,
@@ -382,10 +253,6 @@ impl Agent {
                 (bound, true)
             }
         };
-
-        // What enowx offers this turn.
-        let (tools, instructions) = self.acp_tools(active, holds_conversation).await;
-        bound.route.offer(tools, instructions);
 
         // The message: the last one in the session (a handoff continuation
         // adds none), with the prompt and history for a fresh session.

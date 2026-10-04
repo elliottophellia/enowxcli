@@ -414,6 +414,14 @@ pub(super) fn status_spans(app: &App) -> Vec<Span<'static>> {
         ),
         Style::default().fg(t.muted),
     ));
+    // Which brain runs the session, always in view: enowx's own model, or
+    // the ACP agent the label above names.
+    if app.acp_engine().is_none() {
+        left_spans.push(Span::styled(
+            " · enowx native",
+            Style::default().fg(t.faint),
+        ));
+    }
     if app.busy {
         left_spans.push(Span::styled(
             format!(

@@ -25,7 +25,7 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
             72
         },
     );
-    let per_row = if app.modal == Modal::Agents {
+    let per_row = if matches!(app.modal, Modal::Agents | Modal::Acp | Modal::AcpPick) {
         3
     } else if matches!(
         app.modal,
@@ -48,6 +48,10 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
         "Enter connect · d disconnect · Esc close"
     } else if app.modal == Modal::Agents {
         "Enter switch · m model · d default model · e engine · Esc"
+    } else if app.modal == Modal::AcpPick {
+        "Enter run this session on it · Esc"
+    } else if app.modal == Modal::Acp {
+        "Enter open · Esc"
     } else {
         LIST_HINT
     };
@@ -82,7 +86,32 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
             };
             // The name on the text column and what it does under it, on the
             // same column: the marker has the two columns to their left.
-            let text = if app.modal == Modal::Sessions {
+            let text = if matches!(app.modal, Modal::Acp | Modal::AcpPick) {
+                // An ACP agent's card: its name, where it stands, how it is set.
+                let title = if id.is_empty() {
+                    String::new()
+                } else if id == "enowx" {
+                    "enowx".to_owned()
+                } else {
+                    enowx_core::acp::title(id)
+                };
+                let mut lines = description.lines();
+                let first = lines.next().unwrap_or_default();
+                let (name, rest): (String, Vec<&str>) = if title.is_empty() {
+                    (first.to_owned(), lines.collect())
+                } else {
+                    (title, std::iter::once(first).chain(lines).collect())
+                };
+                let mut out = vec![Line::styled(trim(&name, text_width), label)];
+                out.extend(
+                    rest.into_iter()
+                        .map(|l| Line::styled(trim(l, text_width), Style::default().fg(t.muted))),
+                );
+                Text::from(out)
+            } else if matches!(
+                app.modal,
+                Modal::Sessions | Modal::AcpModels | Modal::AcpEfforts
+            ) {
                 // Session picker rows hide the internal id, keeping the visible
                 // list to the title and metadata the user recognises.
                 Text::from(Line::styled(trim(description, text_width), label))

@@ -1,4 +1,4 @@
-pub(crate) const COMMANDS: [(&str, &str); 28] = [
+pub(crate) const COMMANDS: [(&str, &str); 29] = [
     ("help", "Show every command"),
     ("commands", "Browse and search every command"),
     ("new", "Start a fresh session"),
@@ -13,7 +13,11 @@ pub(crate) const COMMANDS: [(&str, &str); 28] = [
     ("attach", "Attach an image from the workspace"),
     ("theme", "Switch UI theme"),
     ("decision", "Decision model: provider, uses, shadow mode"),
-    ("acp", "Claude Code, Codex and other ACP agents as engines"),
+    (
+        "acp",
+        "Run the session on Claude Code, Codex…: /acp <name>, /acp off",
+    ),
+    ("native", "Back to enowx's own model (same as /acp off)"),
     ("skills", "Browse and toggle discovered skills"),
     ("mcp", "Browse, toggle, or add MCP servers"),
     ("rag", "Code search: on or off, database, embedding model"),

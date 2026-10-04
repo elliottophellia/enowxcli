@@ -88,8 +88,12 @@ pub fn kind(id: &str) -> Option<&'static Kind> {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AcpConfig {
-    /// enowx agent name to engine id (`claude`, `codex`, `gemini`, or a
-    /// custom agent's name).
+    /// The engine every agent runs on, set by `/acp <name>`; empty runs
+    /// enowx's own (`/acp off`).
+    pub active: String,
+    /// Per-agent exceptions to `active`, by enowx agent name: an engine id
+    /// (`claude`, `codex`, `gemini`, or a custom agent's name), or `enowx`
+    /// for the configured model.
     pub agents: BTreeMap<String, String>,
     /// Per-engine settings, by engine id.
     pub engines: BTreeMap<String, EngineConfig>,
@@ -125,6 +129,15 @@ impl Default for EngineConfig {
 /// The permission modes, in the order Settings offers them.
 pub const PERMISSIONS: [&str; 3] = ["ask", "enowx", "bypass"];
 
+/// A permission mode in words.
+pub fn permission_label(mode: &str) -> &'static str {
+    match mode {
+        "enowx" => "enowx's rules",
+        "bypass" => "bypass",
+        _ => "ask me",
+    }
+}
+
 /// A program that speaks ACP on stdio, added by hand.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -139,15 +152,42 @@ impl AcpConfig {
     /// The engine `agent` runs on, when it is not the configured model.
     pub fn engine_for(&self, agent: &str) -> Option<&str> {
         let agent = crate::agent_def::canonical_name(agent);
-        self.agents
-            .get(agent)
-            .map(String::as_str)
-            .filter(|id| !id.is_empty() && *id != "enowx" && self.exists(id))
+        match self.agents.get(agent).map(String::as_str) {
+            Some("enowx") => None,
+            Some(id) if self.exists(id) => Some(id),
+            _ => self.active().map(|_| self.active.as_str()),
+        }
+    }
+
+    /// The engine `/acp` put the session on, when it still exists.
+    pub fn active(&self) -> Option<&str> {
+        let id = self.active.as_str();
+        (!id.is_empty() && self.exists(id)).then_some(id)
     }
 
     /// Whether any agent runs on an engine.
     pub fn any_assigned(&self) -> bool {
-        self.agents.values().any(|id| self.exists(id))
+        self.active().is_some() || self.agents.values().any(|id| self.exists(id))
+    }
+
+    /// What the status bar says about an engine: `Claude Code · opus · high ·
+    /// ask me`.
+    pub fn label(&self, id: &str) -> String {
+        let engine = self.engine(id);
+        let or_default = |s: &str| {
+            if s.is_empty() {
+                "default".to_owned()
+            } else {
+                s.to_owned()
+            }
+        };
+        format!(
+            "{} · {} · effort {} · {}",
+            title(id),
+            or_default(&engine.model),
+            or_default(&engine.effort),
+            permission_label(&engine.permission)
+        )
     }
 
     /// Whether `id` names a built-in engine or a custom agent.

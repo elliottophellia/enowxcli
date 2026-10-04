@@ -322,8 +322,15 @@ async fn main() -> Result<()> {
                     for found in enowx_core::acp::detect(&config.acp).await {
                         println!("{:<12} {}", found.title, found.line());
                     }
-                    if config.acp.agents.is_empty() {
-                        println!("\nEvery agent runs on the configured model. In the interface: /agent, then e.");
+                    match config.acp.active() {
+                        Some(id) => println!(
+                            "\nIn use: {} (/acp off goes back to enowx's own model)",
+                            config.acp.label(id)
+                        ),
+                        None => println!(
+                            "\nIn use: enowx's own model. In the interface, /acp claude (or codex, \
+                             gemini) runs the session on an agent."
+                        ),
                     }
                     for (agent, engine) in &config.acp.agents {
                         println!("{agent} runs on {}", enowx_core::acp::title(engine));

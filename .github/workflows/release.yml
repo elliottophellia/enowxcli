@@ -54,6 +54,15 @@ jobs:
           cp target/${{ matrix.target }}/release/enowx README.md LICENSE NOTICE "$name"/
           tar czf "$name.tar.gz" "$name"
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
+          # The archive `enx update` and `enowx update` from v0.2.1 and v0.2.2
+          # ask for: the same binary under both names, so either updater
+          # brings its install to this release.
+          legacy=enx-${{ matrix.target }}
+          mkdir "$legacy"
+          cp target/${{ matrix.target }}/release/enowx "$legacy"/enowx
+          cp target/${{ matrix.target }}/release/enowx "$legacy"/enx
+          tar czf "$legacy.tar.gz" "$legacy"
+          shasum -a 256 "$legacy.tar.gz" > "$legacy.tar.gz.sha256"
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
@@ -64,6 +73,13 @@ jobs:
           Copy-Item target/${{ matrix.target }}/release/enowx.exe, README.md, LICENSE, NOTICE $name
           Compress-Archive -Path $name -DestinationPath "$name.zip"
           (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower() + "  $name.zip" | Out-File -Encoding ascii "$name.zip.sha256"
+          # What the v0.2.1 and v0.2.2 updaters ask for: both names.
+          $legacy = "enx-${{ matrix.target }}"
+          New-Item -ItemType Directory $legacy | Out-Null
+          Copy-Item target/${{ matrix.target }}/release/enowx.exe (Join-Path $legacy "enowx.exe")
+          Copy-Item target/${{ matrix.target }}/release/enowx.exe (Join-Path $legacy "enx.exe")
+          Compress-Archive -Path $legacy -DestinationPath "$legacy.zip"
+          (Get-FileHash "$legacy.zip" -Algorithm SHA256).Hash.ToLower() + "  $legacy.zip" | Out-File -Encoding ascii "$legacy.zip.sha256"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -71,6 +87,8 @@ jobs:
           path: |
             enowx-${{ matrix.target }}.tar.gz*
             enowx-${{ matrix.target }}.zip*
+            enx-${{ matrix.target }}.tar.gz*
+            enx-${{ matrix.target }}.zip*
 
   release:
     needs: build

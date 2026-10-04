@@ -66,7 +66,9 @@ enowx models list              # the connected providers and their models
 Prebuilt binaries are published on the [releases page](https://github.com/enowdev/enowxcli/releases)
 for macOS, Linux and Windows, on Intel/AMD (x86_64) and ARM (aarch64). The
 installers are served from [enowx.ai](https://enowx.ai) and download the
-binary from those releases. The binary is `enowx`.
+binary from those releases. The command is `enowx`, and it also answers to
+`enx`, its earlier name: both run the same binary, so habits and scripts that
+use `enx` keep working.
 
 ### macOS (Apple Silicon and Intel)
 
@@ -75,7 +77,8 @@ curl -fsSL https://enowx.ai/install.sh | sh
 ```
 
 The script picks the right build, checks its SHA-256, installs to
-`~/.local/bin/enowx`, signs it ad hoc so Gatekeeper lets it run, and adds
+`~/.local/bin/enowx` with `enx` linked beside it, signs it ad hoc so
+Gatekeeper lets it run, and adds
 `~/.local/bin` to `PATH` in your shell's rc file (`.zshrc`, `.bash_profile`,
 fish's `config.fish`, or `.profile`). Open a new terminal and run `enowx`.
 
@@ -96,7 +99,8 @@ In PowerShell:
 irm https://enowx.ai/install.ps1 | iex
 ```
 
-It installs to `%LOCALAPPDATA%\Programs\enowx\enowx.exe` and adds that folder to
+It installs to `%LOCALAPPDATA%\Programs\enowx\enowx.exe`, with `enx.exe` as a
+copy beside it, and adds that folder to
 your user `PATH`; open a new terminal afterwards. The `bash` tool runs commands
 with the `sh` from [Git for Windows](https://git-scm.com/download/win) when it
 is installed, and with PowerShell otherwise. Windows Terminal renders the
@@ -136,6 +140,25 @@ The interface also looks for a new release when it starts and says so in
 the status bar; `/update` installs it. Settings > Updates turns the check
 off, or has it install updates by itself (`[update]` in `config.toml`,
 or `ENX_NO_UPDATE_CHECK=1`).
+
+Updating keeps both names on the new version, whichever one you ran. The
+install scripts also point an older `enowx` or `enx` found elsewhere on your
+`PATH` (one `cargo install` put in `~/.cargo/bin`, say) at the new one, so no
+old version is left to start; a program named `enx` that is not enowx is
+left alone. Releases before v0.2.3 updated themselves from archives named
+`enx-<target>`; releases still publish those, holding both names, so
+`enx update` from v0.2.1 and `enowx update` from v0.2.2 work too.
+
+### Uninstalling
+
+```sh
+curl -fsSL https://enowx.ai/install.sh | ENOWX_UNINSTALL=1 sh
+```
+
+In PowerShell: `$env:ENOWX_UNINSTALL = 1; irm https://enowx.ai/install.ps1 | iex`.
+Both remove `enowx` and `enx` (and links an install made elsewhere). Your
+settings, keys and sessions in `~/.enx` are kept; delete that folder yourself
+to remove them too.
 
 ### From source
 

@@ -145,9 +145,9 @@ fn sha256_hex(bytes: &[u8]) -> String {
 pub async fn install(tag: &str) -> Result<PathBuf> {
     let target = target().context("no release is built for this platform; build from source")?;
     let archive = if cfg!(windows) {
-        format!("enx-{target}.zip")
+        format!("enowx-{target}.zip")
     } else {
-        format!("enx-{target}.tar.gz")
+        format!("enowx-{target}.tar.gz")
     };
     let base = format!("https://github.com/{REPO}/releases/download/{tag}");
     let http = client()?;
@@ -191,7 +191,56 @@ pub async fn install(tag: &str) -> Result<PathBuf> {
     let outcome = unpack_and_replace(&bytes, &archive, target, &work, &exe);
     let _ = std::fs::remove_dir_all(&work);
     outcome?;
+    link_names(&exe)?;
     Ok(exe)
+}
+
+/// The two names the command answers to. Both run the same binary: `enowx`,
+/// and `enx`, which it was called before.
+const NAMES: [&str; 2] = ["enowx", "enx"];
+
+/// Make the other name beside `exe` run what `exe` now holds, whichever
+/// name was updated: a symlink on macOS and Linux, a copy on Windows (which
+/// cannot rename over a running .exe, but can move it aside). An older binary
+/// under the other name is replaced, so no old version is left to run.
+pub fn link_names(exe: &Path) -> Result<()> {
+    let folder = exe.parent().context("the binary has no folder")?;
+    let own = exe
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default()
+        .to_owned();
+    for name in NAMES.iter().filter(|n| **n != own) {
+        #[cfg(unix)]
+        {
+            let link = folder.join(name);
+            let target = exe.file_name().context("the binary has no name")?;
+            let already = std::fs::read_link(&link).is_ok_and(|t| t == Path::new(target));
+            if already {
+                continue;
+            }
+            let staged = folder.join(format!(".{name}-link-{}", std::process::id()));
+            let _ = std::fs::remove_file(&staged);
+            std::os::unix::fs::symlink(target, &staged)
+                .with_context(|| format!("linking {name} in {}", folder.display()))?;
+            std::fs::rename(&staged, &link).with_context(|| format!("putting {name} in place"))?;
+        }
+        #[cfg(windows)]
+        {
+            let other = folder.join(format!("{name}.exe"));
+            let staged = folder.join(format!("{name}.new.exe"));
+            std::fs::copy(exe, &staged).with_context(|| format!("copying to {name}.exe"))?;
+            if other.exists() {
+                let old = folder.join(format!("{name}.old.exe"));
+                let _ = std::fs::remove_file(&old);
+                std::fs::rename(&other, &old)
+                    .with_context(|| format!("moving the old {name}.exe aside"))?;
+            }
+            std::fs::rename(&staged, &other)
+                .with_context(|| format!("putting {name}.exe in place"))?;
+        }
+    }
+    Ok(())
 }
 
 fn unpack_and_replace(
@@ -216,7 +265,7 @@ fn unpack_and_replace(
         bail!("tar could not unpack {archive}");
     }
     let name = if cfg!(windows) { "enowx.exe" } else { "enowx" };
-    let fresh = work.join(format!("enx-{target}")).join(name);
+    let fresh = work.join(format!("enowx-{target}")).join(name);
     if !fresh.is_file() {
         bail!("{archive} has no {name}");
     }
@@ -237,11 +286,11 @@ fn unpack_and_replace(
         std::fs::rename(exe, &old).context("moving the running enowx aside")?;
         if let Err(error) = std::fs::rename(&staged, exe) {
             let _ = std::fs::rename(&old, exe);
-            return Err(error).context("putting the new enx in place");
+            return Err(error).context("putting the new enowx in place");
         }
     }
     #[cfg(not(windows))]
-    std::fs::rename(&staged, exe).context("putting the new enx in place")?;
+    std::fs::rename(&staged, exe).context("putting the new enowx in place")?;
     Ok(())
 }
 
@@ -250,6 +299,11 @@ fn unpack_and_replace(
 pub fn clean_up() {
     if let Ok(exe) = std::env::current_exe() {
         let _ = std::fs::remove_file(exe.with_extension("old.exe"));
+        if let Some(folder) = exe.parent() {
+            for name in NAMES {
+                let _ = std::fs::remove_file(folder.join(format!("{name}.old.exe")));
+            }
+        }
     }
 }
 
@@ -268,6 +322,30 @@ mod tests {
             !is_newer("v0.2.0-rc.1", "0.2.0"),
             "a pre-release is not newer"
         );
+    }
+
+    /// Updating either name leaves the other running the same binary, and
+    /// an old binary under the other name is replaced.
+    #[cfg(unix)]
+    #[test]
+    fn both_names_run_the_updated_binary() {
+        let dir = std::env::temp_dir().join(format!("enowx-names-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let enowx = dir.join("enowx");
+        std::fs::write(&enowx, "new").unwrap();
+        std::fs::write(dir.join("enx"), "old binary").unwrap();
+        link_names(&enowx).unwrap();
+        assert_eq!(
+            std::fs::read_link(dir.join("enx")).unwrap(),
+            Path::new("enowx")
+        );
+        assert_eq!(std::fs::read_to_string(dir.join("enx")).unwrap(), "new");
+        link_names(&enowx).unwrap();
+        assert_eq!(
+            std::fs::read_link(dir.join("enx")).unwrap(),
+            Path::new("enowx")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

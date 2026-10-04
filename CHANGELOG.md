@@ -18,6 +18,22 @@ All notable changes to enowx. Dates are YYYY-MM-DD.
   documents are written only when you ask for them, and inside a brainstorm
   the stack is decided, not asked. The maestro follows the same rules.
 
+### Install and update
+
+- **`enx` and `enowx` are both the command.** The installers put `enx` beside
+  `enowx` (a link on macOS and Linux, a copy on Windows), and updating keeps
+  both names on the new version whichever one ran. An older `enowx` or `enx`
+  elsewhere on the `PATH`, such as one `cargo install` left in
+  `~/.cargo/bin`, is pointed at the new install, so the old version no longer
+  starts; a program named `enx` that is not enowx is left alone.
+- **`enowx update` works again.** It still asked for archives named
+  `enx-<target>`, which v0.2.2 no longer published, so it failed. It now asks
+  for `enowx-<target>`, and releases also publish `enx-<target>` with both
+  names inside, so `enx update` from v0.2.1 and `enowx update` from v0.2.2
+  reach the new version.
+- **Uninstall.** `ENOWX_UNINSTALL=1` with either install script removes both
+  names. `~/.enx` (settings, keys, sessions) is never touched.
+
 ### Decision model
 
 - **A decision model for small typed judgements, off by default.** The

@@ -329,6 +329,8 @@ pub struct Agent {
     /// Turns running now; the rag server holds its background scans while
     /// any is.
     turns_running: Arc<std::sync::atomic::AtomicUsize>,
+    /// The decision model, off unless `[decision]` turns it on.
+    decider: crate::decision::Decider,
     /// Whether the host can put a question to the user and send the answer
     /// back. Off unless the host says so, so an agent run where no one can
     /// answer (the HTTP server, a script) is never left waiting.
@@ -426,6 +428,7 @@ impl Agent {
         let disabled = effective_disabled(&config, &discovery);
         let registry = build_registry(discovery.clone(), disabled);
         let config_workspace = config.workspace();
+        let config_for_decider = config.clone();
         Self {
             config,
             tools: Arc::new(tokio::sync::RwLock::new(registry)),
@@ -438,6 +441,7 @@ impl Agent {
             turns_running: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             mcp_started_at: Arc::new(std::sync::OnceLock::new()),
             mcp_failures: Arc::new(std::sync::Mutex::new(std::collections::BTreeMap::new())),
+            decider: crate::decision::Decider::from_config(&config_for_decider),
             asks_user: false,
             questions: std::sync::Mutex::new(std::collections::HashMap::new()),
             board: crate::contract::Board::default(),
@@ -512,6 +516,94 @@ impl Agent {
             Ok(questions) => questions,
             Err(why) => return ToolOutput::error(why),
         };
+        match self
+            .wait_for_answer(id, agent, &questions, events, cancel)
+            .await
+        {
+            Some(answer) => ToolOutput::ok(crate::ask::answer_message(&questions, &answer)),
+            None => ToolOutput::error("The user stopped the turn instead of answering."),
+        }
+    }
+
+    /// Run the ask gate on a call to `ask`. `None` lets the question
+    /// through; `Some` is the agent's answer instead. A question the model
+    /// is unsure of goes through once a turn, and is refused after.
+    async fn gate_ask(
+        &self,
+        session: &Session,
+        args: &serde_json::Value,
+        unsure_asks: &mut usize,
+        events: &mpsc::Sender<Event>,
+    ) -> Option<ToolOutput> {
+        use crate::decision::uses::{self, AskVerdict};
+        if !self.decider.is_on(crate::decision::Use::Ask)
+            || !self.asks_user
+            || session.parent.is_some()
+        {
+            return None;
+        }
+        let ruling = uses::ask(&self.decider, &last_request(session), args).await;
+        Self::report_decision(ruling.record, events).await;
+        match ruling.verdict {
+            AskVerdict::Allow => None,
+            AskVerdict::Refuse => Some(ToolOutput::error(uses::ASK_REFUSED)),
+            AskVerdict::Unsure => {
+                *unsure_asks += 1;
+                (*unsure_asks > 1).then(|| ToolOutput::error(uses::ASK_REFUSED))
+            }
+        }
+    }
+
+    /// What the decision model says about a new message to the lead, as
+    /// notes for its system prompt. Empty when it is off or unsure.
+    async fn lead_hints(
+        &self,
+        active: &crate::agent_def::AgentDef,
+        message: &str,
+        events: &mpsc::Sender<Event>,
+    ) -> String {
+        use crate::decision::{uses, Use};
+        if message.is_empty()
+            || !(self.decider.is_on(Use::Intent) || self.decider.is_on(Use::Routing))
+        {
+            return String::new();
+        }
+        let agents: Vec<(String, String)> = self
+            .discovery
+            .agents
+            .iter()
+            .filter(|a| {
+                a.name != active.name
+                    && a.delegation != crate::agent_def::Delegation::Orchestrator
+                    && a.name != "compactor"
+            })
+            .map(|a| (a.name.clone(), a.description.clone()))
+            .collect();
+        let (intent, route) = tokio::join!(
+            uses::intent(&self.decider, message),
+            uses::routing(&self.decider, message, &agents),
+        );
+        Self::report_decision(intent.record, events).await;
+        Self::report_decision(route.record, events).await;
+        let mut notes = String::new();
+        if let Some(intent) = intent.verdict {
+            notes.push_str(uses::intent_note(intent));
+        }
+        if let Some(route) = route.verdict {
+            notes.push_str(&uses::route_note(&route));
+        }
+        notes
+    }
+
+    /// Show `questions` and wait for the answer, or for the turn to stop.
+    async fn wait_for_answer(
+        &self,
+        id: &str,
+        agent: &str,
+        questions: &[crate::ask::Question],
+        events: &mpsc::Sender<Event>,
+        cancel: &CancellationToken,
+    ) -> Option<crate::ask::Answer> {
         let (reply, answer) = tokio::sync::oneshot::channel();
         self.questions
             .lock()
@@ -521,7 +613,7 @@ impl Agent {
             .send(Event::Question {
                 id: id.to_owned(),
                 agent: agent.to_owned(),
-                questions: questions.clone(),
+                questions: questions.to_vec(),
             })
             .await;
         let answer = tokio::select! {
@@ -529,10 +621,71 @@ impl Agent {
             _ = cancel.cancelled() => None,
         };
         self.questions.lock().expect("questions").remove(id);
-        match answer {
-            Some(answer) => ToolOutput::ok(crate::ask::answer_message(&questions, &answer)),
-            None => ToolOutput::error("The user stopped the turn instead of answering."),
+        answer
+    }
+
+    /// Hand a decision's record to the host's log.
+    async fn report_decision(
+        record: Option<crate::decision::Record>,
+        events: &mpsc::Sender<Event>,
+    ) {
+        if let Some(record) = record {
+            let _ = events
+                .send(Event::Decision {
+                    use_key: record.use_key.clone(),
+                    outcome: record.outcome.clone(),
+                    summary: record.action.clone(),
+                    detail: record.answer.clone(),
+                    latency_ms: record.latency_ms,
+                })
+                .await;
         }
+    }
+
+    /// Run the shell gate on a `bash` call. `None` lets it run; `Some` is
+    /// the result to give the agent instead.
+    async fn gate_shell(
+        &self,
+        call: &crate::message::ToolCall,
+        agent: &str,
+        holds_conversation: bool,
+        events: &mpsc::Sender<Event>,
+        cancel: &CancellationToken,
+    ) -> Option<ToolOutput> {
+        use crate::decision::uses;
+        let args: serde_json::Value = serde_json::from_str(&call.arguments).ok()?;
+        let command = args["command"].as_str()?;
+        let ruling = uses::shell(&self.decider, command).await;
+        Self::report_decision(ruling.record, events).await;
+        let uses::ShellVerdict::Confirm(reason) = ruling.verdict else {
+            return None;
+        };
+        if !self.asks_user || !holds_conversation {
+            let record = self
+                .decider
+                .record_final(crate::decision::Use::Shell, "not run: no user to ask");
+            Self::report_decision(record, events).await;
+            return Some(ToolOutput::error(uses::SHELL_NO_ONE));
+        }
+        let questions = crate::ask::parse(&uses::shell_question(command, &reason)).ok()?;
+        let answer = self
+            .wait_for_answer(&call.id, agent, &questions, events, cancel)
+            .await;
+        let approved = answer.is_some_and(|a| {
+            a.replies
+                .first()
+                .is_some_and(|r| r.chosen.iter().any(|c| c == "Run it"))
+        });
+        let record = self.decider.record_final(
+            crate::decision::Use::Shell,
+            if approved {
+                "user ran it"
+            } else {
+                "user declined"
+            },
+        );
+        Self::report_decision(record, events).await;
+        (!approved).then(|| ToolOutput::error(uses::SHELL_DECLINED))
     }
 
     /// Spawn every discovered MCP server on the current tokio runtime. Safe to
@@ -1869,6 +2022,7 @@ impl Agent {
     ) -> Result<Option<String>> {
         let prompt = request.prompt.trim();
         let continuing = prompt.is_empty() && request.session_id.is_some();
+        let user_message = prompt.to_owned();
         if prompt.is_empty() && !continuing {
             anyhow::bail!("the message is empty");
         }
@@ -2058,6 +2212,15 @@ impl Agent {
                 prompt.push_str(&handoff_note(switch));
             }
         }
+        // A new message to the lead: the decision model reads whether it asks
+        // for a brainstorm and who it is for, both at once. Either answer,
+        // when sure, rides in this turn's system prompt only.
+        if !continuing
+            && session.parent.is_none()
+            && active.delegation == crate::agent_def::Delegation::Orchestrator
+        {
+            prompt.push_str(&self.lead_hints(&active, &user_message, events).await);
+        }
         let system = Message::system(prompt);
         let (progress_tx, mut progress_rx) = tokio::sync::mpsc::channel::<(String, String)>(64);
         // Forward every tool progress delta to the UI event stream so long
@@ -2104,6 +2267,8 @@ impl Agent {
         // the harness runs on them before the agent finishes has run.
         let mut touched: Vec<String> = Vec::new();
         let mut skill_reads = SkillReads::from(&session);
+        // Questions the decision model was unsure of, asked this turn.
+        let mut unsure_asks = 0usize;
         let mut checked_ui = false;
         // How many times a delegated agent that stopped without its report
         // has been sent back to finish.
@@ -2350,7 +2515,10 @@ impl Agent {
                 std::collections::HashMap::new();
             let mut announced: std::collections::HashSet<String> = std::collections::HashSet::new();
             for (index, call) in completion.tool_calls.iter().enumerate() {
-                let run = parallel_run(&completion.tool_calls[index..]);
+                let run = parallel_run(
+                    &completion.tool_calls[index..],
+                    !self.decider.is_on(crate::decision::Use::Shell),
+                );
                 if can_run && run > 1 && !announced.contains(&call.id) {
                     let together = &completion.tool_calls[index..index + run];
                     for call in together {
@@ -2401,15 +2569,23 @@ impl Agent {
                         Ok(args @ serde_json::Value::Object(_))
                             if call.name == crate::ask::TOOL =>
                         {
-                            self.ask_user(
-                                &call.id,
-                                &active.name,
-                                &args,
-                                session.parent.is_none(),
-                                events,
-                                &cancel,
-                            )
-                            .await
+                            match self
+                                .gate_ask(&session, &args, &mut unsure_asks, events)
+                                .await
+                            {
+                                Some(refused) => refused,
+                                None => {
+                                    self.ask_user(
+                                        &call.id,
+                                        &active.name,
+                                        &args,
+                                        session.parent.is_none(),
+                                        events,
+                                        &cancel,
+                                    )
+                                    .await
+                                }
+                            }
                         }
                         Ok(args @ serde_json::Value::Object(_))
                             if call.name == "delegation_log"
@@ -2500,9 +2676,26 @@ impl Agent {
                                     Ok(())
                                 }
                             });
-                            match claimed {
+                            // The shell gate, when the decision model is on.
+                            let gated = if call.name == "bash"
+                                && claimed.is_ok()
+                                && self.decider.is_on(crate::decision::Use::Shell)
+                            {
+                                self.gate_shell(
+                                    call,
+                                    &active.name,
+                                    session.parent.is_none(),
+                                    events,
+                                    &cancel,
+                                )
+                                .await
+                            } else {
+                                None
+                            };
+                            match claimed.map(|()| gated) {
                                 Err(refusal) => ToolOutput::error(refusal),
-                                Ok(()) => {
+                                Ok(Some(instead)) => instead,
+                                Ok(None) => {
                                     let mut ctx = tool_ctx.clone();
                                     ctx.call_id = call.id.clone();
                                     tools_registry
@@ -2595,7 +2788,22 @@ impl Agent {
                         );
                     }
                 }
-                let mut result = Message::tool_result(&call.id, output.content.clone());
+                let stored = if self.decider.is_on(crate::decision::Use::ToolResults) {
+                    let ruling = crate::decision::uses::tool_result(
+                        &self.decider,
+                        &last_request(&session),
+                        &call.name,
+                        &call.arguments,
+                        &output.content,
+                        output.is_error,
+                    )
+                    .await;
+                    Self::report_decision(ruling.record, events).await;
+                    crate::decision::uses::apply_keep(ruling.verdict, &output.content)
+                } else {
+                    output.content.clone()
+                };
+                let mut result = Message::tool_result(&call.id, stored);
                 if output.is_error {
                     result.error = Some("Tool execution failed".into());
                 }
@@ -2889,12 +3097,30 @@ const LOOKING_TOOLS: &[&str] = &["read", "glob", "grep", "fetch", "diagnostics",
 
 /// How many calls from the start of `calls` run together: a stretch of
 /// looking calls with well-formed arguments, and at most one `bash`.
-fn parallel_run(calls: &[crate::message::ToolCall]) -> usize {
+/// What the session's user (or, in a branch, its caller) last asked for.
+fn last_request(session: &Session) -> String {
+    session
+        .turns
+        .iter()
+        .rev()
+        .find(|t| {
+            t.message.role == crate::MessageRole::User
+                && !t.message.content.starts_with("[harness]")
+        })
+        .map(|t| t.message.content.chars().take(2000).collect())
+        .unwrap_or_default()
+}
+
+/// How many calls from the front of `calls` can run at once. `bash` joins
+/// them only when `bash_together`: with the shell gate on, each command is
+/// judged, and perhaps put to the user, before it runs.
+fn parallel_run(calls: &[crate::message::ToolCall], bash_together: bool) -> usize {
     let mut bash = 0;
     calls
         .iter()
         .take_while(|call| {
             let fits = match call.name.as_str() {
+                "bash" if !bash_together => false,
                 "bash" => {
                     bash += 1;
                     bash == 1
@@ -3647,18 +3873,18 @@ mod parallel_run_tests {
     fn looking_calls_and_one_bash_run_together() {
         let step = |names: &[&str]| names.iter().map(|n| call(n)).collect::<Vec<_>>();
         assert_eq!(
-            parallel_run(&step(&["read", "grep", "bash", "glob", "write"])),
+            parallel_run(&step(&["read", "grep", "bash", "glob", "write"]), true),
             4
         );
         assert_eq!(
-            parallel_run(&step(&["bash", "read", "bash"])),
+            parallel_run(&step(&["bash", "read", "bash"]), true),
             2,
             "one bash per run"
         );
-        assert_eq!(parallel_run(&step(&["write", "read"])), 0);
+        assert_eq!(parallel_run(&step(&["write", "read"]), true), 0);
         let mut broken = call("read");
         broken.arguments = "{\"path\":".into();
-        assert_eq!(parallel_run(&[call("read"), broken]), 1);
+        assert_eq!(parallel_run(&[call("read"), broken], true), 1);
     }
 }
 

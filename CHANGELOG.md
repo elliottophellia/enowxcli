@@ -18,6 +18,22 @@ All notable changes to enowx. Dates are YYYY-MM-DD.
   documents are written only when you ask for them, and inside a brainstorm
   the stack is decided, not asked. The maestro follows the same rules.
 
+### Decision model
+
+- **A decision model for small typed judgements, off by default.** The
+  Decision model section of Settings (or `/decision`) picks a provider behind
+  one interface:
+  Clef on Cloudflare Workers AI, TypeSafe's Jev, any endpoint speaking the
+  same API, or a model already configured in enowx asked for JSON. Five uses,
+  each on its own switch and threshold: whether a message asks for a
+  brainstorm, which specialist it is for, whether a question is the user's
+  to answer, whether a long tool result is carried whole, and whether a shell
+  command needs the user's word first (an unsure answer always asks). Every
+  judgement has a hard timeout (300 ms by default) and falls back to the
+  usual path when late or failing; shadow mode records decisions without
+  acting on them. Decisions are logged to `~/.enx/decisions.jsonl`, listed
+  in the Log tab, and printed by `enowx decisions`.
+
 ### Removed
 
 - **TypeSafe integration.** The TypeSafe (System One) judge that trimmed tool
@@ -27,7 +43,7 @@ All notable changes to enowx. Dates are YYYY-MM-DD.
   plain fold by age, which is what ran without a TypeSafe key. enowx no
   longer contacts TypeSafe. A `[typesafe]` table left in `config.toml`
   still loads, is ignored, and is kept as written when the file is saved;
-  `TYPESAFE_API_KEY` is no longer read.
+  `TYPESAFE_API_KEY` is read only as the key of the Jev decision model, above.
 
 ## v0.2.2 (2026-10-03)
 

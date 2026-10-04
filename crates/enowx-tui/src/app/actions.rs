@@ -253,6 +253,7 @@ impl App {
                 }
             }
             "attach" => self.open_attach()?,
+            "decision" => self.open_decision(),
             "theme" => self.open_themes(),
             "effort" if !args.trim().is_empty() => self.choose_effort(args)?,
             "effort" => self.open_effort()?,
@@ -506,6 +507,7 @@ impl App {
             Modal::BuiltinMcp => return self.save_builtin_mcp(),
             Modal::Rag => return self.save_rag(),
             Modal::Team => return self.save_team(),
+            Modal::Decision => return self.save_decision(),
             Modal::Updates => return self.save_updates(),
             Modal::General | Modal::Display => return self.save_prefs(),
             Modal::QuitConfirm => {

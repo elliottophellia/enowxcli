@@ -485,6 +485,17 @@ impl App {
                     self.context_window = context_window;
                 }
             }
+            Event::Decision {
+                use_key,
+                outcome,
+                summary,
+                detail,
+                latency_ms,
+            } => self.logs.push_with(
+                crate::logs::LogKind::Decision,
+                decision_line(&use_key, &outcome, &summary),
+                Some(format!("{detail} · {latency_ms} ms")),
+            ),
             Event::Error { message } => {
                 self.logs
                     .push(crate::logs::LogKind::Problem, message.clone());
@@ -722,6 +733,17 @@ impl App {
                 format!("{who}: retry {attempt}/{max}"),
                 Some(message),
             ),
+            Event::Decision {
+                use_key,
+                outcome,
+                summary,
+                detail,
+                latency_ms,
+            } => self.logs.push_with(
+                LogKind::Decision,
+                format!("{who}: {}", decision_line(&use_key, &outcome, &summary)),
+                Some(format!("{detail} · {latency_ms} ms")),
+            ),
             Event::Notice { message } => {
                 self.logs.push(LogKind::Agent, format!("{who}: {message}"));
             }
@@ -731,5 +753,15 @@ impl App {
             }
             _ => {}
         }
+    }
+}
+
+/// One decision as a Log line: `shell: confirm with the user`, with the
+/// outcome when it was not acted on as decided.
+fn decision_line(use_key: &str, outcome: &str, summary: &str) -> String {
+    if outcome == "applied" {
+        format!("{use_key}: {summary}")
+    } else {
+        format!("{use_key}: {summary} [{outcome}]")
     }
 }

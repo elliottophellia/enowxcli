@@ -74,6 +74,12 @@ enum Command {
         #[arg(long, conflicts_with = "check")]
         force: bool,
     },
+    /// The decision model's last decisions, from ~/.enx/decisions.jsonl.
+    Decisions {
+        /// How many, newest last.
+        #[arg(default_value_t = 20)]
+        last: usize,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -293,6 +299,32 @@ async fn main() -> Result<()> {
             VpsCommand::Remove { name } => mcp::vps_remove(&name),
         },
         Command::Update { check, force } => update(check, force).await,
+        Command::Decisions { last } => {
+            let records = enowx_core::decision::log::read_last(last);
+            if records.is_empty() {
+                println!(
+                    "No decisions recorded in {}. Turn the decision model on in Settings > \
+                     Decision model.",
+                    enowx_core::decision::log::path().display()
+                );
+            }
+            for r in records {
+                let p = r
+                    .probability
+                    .map(|p| format!(" p={p:.2}"))
+                    .unwrap_or_default();
+                println!(
+                    "{}  {:<12} {:<8} {:>5} ms  {}{p}  {}",
+                    r.at.get(..19).unwrap_or(&r.at),
+                    r.use_key,
+                    r.outcome,
+                    r.latency_ms,
+                    r.action,
+                    r.answer
+                );
+            }
+            Ok(())
+        }
         Command::Auth { command } => {
             let mut config = Config::load()?;
             match command {

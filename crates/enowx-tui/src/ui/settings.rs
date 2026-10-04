@@ -51,6 +51,13 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &mut App, area: Rect) {
             "Off by default. Saved to ~/.enx/config.toml; applies from the next step.".into(),
             "TEAM · AGENTS WORKING TOGETHER".into(),
         ),
+        Modal::Decision => (
+            "Tab field · ←→ choose · Enter save · Esc back",
+            "Off by default. Keys go to ~/.enx/auth.json; blank keeps the stored one. \
+             Decisions are logged to ~/.enx/decisions.jsonl."
+                .into(),
+            "DECISION MODEL · SMALL TYPED JUDGEMENTS".into(),
+        ),
         Modal::Rag => (
             "Tab field · ←→ choose · Enter save · Esc chat",
             "Keys and the database go to ~/.enx/auth.json; blank keeps what is stored.".into(),
@@ -95,6 +102,9 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &mut App, area: Rect) {
         let choice = field.is_choice();
         let shown = if field.is_secret() {
             "•".repeat(raw.chars().count())
+        } else if field == SettingsField::Dec(crate::modal::DecField::Test) {
+            // A button, not a value to step through.
+            app.settings.choice_shown(field)
         } else if choice {
             format!("◂ {} ▸", app.settings.choice_shown(field))
         } else {
@@ -242,5 +252,32 @@ fn placeholder(app: &App, field: SettingsField) -> &'static str {
         },
         SettingsField::KeyFile => "~/.ssh/id_ed25519 (blank: ssh-agent, ~/.ssh keys)",
         SettingsField::Passphrase | SettingsField::Password => "(blank keeps what is stored)",
+        SettingsField::Dec(field) => {
+            use crate::modal::DecField;
+            let provider = app.settings.value(SettingsField::Dec(DecField::Provider));
+            let stored = app
+                .config
+                .auth
+                .is_stored(&enowx_core::decision::secret_id(provider));
+            match field {
+                DecField::Key if stored => "(stored; type to replace it)",
+                DecField::Key if provider == "clef" => {
+                    "Cloudflare API token with Workers AI access"
+                }
+                DecField::Key if provider == "jev" => {
+                    "TypeSafe API key (TYPESAFE_API_KEY is read too)"
+                }
+                DecField::Key => "optional for a local endpoint",
+                DecField::Account => {
+                    "from the Cloudflare dashboard (CLOUDFLARE_ACCOUNT_ID is read too)"
+                }
+                DecField::BaseUrl => "https://host/v1/systemone",
+                DecField::ModelText if provider == "llm" => {
+                    "provider/model (blank: the one in use)"
+                }
+                DecField::ModelText => "the model the endpoint expects (blank: none sent)",
+                _ => "←→ to choose",
+            }
+        }
     }
 }

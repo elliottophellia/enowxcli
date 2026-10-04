@@ -38,6 +38,19 @@ pub enum Event {
         /// interface to show as a diff. `None` for a new file or another tool.
         before: Option<String>,
     },
+    /// The decision model judged something: what it was, what came of it,
+    /// how fast. For the log; the turn has already acted on it.
+    Decision {
+        /// The use's key: `intent`, `routing`, `ask`, `tool_results`, `shell`.
+        use_key: String,
+        /// `applied`, `shadow`, `unsure`, `timeout`, `error` or `user`.
+        outcome: String,
+        /// One line: what the harness did.
+        summary: String,
+        /// The answers and their probabilities.
+        detail: String,
+        latency_ms: u64,
+    },
     /// Incremental output while a tool is still running. UI appends `delta`
     /// to the tool's visible body so long writes and shell output are
     /// visible progressively instead of appearing all at once at the end.
@@ -145,6 +158,7 @@ impl Event {
             self,
             Event::Usage { .. }
                 | Event::Retry { .. }
+                | Event::Decision { .. }
                 | Event::Notice { .. }
                 | Event::Error { .. }
                 | Event::Branch { .. }

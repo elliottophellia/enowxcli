@@ -12,6 +12,7 @@ pub mod compact;
 pub mod config;
 pub mod contract;
 pub mod dashes;
+pub mod decision;
 pub mod discovery;
 pub mod eval;
 pub mod event;

@@ -17,6 +17,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 mod actions;
 mod connection;
+mod decision_ui;
 pub(crate) mod delegation_list;
 mod events;
 mod handoff;
@@ -198,6 +199,8 @@ pub(crate) struct App {
     pub(crate) log_detail: bool,
     /// When the session started, so log lines can be stamped against it.
     pub(crate) started: Instant,
+    /// The answer to Settings > Decision model's connection test.
+    pub(crate) decision_test: Option<mpsc::Receiver<std::result::Result<String, String>>>,
     pub(crate) cancel: Option<CancellationToken>,
     pub(crate) events: Option<mpsc::Receiver<Event>>,
     pub(crate) task: Option<tokio::task::JoinHandle<()>>,
@@ -456,6 +459,7 @@ impl App {
             log_filter: 0,
             log_detail: false,
             started: Instant::now(),
+            decision_test: None,
             cancel: None,
             events: None,
             task: None,
@@ -809,6 +813,8 @@ impl App {
             crate::modal::rag_fields(&self.settings.rag_provider)
         } else if self.modal == crate::modal::Modal::Team {
             crate::modal::team_fields(self.settings.team_enabled == "on")
+        } else if self.modal == crate::modal::Modal::Decision {
+            self.decision_fields()
         } else if matches!(
             self.modal,
             crate::modal::Modal::General | crate::modal::Modal::Display

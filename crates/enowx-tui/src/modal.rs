@@ -60,6 +60,8 @@ pub enum Modal {
     /// `/handoff`: carry on in a fresh session, keeping or deleting this
     /// one's history.
     Handoff,
+    /// Settings > Decision model.
+    Decision,
 }
 
 impl Modal {
@@ -89,6 +91,7 @@ impl Modal {
             | Modal::BuiltinMcp
             | Modal::Rag
             | Modal::Team
+            | Modal::Decision
             | Modal::Updates
             | Modal::General
             | Modal::Display
@@ -108,6 +111,7 @@ impl Modal {
                 | Modal::BuiltinMcp
                 | Modal::Rag
                 | Modal::Team
+                | Modal::Decision
                 | Modal::Updates
                 | Modal::General
                 | Modal::Display
@@ -171,6 +175,126 @@ pub enum SettingsField {
     UpdateAuto,
     /// A config key, by its place in `CONF_FIELDS`: General and Display.
     Conf(usize),
+    /// Settings > Decision model.
+    Dec(DecField),
+}
+
+/// The fields of Settings > Decision model.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DecField {
+    Enabled,
+    Provider,
+    /// A built-in provider's model, picked.
+    ModelPick,
+    /// A custom endpoint's model, or the enowx model to answer with, typed.
+    ModelText,
+    Account,
+    BaseUrl,
+    Key,
+    Timeout,
+    Shadow,
+    /// Enter here saves, then asks the provider a test question.
+    Test,
+    UseOn(Use),
+    Threshold(Use),
+}
+
+use enowx_core::decision::Use;
+
+impl DecField {
+    /// Its slot in the draft.
+    pub fn key(self) -> &'static str {
+        match self {
+            DecField::Enabled => "enabled",
+            DecField::Provider => "provider",
+            DecField::ModelPick | DecField::ModelText => "model",
+            DecField::Account => "account",
+            DecField::BaseUrl => "base_url",
+            DecField::Key => "key",
+            DecField::Timeout => "timeout",
+            DecField::Shadow => "shadow",
+            DecField::Test => "test",
+            DecField::UseOn(u) => match u {
+                Use::Intent => "on.intent",
+                Use::Routing => "on.routing",
+                Use::Ask => "on.ask",
+                Use::ToolResults => "on.tool_results",
+                Use::Shell => "on.shell",
+            },
+            DecField::Threshold(u) => match u {
+                Use::Intent => "th.intent",
+                Use::Routing => "th.routing",
+                Use::Ask => "th.ask",
+                Use::ToolResults => "th.tool_results",
+                Use::Shell => "th.shell",
+            },
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            DecField::Enabled => "Decision model",
+            DecField::Provider => "Provider",
+            DecField::ModelPick | DecField::ModelText => "Model",
+            DecField::Account => "Cloudflare account ID",
+            DecField::BaseUrl => "Endpoint URL (speaks the Jev/Clef API)",
+            DecField::Key => "API key or token",
+            DecField::Timeout => "Give up after, then the usual path",
+            DecField::Shadow => "Shadow mode: decide and record, change nothing",
+            DecField::Test => "Test the connection",
+            DecField::UseOn(u) => u.label(),
+            DecField::Threshold(_) => "  sure enough at",
+        }
+    }
+}
+
+/// Timeouts offered, in milliseconds.
+pub const DECISION_TIMEOUTS: [&str; 8] =
+    ["150", "300", "500", "1000", "2000", "3000", "5000", "10000"];
+
+/// Thresholds offered.
+pub const DECISION_THRESHOLDS: [&str; 8] =
+    ["0.6", "0.7", "0.75", "0.8", "0.85", "0.9", "0.95", "0.99"];
+
+macro_rules! decision_fields {
+    ($($middle:expr),*) => {
+        [
+            SettingsField::Dec(DecField::Enabled),
+            SettingsField::Dec(DecField::Provider),
+            $(SettingsField::Dec($middle),)*
+            SettingsField::Dec(DecField::Timeout),
+            SettingsField::Dec(DecField::Shadow),
+            SettingsField::Dec(DecField::Test),
+            SettingsField::Dec(DecField::UseOn(Use::Intent)),
+            SettingsField::Dec(DecField::Threshold(Use::Intent)),
+            SettingsField::Dec(DecField::UseOn(Use::Routing)),
+            SettingsField::Dec(DecField::Threshold(Use::Routing)),
+            SettingsField::Dec(DecField::UseOn(Use::Ask)),
+            SettingsField::Dec(DecField::Threshold(Use::Ask)),
+            SettingsField::Dec(DecField::UseOn(Use::ToolResults)),
+            SettingsField::Dec(DecField::Threshold(Use::ToolResults)),
+            SettingsField::Dec(DecField::UseOn(Use::Shell)),
+            SettingsField::Dec(DecField::Threshold(Use::Shell)),
+        ]
+    };
+}
+
+const DECISION_CLEF: [SettingsField; 18] =
+    decision_fields!(DecField::ModelPick, DecField::Account, DecField::Key);
+const DECISION_JEV: [SettingsField; 17] = decision_fields!(DecField::ModelPick, DecField::Key);
+const DECISION_CUSTOM: [SettingsField; 18] =
+    decision_fields!(DecField::BaseUrl, DecField::ModelText, DecField::Key);
+const DECISION_LLM: [SettingsField; 16] = decision_fields!(DecField::ModelText);
+
+/// The fields of Settings > Decision model for a provider: each asks for
+/// what its provider needs.
+pub fn decision_fields(provider: &str) -> &'static [SettingsField] {
+    match provider {
+        "jev" => &DECISION_JEV,
+        "custom" => &DECISION_CUSTOM,
+        "llm" => &DECISION_LLM,
+        _ => &DECISION_CLEF,
+    }
 }
 
 /// How a config field is edited.
@@ -333,6 +457,7 @@ impl SettingsField {
             SettingsField::UpdateCheck => "Check for a new release at start",
             SettingsField::UpdateAuto => "Install it by itself (used from the next start)",
             SettingsField::Conf(i) => CONF_FIELDS.get(i).map_or("", |f| f.1),
+            SettingsField::Dec(field) => field.label(),
         }
     }
 
@@ -344,6 +469,7 @@ impl SettingsField {
                 | SettingsField::Dsn
                 | SettingsField::Passphrase
                 | SettingsField::Password
+                | SettingsField::Dec(DecField::Key)
         )
     }
 
@@ -371,6 +497,18 @@ impl SettingsField {
         ) || matches!(
             self,
             SettingsField::Conf(i) if CONF_FIELDS.get(i).is_some_and(|f| f.2 != ConfKind::Text)
+        ) || matches!(
+            self,
+            SettingsField::Dec(
+                DecField::Enabled
+                    | DecField::Provider
+                    | DecField::ModelPick
+                    | DecField::Timeout
+                    | DecField::Shadow
+                    | DecField::Test
+                    | DecField::UseOn(_)
+                    | DecField::Threshold(_)
+            )
         )
     }
 }
@@ -520,6 +658,8 @@ pub struct SettingsDraft {
     pub update_auto: String,
     /// The values of `CONF_FIELDS`, by index, as `Config::get` shows them.
     pub conf: Vec<String>,
+    /// Settings > Decision model, by `DecField::key`.
+    pub dec: std::collections::BTreeMap<&'static str, String>,
     /// The efforts this model offers, to cycle through on the Effort field.
     pub efforts: Vec<String>,
 }
@@ -575,6 +715,7 @@ impl SettingsDraft {
             SettingsField::UpdateCheck => &self.update_check,
             SettingsField::UpdateAuto => &self.update_auto,
             SettingsField::Conf(i) => self.conf.get(i).map_or("", String::as_str),
+            SettingsField::Dec(field) => self.dec.get(field.key()).map_or("", String::as_str),
         }
     }
 
@@ -618,6 +759,7 @@ impl SettingsDraft {
                 }
                 &mut self.conf[i]
             }
+            SettingsField::Dec(field) => self.dec.entry(field.key()).or_default(),
         }
     }
 
@@ -713,6 +855,25 @@ impl SettingsDraft {
             SettingsField::EmbedModel => self.rag_setup().model(),
             SettingsField::Dimension => self.rag_setup().dimension().to_string(),
             SettingsField::Rerank => self.rag_setup().reranker().unwrap_or_else(|| "off".into()),
+            SettingsField::Dec(dec) => {
+                let value = self.value(field);
+                match dec {
+                    DecField::Enabled | DecField::Shadow | DecField::UseOn(_) => {
+                        if value == "on" { "on" } else { "off" }.into()
+                    }
+                    DecField::Provider => enowx_core::decision::provider_label(value).into(),
+                    DecField::ModelPick if value.is_empty() => {
+                        let provider = self.value(SettingsField::Dec(DecField::Provider));
+                        enowx_core::decision::models(provider)
+                            .first()
+                            .copied()
+                            .unwrap_or_default()
+                            .into()
+                    }
+                    DecField::Timeout => format!("{value} ms"),
+                    _ => value.to_owned(),
+                }
+            }
             _ => self.value(field).to_owned(),
         }
     }
@@ -761,6 +922,37 @@ impl SettingsDraft {
                 let here: i32 = self.review_rounds.parse().unwrap_or(2);
                 let next = ((here - 1 + delta).rem_euclid(5)) + 1;
                 self.review_rounds = next.to_string();
+            }
+            SettingsField::Dec(dec) => {
+                let current = self.value(field).to_owned();
+                let step = |options: &[&str]| -> String {
+                    let here = options.iter().position(|o| *o == current).unwrap_or(0) as i32;
+                    let len = options.len().max(1) as i32;
+                    options
+                        .get((here + delta).rem_euclid(len) as usize)
+                        .map(|o| (*o).to_owned())
+                        .unwrap_or_default()
+                };
+                let next = match dec {
+                    DecField::Enabled | DecField::Shadow | DecField::UseOn(_) => {
+                        if current == "on" { "off" } else { "on" }.to_owned()
+                    }
+                    DecField::Provider => step(&enowx_core::decision::PROVIDERS),
+                    DecField::ModelPick => {
+                        let provider = self
+                            .value(SettingsField::Dec(DecField::Provider))
+                            .to_owned();
+                        step(enowx_core::decision::models(&provider))
+                    }
+                    DecField::Timeout => step(&DECISION_TIMEOUTS),
+                    DecField::Threshold(_) => step(&DECISION_THRESHOLDS),
+                    _ => return,
+                };
+                if dec == DecField::Provider && next != current {
+                    // Another provider's model means nothing to this one.
+                    self.dec.insert("model", String::new());
+                }
+                *self.value_mut(field) = next;
             }
             SettingsField::Conf(i) => match CONF_FIELDS.get(i).map(|f| f.2) {
                 Some(ConfKind::Bool) => {

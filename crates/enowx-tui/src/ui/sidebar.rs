@@ -824,6 +824,7 @@ fn detail_lines(app: &App, width: usize) -> Detail {
                     crate::logs::LogKind::Agent => t.accent,
                     crate::logs::LogKind::Model => t.muted,
                     crate::logs::LogKind::Problem => t.red,
+                    crate::logs::LogKind::Decision => t.green,
                 };
                 let stamp = crate::logs::since(app.started, entry.at);
                 lines.push(Line::from(vec![

@@ -17,6 +17,8 @@ pub(crate) enum LogKind {
     Model,
     /// Something went wrong, or nearly did.
     Problem,
+    /// What the decision model decided.
+    Decision,
 }
 
 impl LogKind {
@@ -25,6 +27,7 @@ impl LogKind {
             LogKind::Agent => "→",
             LogKind::Model => "·",
             LogKind::Problem => "!",
+            LogKind::Decision => "◆",
         }
     }
 
@@ -33,16 +36,18 @@ impl LogKind {
             LogKind::Agent => "agents",
             LogKind::Model => "model",
             LogKind::Problem => "problems",
+            LogKind::Decision => "decisions",
         }
     }
 }
 
 /// The filters, in the order the key cycles them. `None` shows everything.
-pub(crate) const FILTERS: [Option<LogKind>; 4] = [
+pub(crate) const FILTERS: [Option<LogKind>; 5] = [
     None,
     Some(LogKind::Agent),
     Some(LogKind::Model),
     Some(LogKind::Problem),
+    Some(LogKind::Decision),
 ];
 
 #[derive(Debug, Clone)]

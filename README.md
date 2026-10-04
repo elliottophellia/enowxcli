@@ -363,10 +363,77 @@ then be turned off on its own:
 The same settings live in `config.toml` under `[agent.comms]`: `enabled`,
 `messages`, `board`, `review`, `review_rounds`, `reviewer`.
 
+## Decision model
+
+A decision model answers small typed questions (yes or no, one of a set, a
+level on a scale) with a probability for each answer, in milliseconds. enowx
+can hand it the small judgements a long prompt or a rule makes now. Off by
+default; with it off, nothing below runs and enowx behaves exactly as without
+it. Turn it on in Settings > Decision model (or `/decision`).
+
+Providers:
+
+- **Clef** on Cloudflare Workers AI (`@cf/cloudflare/clef-flash`, the
+  default, or `@cf/cloudflare/clef`). Needs your Cloudflare account ID and an
+  API token with Workers AI access (`CLOUDFLARE_ACCOUNT_ID` and
+  `CLOUDFLARE_API_TOKEN` are read when the fields are blank).
+- **Jev** from TypeSafe (`jev-latest`). Needs a TypeSafe API key
+  (`TYPESAFE_API_KEY` is read when none is stored).
+- **A custom endpoint** that speaks the same API as Jev and Clef: its URL, a
+  model name if it wants one, and a key if it needs one.
+- **A model configured in enowx**, asked for JSON. Slower and less calibrated
+  than a model built for this, but needs nothing new: give it a
+  `provider/model`, or leave it blank for the one in use, and raise the
+  timeout to a few seconds.
+
+Keys go to `~/.enx/auth.json` and are never shown. `Test the connection`
+saves the section and asks the provider one question.
+
+What it decides, each use on its own switch with its own threshold (how sure
+the model must be before its answer is acted on):
+
+- **Brainstorm or build** (0.8). For a new message to the lead: whether you
+  asked to brainstorm. Sure either way, the lead is told for that message;
+  unsure, or a large product whose purpose cannot be read, it decides as
+  before.
+- **Which specialist** (0.7). For the same message: which one specialist the
+  work is for, and whether it needs a security review. Sure, the lead is told
+  to delegate to it directly.
+- **When to ask the user** (0.8). Before a question reaches you: whether it
+  is yours to answer (taste nothing hints at, money, something that cannot
+  be undone, credentials). Sure it is not, the agent is told to decide and
+  state its assumption; unsure, the question is asked once a turn.
+- **Keep tool results whole or cut** (0.85). A long tool result that the
+  model is sure is not needed in detail is carried into later turns as its
+  opening lines or its two ends, saying what was left out. Errors and short
+  results are always kept whole, and so is anything the model calls
+  essential.
+- **Risky shell commands** (0.9). Before a `bash` command: what is the worst
+  it does. Only a sure "only reads" or "only changes files in the project"
+  runs as before; anything destructive, networked or touching production,
+  and anything the model is unsure of, asks you first. A sub-agent, which
+  cannot ask, does not run it and reports it instead.
+
+Every judgement has a hard timeout (300 ms by default). A late or failed
+answer takes the path enowx takes without a decision model, and never holds
+up the turn. **Shadow mode** decides and records but changes nothing, for
+comparing the model's decisions with what happens before trusting it.
+
+Every decision is written to `~/.enx/decisions.jsonl`: the use, the provider
+and model, the answers and their probabilities, how long it took, and what
+was done (applied, shadow, unsure, timeout, error, or what you did when
+asked). The Log tab lists them under `decisions`, and `enowx decisions [N]`
+prints the last N.
+
+The settings live in `config.toml` under `[decision]`: `enabled`,
+`provider`, `model`, `account_id`, `base_url`, `timeout_ms`, `shadow`, and
+`[decision.uses.<use>]` with `enabled` and `threshold` for `intent`,
+`routing`, `ask`, `tool_results` and `shell`.
+
 ## Terminal commands
 
 `/help` `/new` `/resume` `/agent` `/model` `/effort` `/provider` `/attach`
-`/theme` `/skills` `/mcp` `/compact` `/handoff` `/sidebar` `/reasoning`
+`/theme` `/decision` `/skills` `/mcp` `/compact` `/handoff` `/sidebar` `/reasoning`
 `/tools` `/preview` `/rag` `/team` `/update` `/status` `/clear` `/stop` `/retry` `/commands` `/quit`
 
 `/handoff` carries the conversation on in a fresh session: its history is
@@ -411,7 +478,7 @@ continues at once and `Esc` cancels the wait.
 
 Two tabs sit at the top right: Chat and Settings. Settings takes the main
 column in place of the chat, with its sections listed on the left (Models,
-General, Models, Providers, Agents, Team, MCP, RAG, Skills,
+General, Models, Providers, Agents, Team, MCP, RAG, Skills, Decision model,
 Sessions, Display, Theme, Updates) and the chosen one beside
 them. `Ctrl+P` switches between Chat and Settings. Settings opens with the
 section list focused: `Up`/`Down` pick a section, shown beside the list, and

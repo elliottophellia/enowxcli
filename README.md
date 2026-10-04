@@ -414,8 +414,11 @@ Kiro CLI speaks ACP itself (`kiro-cli acp`, version 1.25 or newer), so there
 is no adapter: enowx finds `kiro-cli` on your `PATH` and never installs it.
 Get it from [kiro.dev/downloads](https://kiro.dev/downloads) and sign in with
 `kiro-cli login`; the card shows its version and the account type you signed
-in with. Kiro offers models but no effort setting, and loads the MCP servers
-from your own Kiro config as well as enowx's. If its default model is not
+in with. enowx runs it as its own Kiro agent, `enowx`, kept in
+`~/.kiro/agents/enowx.json` (never in your project), so Kiro loads only
+enowx's MCP server and not the ones in your own Kiro config, with their
+sign-in prompts; a file of that name you wrote yourself is left alone and not
+used. Kiro offers models but no effort setting. If its default model is not
 available on your plan, the error says so: pick another with `/model`
 (`auto`, for one).
 

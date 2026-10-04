@@ -41,7 +41,10 @@ All notable changes to enowx. Dates are YYYY-MM-DD.
 - **Kiro CLI is built in.** `/acp kiro` runs the session on `kiro-cli acp`
   (1.25 or newer, found on the `PATH`, never installed by enowx); its card
   shows the version and the account type signed in, without the email, and
-  `/model` lists Kiro's models. An agent's error now carries its reason (the
+  `/model` lists Kiro's models. It runs as enowx's own Kiro agent
+  (`~/.kiro/agents/enowx.json`, never in the project, never over a file the
+  user wrote), so it loads only enowx's MCP server instead of the ones in the
+  user's Kiro config and their OAuth prompts. An agent's error now carries its reason (the
   model not available on the plan, say) instead of "Internal error".
 
 ### Install and update

@@ -579,7 +579,13 @@ pub fn launch(config: &AcpConfig, id: &str) -> Result<Launch, String> {
         });
     }
     let kind = kind(id).ok_or_else(|| format!("unknown agent engine `{id}`"))?;
-    let args: Vec<String> = kind.args.iter().map(|a| (*a).to_owned()).collect();
+    let mut args: Vec<String> = kind.args.iter().map(|a| (*a).to_owned()).collect();
+    // Kiro under enowx's own agent loads only the MCP servers enowx hands
+    // it, not every one in the user's Kiro config (some of which ask for
+    // OAuth sign-in on every start).
+    if kind.id == "kiro" && kiro_agent(&kiro_agents_dir()) {
+        args.extend(["--agent".to_owned(), KIRO_AGENT.to_owned()]);
+    }
     if let Some((entry, _)) = installed_entry(kind) {
         let node = which("node").ok_or("Node.js is needed to run this agent")?;
         let mut all = vec![entry.display().to_string()];
@@ -607,6 +613,46 @@ pub fn launch(config: &AcpConfig, id: &str) -> Result<Launch, String> {
         "{} is not set up: install it in Settings > ACP agents",
         kind.title
     ))
+}
+
+/// The Kiro agent enowx runs Kiro as.
+pub const KIRO_AGENT: &str = "enowx";
+
+/// Marks the agent file as enowx's, so a file the user wrote is never
+/// replaced.
+const KIRO_MARK: &str = "Managed by enowx";
+
+/// Kiro's global agent directory.
+pub fn kiro_agents_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join(".kiro")
+        .join("agents")
+}
+
+/// Put enowx's Kiro agent in `dir`: every tool, and no MCP server but the
+/// ones a session is given. Global rather than in the workspace, so nothing
+/// lands in the user's project. True when the agent can be used: written
+/// now, or already enowx's; a file of the same name that the user wrote is
+/// left as it is and not used.
+pub fn kiro_agent(dir: &Path) -> bool {
+    let path = dir.join(format!("{KIRO_AGENT}.json"));
+    let text = serde_json::to_string_pretty(&serde_json::json!({
+        "name": KIRO_AGENT,
+        "description": format!(
+            "{KIRO_MARK}: runs Kiro for enowx over ACP with only enowx's MCP server. \
+             enowx rewrites this file; delete it to stop that."
+        ),
+        "tools": ["*"],
+        "includeMcpJson": false,
+        "mcpServers": {}
+    }))
+    .unwrap_or_default();
+    match std::fs::read_to_string(&path) {
+        Ok(existing) if existing == text => true,
+        Ok(existing) if !existing.contains(KIRO_MARK) => false,
+        _ => std::fs::create_dir_all(dir).is_ok() && std::fs::write(&path, text).is_ok(),
+    }
 }
 
 /// Whether the user is signed in to an engine's CLI.

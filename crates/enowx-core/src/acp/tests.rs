@@ -190,6 +190,24 @@ fn kiro_speaks_acp_itself_and_is_not_installed_by_enowx() {
 }
 
 #[test]
+fn the_kiro_agent_is_written_but_never_over_the_users() {
+    let dir = std::env::temp_dir().join(format!("enowx-kiro-{}", uuid::Uuid::new_v4()));
+    assert!(kiro_agent(&dir), "written when absent");
+    let path = dir.join("enowx.json");
+    let written: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(written["includeMcpJson"], false);
+    assert!(kiro_agent(&dir), "kept when it is enowx's");
+    std::fs::write(&path, "{\"name\": \"enowx\", \"description\": \"mine\"}").unwrap();
+    assert!(!kiro_agent(&dir), "a file the user wrote is not used");
+    assert!(
+        std::fs::read_to_string(&path).unwrap().contains("mine"),
+        "and not replaced"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn codex_sign_in_is_read() {
     let s = parse_login("codex", true, "Logged in using ChatGPT\n", "");
     assert_eq!(s.label.as_deref(), Some("ChatGPT"));

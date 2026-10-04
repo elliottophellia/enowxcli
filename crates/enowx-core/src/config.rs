@@ -44,9 +44,13 @@ pub struct Config {
     pub provider: BTreeMap<String, ProviderEntry>,
     pub agent: AgentConfig,
     pub ui: UiConfig,
-    pub typesafe: TypeSafeConfig,
     /// Checking for a new release, and installing it.
     pub update: UpdateConfig,
+    /// Tables this version does not know, from an older or newer one. Kept
+    /// as they were so saving never drops what the user wrote; never read,
+    /// and never echoed by `get`.
+    #[serde(flatten)]
+    pub other: BTreeMap<String, toml::Value>,
     /// Providers for this process only, never written: an endpoint from
     /// `ENX_BASE_URL`, or a test's fixture server.
     #[serde(skip)]
@@ -74,52 +78,6 @@ impl Default for UpdateConfig {
             check_on_start: true,
             auto_install: false,
         }
-    }
-}
-
-/// TypeSafe's System One model, used for small typed judgements inside the
-/// harness — not for talking to the user.
-///
-/// Deliberately not a `provider`: nothing here can answer a prompt, and
-/// putting it in the provider list would offer it as a chat model. With no
-/// key set every feature below stays off and the existing behaviour is what
-/// runs, so this is additive by construction.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct TypeSafeConfig {
-    /// Empty means every TypeSafe-backed feature is off.
-    pub api_key: String,
-    pub base_url: String,
-    pub model: String,
-    /// Judge whether a tool result is worth keeping in context rather than
-    /// deciding from the tool's name alone.
-    pub gate_tool_results: bool,
-    /// Score turns by how live they still are, so compaction drops what is
-    /// finished rather than what is merely old.
-    pub rank_compaction: bool,
-    /// Milliseconds to wait before giving up and using the existing rules.
-    /// A judgement that arrives late is worse than no judgement: it stalls
-    /// the turn the user is waiting on.
-    pub timeout_ms: u64,
-}
-
-impl Default for TypeSafeConfig {
-    fn default() -> Self {
-        Self {
-            api_key: String::new(),
-            base_url: "https://api.typesafe.ai/v1/systemone".into(),
-            model: "jev-latest".into(),
-            gate_tool_results: true,
-            rank_compaction: true,
-            timeout_ms: 1500,
-        }
-    }
-}
-
-impl TypeSafeConfig {
-    /// Nothing runs without a key, whatever the toggles say.
-    pub fn active(&self) -> bool {
-        !self.api_key.trim().is_empty()
     }
 }
 
@@ -669,11 +627,6 @@ impl Config {
         if let Some(theme) = var("ENX_THEME") {
             self.ui.theme = theme;
         }
-        // `TYPESAFE_API_KEY` is the name TypeSafe's own SDKs read, so a key
-        // already exported for another tool works here without being copied.
-        if let Some(key) = var("TYPESAFE_API_KEY") {
-            self.typesafe.api_key = key;
-        }
     }
 
     pub fn save(&self) -> Result<PathBuf> {
@@ -715,17 +668,15 @@ impl Config {
         if key == "model.active" {
             return Some(self.model.active.clone());
         }
-        // Never echo a key: `enx config get` output lands in shell history,
-        // terminal scrollback, and pasted bug reports.
-        let mut value = serde_json::to_value(self).ok()?;
-        value["typesafe"]["api_key"] = serde_json::Value::String(
-            if self.typesafe.api_key.is_empty() {
-                "(unset)"
-            } else {
-                "(redacted)"
-            }
-            .into(),
-        );
+        // A table this version does not know may hold a key, and `get`
+        // output lands in shell history and pasted bug reports.
+        if self
+            .other
+            .contains_key(key.split('.').next().unwrap_or_default())
+        {
+            return None;
+        }
+        let value = serde_json::to_value(self).ok()?;
         let mut cursor = &value;
         for part in key.split('.') {
             cursor = cursor.get(part)?;
@@ -745,8 +696,11 @@ impl Config {
         if let Some(rest) = key.strip_prefix("provider.") {
             return self.set_provider(rest, raw.trim());
         }
-        let mut value = serde_json::to_value(&*self)?;
         let parts: Vec<&str> = key.split('.').collect();
+        if self.other.contains_key(parts[0]) {
+            anyhow::bail!("unknown config section: {}", parts[0]);
+        }
+        let mut value = serde_json::to_value(&*self)?;
         let mut cursor = &mut value;
         for part in &parts[..parts.len() - 1] {
             cursor = cursor

@@ -31,11 +31,10 @@ pub(crate) enum Page {
     Updates,
     General,
     Display,
-    TypeSafe,
 }
 
 /// The sections of Settings, in the order they are listed.
-pub(crate) const SECTIONS: [Page; 13] = [
+pub(crate) const SECTIONS: [Page; 12] = [
     Page::General,
     Page::Models,
     Page::Providers,
@@ -44,7 +43,6 @@ pub(crate) const SECTIONS: [Page; 13] = [
     Page::Mcp,
     Page::Rag,
     Page::Skills,
-    Page::TypeSafe,
     Page::Sessions,
     Page::Display,
     Page::Theme,
@@ -82,7 +80,6 @@ impl Page {
             Page::Updates => "Updates",
             Page::General => "General",
             Page::Display => "Display",
-            Page::TypeSafe => "TypeSafe",
             Page::Skills => "Skills",
             Page::Sessions => "Sessions",
             Page::Theme => "Theme",
@@ -103,7 +100,6 @@ impl Page {
             Modal::Updates => Page::Updates,
             Modal::General => Page::General,
             Modal::Display => Page::Display,
-            Modal::TypeSafe | Modal::TypeSafeKey => Page::TypeSafe,
             Modal::Skills => Page::Skills,
             Modal::Sessions => Page::Sessions,
             Modal::Themes => Page::Theme,
@@ -162,7 +158,6 @@ impl App {
             Page::Updates => self.open_updates(),
             Page::General => self.open_prefs(Modal::General),
             Page::Display => self.open_prefs(Modal::Display),
-            Page::TypeSafe => self.open_typesafe(),
             Page::Skills => self.open_skills(),
             Page::Sessions => self.open_sessions()?,
             Page::Theme => self.open_themes(),
@@ -214,12 +209,6 @@ impl App {
             Modal::Models if !self.modal_search.is_empty() || self.picking_for_agent.is_some() => {
                 Ok(false)
             }
-            // A TypeSafe key's form goes back to the TypeSafe list.
-            Modal::TypeSafeKey => {
-                self.modal_error.clear();
-                self.open_typesafe();
-                Ok(true)
-            }
             Modal::McpForm | Modal::BuiltinMcp => {
                 let at = self.modal_cursor;
                 self.modal_error.clear();
@@ -236,7 +225,6 @@ impl App {
             | Modal::Updates
             | Modal::General
             | Modal::Display
-            | Modal::TypeSafe
             | Modal::Skills
             | Modal::Sessions
             | Modal::Themes

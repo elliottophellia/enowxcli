@@ -1,8 +1,7 @@
 //! What happened this session, as a list rather than as prose.
 //!
 //! The transcript says what was *said*. It does not say that a turn was
-//! handed to another agent, that a request was retried twice, that a tool
-//! result was trimmed, or how long a model call took. When a session stops
+//! handed to another agent, that a request was retried twice, or how long a model call took. When a session stops
 //! unexpectedly those are the only things that answer "why", and before this
 //! they were either a status line that had already been replaced or nowhere
 //! at all.
@@ -18,8 +17,6 @@ pub(crate) enum LogKind {
     Model,
     /// Something went wrong, or nearly did.
     Problem,
-    /// Context management: trims and compaction.
-    Context,
 }
 
 impl LogKind {
@@ -28,7 +25,6 @@ impl LogKind {
             LogKind::Agent => "→",
             LogKind::Model => "·",
             LogKind::Problem => "!",
-            LogKind::Context => "✂",
         }
     }
 
@@ -37,18 +33,16 @@ impl LogKind {
             LogKind::Agent => "agents",
             LogKind::Model => "model",
             LogKind::Problem => "problems",
-            LogKind::Context => "context",
         }
     }
 }
 
 /// The filters, in the order the key cycles them. `None` shows everything.
-pub(crate) const FILTERS: [Option<LogKind>; 5] = [
+pub(crate) const FILTERS: [Option<LogKind>; 4] = [
     None,
     Some(LogKind::Agent),
     Some(LogKind::Model),
     Some(LogKind::Problem),
-    Some(LogKind::Context),
 ];
 
 #[derive(Debug, Clone)]

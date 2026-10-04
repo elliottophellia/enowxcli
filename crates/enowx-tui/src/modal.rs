@@ -9,13 +9,6 @@ pub enum Modal {
     Agents,
     /// Actions on a sent message: edit, resend, copy.
     Message,
-    /// TypeSafe's key and toggles. Separate from the provider list because
-    /// nothing here can answer a prompt — offering it as a chat provider
-    /// would be offering something that does not exist.
-    TypeSafe,
-    /// Entering the TypeSafe key. A form so the value is masked as it is
-    /// typed, the same as the provider key.
-    TypeSafeKey,
     /// Editing a sent message before resending it.
     MessageEdit,
     Sessions,
@@ -75,8 +68,6 @@ impl Modal {
             Modal::Commands => " COMMANDS ",
             Modal::Agents => " AGENT ",
             Modal::Message => " MESSAGE ",
-            Modal::TypeSafe => " TYPESAFE ",
-            Modal::TypeSafeKey => "",
             Modal::MessageEdit => " EDIT PROMPT ",
             Modal::Sessions => " RESUME SESSION ",
             Modal::Providers => " PROVIDERS ",
@@ -113,7 +104,6 @@ impl Modal {
                 | Modal::ModelManual
                 | Modal::ModelEdit
                 | Modal::ProviderKey
-                | Modal::TypeSafeKey
                 | Modal::McpForm
                 | Modal::BuiltinMcp
                 | Modal::Rag
@@ -402,7 +392,7 @@ pub fn form_fields(modal: Modal) -> &'static [SettingsField] {
             SettingsField::PriceInput,
             SettingsField::PriceOutput,
         ],
-        Modal::ProviderKey | Modal::TypeSafeKey => &[SettingsField::ApiKey],
+        Modal::ProviderKey => &[SettingsField::ApiKey],
         // BuiltinMcp's fields depend on the server, so the app passes them
         // through `builtin_mcp_fields` instead of this static table.
         _ => &[],

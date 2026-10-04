@@ -1,5 +1,5 @@
 //! Where the wait before the first token goes. Builds the agent the way the
-//! interface does (the real config, its MCP servers and TypeSafe), runs two
+//! interface does (the real config and its MCP servers), runs two
 //! turns, and prints each event's time since the turn started, next to a bare
 //! provider call with no agent around it.
 //!
@@ -30,16 +30,6 @@ async fn main() -> anyhow::Result<()> {
     let connection = config.active_connection().unwrap_or_default();
     println!("provider  {} ({})", connection.name, connection.base_url);
     println!("model     {}", config.model.active);
-    println!(
-        "typesafe  gate_tool_results={} rank_compaction={} key={}",
-        config.typesafe.gate_tool_results,
-        config.typesafe.rank_compaction,
-        if config.typesafe.api_key.is_empty() {
-            "no"
-        } else {
-            "yes"
-        }
-    );
 
     // A bare call: the provider alone, no agent, no tools.
     let provider = enowx_core::provider::Provider::from_config(&config)?;
@@ -131,7 +121,6 @@ async fn main() -> anyhow::Result<()> {
                 }
                 Event::ToolCall { name, .. } => println!("  {at:6.2}s tool call {name}"),
                 Event::ToolResult { name, .. } => println!("  {at:6.2}s tool result {name}"),
-                Event::Trimmed { tool, .. } => println!("  {at:6.2}s typesafe trimmed {tool}"),
                 Event::Notice { message } => println!("  {at:6.2}s notice: {message}"),
                 Event::Usage { .. } => println!("  {at:6.2}s usage"),
                 Event::Error { message } => println!("  {at:6.2}s error: {message}"),

@@ -125,7 +125,7 @@ fn the_wheel_does_not_move_between_settings_fields() {
 fn the_wheel_scrolls_the_side_column_a_line_a_step() {
     let mut app = TestApp::in_conversation();
     for n in 0..80 {
-        app.deliver_trimmed(&format!("tool-{n}"), 9000, 800);
+        app.deliver_retry(&format!("attempt {n} failed"), n, 80);
     }
     app.select_sidebar_tab(3);
     let _ = app.render_to_text(W, H);

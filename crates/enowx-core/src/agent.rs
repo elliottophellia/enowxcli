@@ -329,9 +329,6 @@ pub struct Agent {
     /// Turns running now; the rag server holds its background scans while
     /// any is.
     turns_running: Arc<std::sync::atomic::AtomicUsize>,
-    /// `None` unless a TypeSafe key is configured, in which case small typed
-    /// judgements are available to the harness.
-    system_one: Option<crate::systemone::SystemOne>,
     /// Whether the host can put a question to the user and send the answer
     /// back. Off unless the host says so, so an agent run where no one can
     /// answer (the HTTP server, a script) is never left waiting.
@@ -428,7 +425,6 @@ impl Agent {
     fn assemble(config: Config, store: SessionStore, discovery: Arc<Discovery>) -> Self {
         let disabled = effective_disabled(&config, &discovery);
         let registry = build_registry(discovery.clone(), disabled);
-        let system_one = crate::systemone::SystemOne::new(&config.typesafe);
         let config_workspace = config.workspace();
         Self {
             config,
@@ -442,7 +438,6 @@ impl Agent {
             turns_running: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             mcp_started_at: Arc::new(std::sync::OnceLock::new()),
             mcp_failures: Arc::new(std::sync::Mutex::new(std::collections::BTreeMap::new())),
-            system_one,
             asks_user: false,
             questions: std::sync::Mutex::new(std::collections::HashMap::new()),
             board: crate::contract::Board::default(),
@@ -538,17 +533,6 @@ impl Agent {
             Some(answer) => ToolOutput::ok(crate::ask::answer_message(&questions, &answer)),
             None => ToolOutput::error("The user stopped the turn instead of answering."),
         }
-    }
-
-    /// The judge used to rescue still-live turns from a compaction, or `None`
-    /// when the feature is off or unconfigured — in which case compaction is
-    /// the positional fold it has always been.
-    fn ranking_judge(&self) -> Option<&crate::systemone::SystemOne> {
-        self.config
-            .typesafe
-            .rank_compaction
-            .then_some(self.system_one.as_ref())
-            .flatten()
     }
 
     /// Spawn every discovered MCP server on the current tokio runtime. Safe to
@@ -1032,9 +1016,7 @@ impl Agent {
         let mut session = self.store.load(session_id)?;
         let provider = Provider::from_config(&self.config)?;
         let keep = self.config.agent.compact_keep_last.max(1);
-        let summary =
-            crate::compact::compact_with(&mut session, &provider, keep, self.ranking_judge())
-                .await?;
+        let summary = crate::compact::compact(&mut session, &provider, keep).await?;
         if summary.is_some() {
             self.store.save(&session)?;
         }
@@ -1067,8 +1049,7 @@ impl Agent {
         };
         let provider = Provider::from_config(&self.config)?;
         let keep = self.config.agent.compact_keep_last.clamp(1, 4);
-        let summary =
-            crate::compact::compact_with(&mut next, &provider, keep, self.ranking_judge()).await?;
+        let summary = crate::compact::compact(&mut next, &provider, keep).await?;
         anyhow::ensure!(
             summary.is_some(),
             "too little history to hand off yet: the session is already light"
@@ -1181,9 +1162,7 @@ impl Agent {
                 message: "compacting mid-turn to stay inside the context window…".into(),
             })
             .await;
-        if let Ok(Some(_)) =
-            crate::compact::compact_with(session, &provider, keep, self.ranking_judge()).await
-        {
+        if let Ok(Some(_)) = crate::compact::compact(session, &provider, keep).await {
             if let Some(brief) = brief {
                 if !session.turns.iter().any(|turn| turn.id == brief.id) {
                     session.turns.insert(0, brief);
@@ -1961,13 +1940,7 @@ impl Agent {
                     .await;
                 let provider_pre = Provider::from_config(&self.config)?;
                 let keep = self.config.agent.compact_keep_last.max(1);
-                let summary = crate::compact::compact_with(
-                    &mut session,
-                    &provider_pre,
-                    keep,
-                    self.ranking_judge(),
-                )
-                .await?;
+                let summary = crate::compact::compact(&mut session, &provider_pre, keep).await?;
                 if summary.is_some() {
                     self.store.save(&session)?;
                     let _ = events
@@ -2622,31 +2595,7 @@ impl Agent {
                         );
                     }
                 }
-                let stored = if self.config.typesafe.gate_tool_results
-                    && matches!(
-                        crate::gating::judge(
-                            self.system_one.as_ref(),
-                            &call.name,
-                            &call.arguments,
-                            &output.content,
-                            output.is_error,
-                        )
-                        .await,
-                        crate::gating::Keep::Trimmed
-                    ) {
-                    let trimmed = crate::gating::trim(&output.content);
-                    let _ = events
-                        .send(Event::Trimmed {
-                            tool: call.name.clone(),
-                            was: output.content.len(),
-                            now: trimmed.len(),
-                        })
-                        .await;
-                    trimmed
-                } else {
-                    output.content.clone()
-                };
-                let mut result = Message::tool_result(&call.id, stored);
+                let mut result = Message::tool_result(&call.id, output.content.clone());
                 if output.is_error {
                     result.error = Some("Tool execution failed".into());
                 }

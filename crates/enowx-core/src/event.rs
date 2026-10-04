@@ -38,16 +38,6 @@ pub enum Event {
         /// interface to show as a diff. `None` for a new file or another tool.
         before: Option<String>,
     },
-    /// A tool result was carried forward trimmed rather than whole. Reported
-    /// so a feature that quietly removes text from the model's context can be
-    /// seen working, and judged: silent is indistinguishable from broken.
-    Trimmed {
-        tool: String,
-        /// Characters the result had.
-        was: usize,
-        /// Characters it was reduced to.
-        now: usize,
-    },
     /// Incremental output while a tool is still running. UI appends `delta`
     /// to the tool's visible body so long writes and shell output are
     /// visible progressively instead of appearing all at once at the end.
@@ -155,7 +145,6 @@ impl Event {
             self,
             Event::Usage { .. }
                 | Event::Retry { .. }
-                | Event::Trimmed { .. }
                 | Event::Notice { .. }
                 | Event::Error { .. }
                 | Event::Branch { .. }

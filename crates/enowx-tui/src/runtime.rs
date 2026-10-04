@@ -111,7 +111,6 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
         app.tick_update();
         app.catch_up_with_catalog();
         app.drain_picker_events();
-        app.drain_typesafe_check();
         app.refresh_viewed_delegation();
         terminal.draw(|frame| draw(frame, &mut app))?;
         if event::poll(Duration::from_millis(40))? {
@@ -142,8 +141,7 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
                     }
                     // Every text-field modal, asked as a question rather than
                     // listed: a form added to `is_form` but missed here would
-                    // silently refuse to accept a paste, which is what kept the
-                    // TypeSafe key from being pasted at all.
+                    // silently refuse to accept a paste.
                     TerminalEvent::Paste(text) if app.modal.is_form() => {
                         app.paste(&text);
                     }

@@ -29,12 +29,7 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
         3
     } else if matches!(
         app.modal,
-        Modal::Message
-            | Modal::TypeSafe
-            | Modal::Providers
-            | Modal::Themes
-            | Modal::Effort
-            | Modal::Handoff
+        Modal::Message | Modal::Providers | Modal::Themes | Modal::Effort | Modal::Handoff
     ) {
         2
     } else {

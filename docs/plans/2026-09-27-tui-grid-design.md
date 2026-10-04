@@ -233,8 +233,7 @@ cargo run -q -p enowx-tui --example mdpreview -- 40 notes.md
 ## Side column
 
 - **SESSION card:** context (percent and a bar that turns red at 85%), tokens,
-  cost, tool calls (with failures in red), and a TypeSafe trim row once
-  something has been trimmed.
+  cost, and tool calls (with failures in red).
 - **Detail card:**
   - Tabs `Agents · Tools · Skills · Log` sit in its top edge. The selected tab
     is bold and in the accent colour, and each name is a click target.
@@ -318,8 +317,6 @@ cargo run -q -p enowx-tui --example popups -- settings          # any overlay
   sidebar. Only the first line is shown now.
 - **The welcome screen pointed at `/sessions`,** which does not exist. The
   command is `/resume`.
-- **The TypeSafe row in the SESSION card read "1 results"** and ran past the
-  card.
 - **The SESSION card counted 1,175 tool calls for a run that made 8.** The
   replay that draws a sub-agent's branch also bumped the counters, and it runs
   every half second while a branch is watched.

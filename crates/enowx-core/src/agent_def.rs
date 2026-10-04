@@ -407,7 +407,11 @@ pub fn builtin_agents() -> Vec<AgentDef> {
     // A self-contained HTML page built like a product: the look and the
     // stack it shares with the interface agents, plus its own family.
     let canvas_family = family("canvas");
-    let canvas = join(&[&canvas_family, &ui, &["motion", "motion-video", "code", "writing"]]);
+    let canvas = join(&[
+        &canvas_family,
+        &ui,
+        &["motion", "motion-video", "code", "writing"],
+    ]);
     let mobile = join(&[&mobile_family, &ui, &motion_family, &["code", "i18n"]]);
     // The backend writes the data access too, and the errors and emails
     // users read.
@@ -436,7 +440,10 @@ pub fn builtin_agents() -> Vec<AgentDef> {
     let docs = join(&[&docs_family, &plan_documents, &["writing"]]);
     // The orchestrator agrees the design, writes the plan the user chose,
     // and runs it.
-    let orchestrator = join(&[&brainstorm, &["orchestration", "model-manager", "motion-video"]]);
+    let orchestrator = join(&[
+        &brainstorm,
+        &["orchestration", "model-manager", "motion-video"],
+    ]);
     let security = join(&[
         &security_family,
         &[
@@ -518,7 +525,11 @@ pub fn builtin_agents() -> Vec<AgentDef> {
     // The all-rounder leads like the orchestrator and builds like a
     // specialist: the planning skills and every family the reviewer carries,
     // so whatever it takes on itself, it has the guidance for.
-    let maestro = join(&[&brainstorm, &["orchestration", "model-manager", "motion-video"], &review]);
+    let maestro = join(&[
+        &brainstorm,
+        &["orchestration", "model-manager", "motion-video"],
+        &review,
+    ]);
     // Work that fits no specialist reads the root of whichever family is
     // closest.
     let general = join(&[&[

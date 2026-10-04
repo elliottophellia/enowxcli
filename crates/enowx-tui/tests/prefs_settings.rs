@@ -60,12 +60,18 @@ fn a_bad_value_is_refused_and_nothing_is_saved() {
 }
 
 #[test]
-fn display_and_typesafe_are_sections_of_settings() {
+fn display_is_a_section_of_settings() {
     let mut app = TestApp::new();
     app.press(KeyCode::Char('p'), true).unwrap();
     let text = screen(&mut app);
-    assert!(
-        text.contains(" Display ") && text.contains(" TypeSafe "),
-        "{text}"
-    );
+    assert!(text.contains(" Display "), "{text}");
+}
+
+/// TypeSafe was removed; nothing in Settings may still offer it.
+#[test]
+fn settings_no_longer_lists_typesafe() {
+    let mut app = TestApp::new();
+    app.press(KeyCode::Char('p'), true).unwrap();
+    let text = screen(&mut app);
+    assert!(!text.to_lowercase().contains("typesafe"), "{text}");
 }

@@ -84,32 +84,32 @@ fn a_failed_delegation_is_logged_as_failed() {
 }
 
 #[test]
-fn a_trim_is_logged() {
+fn a_retry_is_logged() {
     let mut app = TestApp::in_conversation();
-    app.deliver_trimmed("bash", 4876, 620);
-    assert!(logs(&mut app).contains("trimmed bash"));
+    app.deliver_retry("HTTP 503 from the provider", 1, 3);
+    assert!(logs(&mut app).contains("retry 1/3"));
 }
 
-/// The sizes belong under the line, not in it: the summary answers "what
-/// happened" and the detail answers "by how much".
+/// The reason belongs under the line, not in it: the summary answers "what
+/// happened" and the detail answers "why".
 #[test]
 fn detail_is_hidden_until_asked_for() {
     let mut app = TestApp::in_conversation();
-    app.deliver_trimmed("bash", 4876, 620);
+    app.deliver_retry("HTTP 503 from the provider", 1, 3);
     assert!(
-        !logs(&mut app).contains("4,876"),
+        !logs(&mut app).contains("HTTP 503"),
         "the numbers are noise by default"
     );
 
     app.press(KeyCode::Char('x'), true).expect("Ctrl+X");
     assert!(
-        logs(&mut app).contains("4,876"),
+        logs(&mut app).contains("HTTP 503"),
         "and available when asked for"
     );
 
     app.press(KeyCode::Char('x'), true).expect("Ctrl+X again");
     assert!(
-        !logs(&mut app).contains("4,876"),
+        !logs(&mut app).contains("HTTP 503"),
         "Ctrl+X toggles rather than only turning on"
     );
 }
@@ -120,9 +120,9 @@ fn detail_is_hidden_until_asked_for() {
 fn the_filter_narrows_to_one_kind() {
     let mut app = TestApp::in_conversation();
     app.switch_agent("fe", "frontend work");
-    app.deliver_trimmed("bash", 4876, 620);
+    app.deliver_retry("HTTP 503 from the provider", 1, 3);
     let all = logs(&mut app);
-    assert!(all.contains("fe") && all.contains("trimmed bash"), "{all}");
+    assert!(all.contains("fe") && all.contains("retry 1/3"), "{all}");
 
     // Ctrl+G steps to the first filter: agents only.
     app.press(KeyCode::Char('g'), true).expect("Ctrl+G");
@@ -133,8 +133,8 @@ fn the_filter_narrows_to_one_kind() {
     );
     assert!(agents.contains("fe"), "the handoff stays: {agents}");
     assert!(
-        !agents.contains("trimmed bash"),
-        "and the trim goes: {agents}"
+        !agents.contains("retry 1/3"),
+        "and the retry goes: {agents}"
     );
 }
 
@@ -142,7 +142,7 @@ fn the_filter_narrows_to_one_kind() {
 #[test]
 fn the_filter_cycles_back_to_everything() {
     let mut app = TestApp::in_conversation();
-    app.deliver_trimmed("bash", 4876, 620);
+    app.deliver_retry("HTTP 503 from the provider", 1, 3);
     for _ in 0..5 {
         app.press(KeyCode::Char('g'), true).expect("Ctrl+G");
     }
@@ -153,7 +153,7 @@ fn the_filter_cycles_back_to_everything() {
         (text.contains("entry") || text.contains("entries")) && !text.contains("filtered to"),
         "back to everything: {text}"
     );
-    assert!(text.contains("trimmed bash"), "and showing it: {text}");
+    assert!(text.contains("retry 1/3"), "and showing it: {text}");
 }
 
 /// Ctrl+G and Ctrl+X are useless if the user is looking at another tab.

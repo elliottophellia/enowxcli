@@ -485,27 +485,6 @@ impl App {
                     self.context_window = context_window;
                 }
             }
-            Event::Trimmed { tool, was, now } => {
-                self.logs.push_with(
-                    crate::logs::LogKind::Context,
-                    format!("trimmed {tool}"),
-                    Some(format!(
-                        "{} → {} chars",
-                        crate::text::thousands(was as u64),
-                        crate::text::thousands(now as u64)
-                    )),
-                );
-                self.trimmed_count += 1;
-                self.trimmed_saved += was.saturating_sub(now);
-                // Not pushed to the transcript: this happens often enough
-                // that a line each time would bury the conversation. The
-                // sidebar carries the running total instead.
-                self.status = format!(
-                    "trimmed {tool} result: {} → {} chars",
-                    crate::text::thousands(was as u64),
-                    crate::text::thousands(now as u64),
-                );
-            }
             Event::Error { message } => {
                 self.logs
                     .push(crate::logs::LogKind::Problem, message.clone());
@@ -742,15 +721,6 @@ impl App {
                 LogKind::Problem,
                 format!("{who}: retry {attempt}/{max}"),
                 Some(message),
-            ),
-            Event::Trimmed { tool, was, now } => self.logs.push_with(
-                LogKind::Context,
-                format!("{who}: trimmed {tool}"),
-                Some(format!(
-                    "{} → {} chars",
-                    crate::text::thousands(was as u64),
-                    crate::text::thousands(now as u64)
-                )),
             ),
             Event::Notice { message } => {
                 self.logs.push(LogKind::Agent, format!("{who}: {message}"));

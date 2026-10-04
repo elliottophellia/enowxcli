@@ -366,7 +366,7 @@ The same settings live in `config.toml` under `[agent.comms]`: `enabled`,
 ## Terminal commands
 
 `/help` `/new` `/resume` `/agent` `/model` `/effort` `/provider` `/attach`
-`/theme` `/typesafe` `/skills` `/mcp` `/compact` `/handoff` `/sidebar` `/reasoning`
+`/theme` `/skills` `/mcp` `/compact` `/handoff` `/sidebar` `/reasoning`
 `/tools` `/preview` `/rag` `/team` `/update` `/status` `/clear` `/stop` `/retry` `/commands` `/quit`
 
 `/handoff` carries the conversation on in a fresh session: its history is
@@ -411,7 +411,7 @@ continues at once and `Esc` cancels the wait.
 
 Two tabs sit at the top right: Chat and Settings. Settings takes the main
 column in place of the chat, with its sections listed on the left (Models,
-General, Models, Providers, Agents, Team, MCP, RAG, Skills, TypeSafe,
+General, Models, Providers, Agents, Team, MCP, RAG, Skills,
 Sessions, Display, Theme, Updates) and the chosen one beside
 them. `Ctrl+P` switches between Chat and Settings. Settings opens with the
 section list focused: `Up`/`Down` pick a section, shown beside the list, and

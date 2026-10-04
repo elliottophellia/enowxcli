@@ -18,6 +18,17 @@ All notable changes to enowx. Dates are YYYY-MM-DD.
   documents are written only when you ask for them, and inside a brainstorm
   the stack is decided, not asked. The maestro follows the same rules.
 
+### Removed
+
+- **TypeSafe integration.** The TypeSafe (System One) judge that trimmed tool
+  results and kept live turns through compaction is gone, with its Settings
+  section, the `/typesafe` command, the sidebar trim count and the Log tab's
+  context filter. Tool results are always kept whole and compaction is the
+  plain fold by age, which is what ran without a TypeSafe key. enowx no
+  longer contacts TypeSafe. A `[typesafe]` table left in `config.toml`
+  still loads, is ignored, and is kept as written when the file is saved;
+  `TYPESAFE_API_KEY` is no longer read.
+
 ## v0.2.2 (2026-10-03)
 
 ### Renamed to enowx

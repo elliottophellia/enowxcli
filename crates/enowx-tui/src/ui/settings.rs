@@ -13,11 +13,6 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &mut App, area: Rect) {
         .map(|preset| preset.key_url)
         .filter(|url| !url.is_empty());
     let (keys, note, title): (&str, String, String) = match app.modal {
-        Modal::TypeSafeKey => (
-            "Enter save · Ctrl+U clear · Esc cancel",
-            "An empty key turns TypeSafe off. TYPESAFE_API_KEY is read too.".into(),
-            "TYPESAFE KEY".into(),
-        ),
         Modal::ProviderKey => (
             "Enter connect · Ctrl+U clear · Esc back",
             match key_url {

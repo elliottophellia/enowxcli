@@ -326,5 +326,10 @@ fn the_orchestrator_decides_and_brainstorms_only_when_asked() {
         .find(|a| a.name == "maestro")
         .unwrap();
     assert!(maestro.prompt.contains("Decide by default"), "maestro");
-    assert!(maestro.prompt.contains("Brainstorm only when the user asks"), "maestro");
+    assert!(
+        maestro
+            .prompt
+            .contains("Brainstorm only when the user asks"),
+        "maestro"
+    );
 }

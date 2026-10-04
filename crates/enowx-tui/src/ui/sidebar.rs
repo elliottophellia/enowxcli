@@ -228,24 +228,6 @@ fn session_rows(app: &App, width: usize) -> Vec<Line<'static>> {
         }
         rows.push(Line::from(disk));
     }
-    // Only once it has done something: a row reading "0" on every install
-    // that has never configured TypeSafe is noise.
-    if app.trimmed_count > 0 {
-        rows.push(Line::from(vec![
-            label("trimmed"),
-            // Short enough for the narrowest card: "4 results · 2,100 saved".
-            value(format!(
-                "{} {} · {} saved",
-                app.trimmed_count,
-                if app.trimmed_count == 1 {
-                    "result"
-                } else {
-                    "results"
-                },
-                thousands(app.trimmed_saved as u64)
-            )),
-        ]));
-    }
     rows
 }
 
@@ -842,7 +824,6 @@ fn detail_lines(app: &App, width: usize) -> Detail {
                     crate::logs::LogKind::Agent => t.accent,
                     crate::logs::LogKind::Model => t.muted,
                     crate::logs::LogKind::Problem => t.red,
-                    crate::logs::LogKind::Context => t.green,
                 };
                 let stamp = crate::logs::since(app.started, entry.at);
                 lines.push(Line::from(vec![

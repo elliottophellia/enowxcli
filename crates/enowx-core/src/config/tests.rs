@@ -49,11 +49,27 @@ fn set_keeps_scalar_types() {
     config.set("agent.shell_timeout_secs", "90").unwrap();
     assert_eq!(config.agent.shell_timeout_secs, 90);
     assert!(config.set("model.nope", "x").is_err());
-    config.typesafe.api_key = "secret".into();
-    assert_eq!(
-        config.get("typesafe.api_key").as_deref(),
-        Some("(redacted)")
+}
+
+/// A table from an older version, such as one holding a key for a feature
+/// since removed, loads without error, survives a save untouched, and is
+/// never echoed or set.
+#[test]
+fn a_table_this_version_does_not_know_is_kept_and_hidden() {
+    let home = Home::new("unknown-table");
+    home.write(
+        "config.toml",
+        "[ui]\ntheme = \"dark\"\n\n[retired]\napi_key = \"secret\"\ntimeout_ms = 1500\n",
     );
+    let mut config = Config::load().expect("an unknown table must not stop the load");
+    assert_eq!(config.get("retired.api_key"), None);
+    assert!(config.set("retired.api_key", "other").is_err());
+    config.set("ui.theme", "light").unwrap();
+    config.save().unwrap();
+    let saved: toml::Table = toml::from_str(&home.read("config.toml")).unwrap();
+    assert_eq!(saved["retired"]["api_key"].as_str(), Some("secret"));
+    assert_eq!(saved["retired"]["timeout_ms"].as_integer(), Some(1500));
+    assert_eq!(saved["ui"]["theme"].as_str(), Some("light"));
 }
 
 #[test]

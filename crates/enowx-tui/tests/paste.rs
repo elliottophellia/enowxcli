@@ -3,7 +3,7 @@
 //! An API key is pasted, never typed — nobody types 48 characters of base64
 //! by hand. The runtime used to decide where a paste went by listing the form
 //! modals by name, so a form missing from that list dropped every paste
-//! silently, which is exactly what happened to the TypeSafe key.
+//! silently.
 
 use crossterm::event::KeyCode;
 use enowx_tui::testing::TestApp;
@@ -15,34 +15,8 @@ fn a_paste_reaches_the_composer() {
     assert_eq!(app.input_text(), "hello from the clipboard");
 }
 
-/// The case that was broken: a key pasted into the TypeSafe form.
-#[test]
-fn a_paste_reaches_the_typesafe_key_field() {
-    let mut app = TestApp::new();
-    app.run_command("/typesafe").expect("/typesafe");
-    app.press(KeyCode::Enter, false).expect("choose API key");
-    app.paste("sk-pasted-key-0123456789");
-    assert_eq!(
-        app.key_draft(),
-        "sk-pasted-key-0123456789",
-        "a pasted key must land in the field"
-    );
-}
-
-/// And saving it works the same as a typed one.
-#[test]
-fn a_pasted_key_can_be_saved() {
-    let mut app = TestApp::new();
-    app.run_command("/typesafe").expect("/typesafe");
-    app.press(KeyCode::Enter, false).expect("choose API key");
-    app.paste("sk-pasted-key-0123456789");
-    app.press(KeyCode::Enter, false).expect("save");
-    assert_eq!(app.typesafe_key(), "sk-pasted-key-0123456789");
-    assert!(app.typesafe_active());
-}
-
-/// The provider form is the other place a key gets pasted. It lands in the
-/// field being edited, which is the one the cursor is on.
+/// The provider form is where a key gets pasted. It lands in the field being
+/// edited, which is the one the cursor is on.
 #[test]
 fn a_paste_reaches_the_provider_form() {
     let mut app = TestApp::new();
@@ -76,10 +50,11 @@ fn a_paste_follows_the_selected_field() {
 #[test]
 fn control_characters_are_stripped_from_a_pasted_key() {
     let mut app = TestApp::new();
-    app.run_command("/typesafe").expect("/typesafe");
-    app.press(KeyCode::Enter, false).expect("choose API key");
+    app.open_custom_provider_form();
+    app.press(KeyCode::Tab, false).expect("next field");
+    app.press(KeyCode::Tab, false).expect("to the API key");
     app.paste("sk-abc\r\ndef\u{1b}[Dghi\t");
-    let draft = app.key_draft();
+    let draft = app.provider_key_draft();
     assert!(
         !draft.contains('\n') && !draft.contains('\r') && !draft.contains('\u{1b}'),
         "control characters should not survive: {draft:?}"

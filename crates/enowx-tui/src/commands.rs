@@ -1,4 +1,4 @@
-pub(crate) const COMMANDS: [(&str, &str); 27] = [
+pub(crate) const COMMANDS: [(&str, &str); 26] = [
     ("help", "Show every command"),
     ("commands", "Browse and search every command"),
     ("new", "Start a fresh session"),
@@ -12,7 +12,6 @@ pub(crate) const COMMANDS: [(&str, &str); 27] = [
     ("provider", "Edit provider settings"),
     ("attach", "Attach an image from the workspace"),
     ("theme", "Switch UI theme"),
-    ("typesafe", "TypeSafe key and context-saving features"),
     ("skills", "Browse and toggle discovered skills"),
     ("mcp", "Browse, toggle, or add MCP servers"),
     ("rag", "Code search: on or off, database, embedding model"),
@@ -73,7 +72,6 @@ const PALETTE: [(&str, &[(&str, &str)]); 5] = [
             ("model", "Model"),
             ("effort", "Thinking effort"),
             ("provider", "Provider"),
-            ("typesafe", "TypeSafe"),
         ],
     ),
     (

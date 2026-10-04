@@ -172,9 +172,6 @@ pub(crate) struct App {
     /// a flag set by one stop and cleared by the next `Done` swallowed the
     /// wrong turn's completion when the stopped turn never sent one.
     pub(crate) abandoned: usize,
-    /// How many tool results TypeSafe has trimmed this session, and how many
-    /// characters that saved. Shown in the sidebar so a feature that removes
-    /// text from the model's context can be seen doing it.
     /// Delegations this session has started, newest last. The sidebar lists
     /// them and a click opens the branch they ran in.
     pub(crate) delegations: Vec<Delegation>,
@@ -201,10 +198,6 @@ pub(crate) struct App {
     pub(crate) log_detail: bool,
     /// When the session started, so log lines can be stamped against it.
     pub(crate) started: Instant,
-    pub(crate) trimmed_count: usize,
-    pub(crate) trimmed_saved: usize,
-    /// Result of the last TypeSafe key check, awaited off the UI thread.
-    pub(crate) typesafe_check: Option<mpsc::Receiver<Result<(), String>>>,
     pub(crate) cancel: Option<CancellationToken>,
     pub(crate) events: Option<mpsc::Receiver<Event>>,
     pub(crate) task: Option<tokio::task::JoinHandle<()>>,
@@ -463,9 +456,6 @@ impl App {
             log_filter: 0,
             log_detail: false,
             started: Instant::now(),
-            trimmed_count: 0,
-            trimmed_saved: 0,
-            typesafe_check: None,
             cancel: None,
             events: None,
             task: None,

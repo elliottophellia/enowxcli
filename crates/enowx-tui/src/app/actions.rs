@@ -177,165 +177,6 @@ impl App {
         Ok(true)
     }
 
-    /// TypeSafe's settings: the key, and the two features it powers.
-    ///
-    /// Not part of `/provider`. Jev answers typed questions, not prompts —
-    /// listing it beside the chat providers would offer a model that cannot
-    /// hold a conversation.
-    pub(crate) fn open_typesafe(&mut self) {
-        self.modal_items = vec![
-            (
-                "API key".into(),
-                if !self.config.typesafe.active() {
-                    "not set  ·  every feature below is off".into()
-                } else if self.typesafe_check.is_some() {
-                    "set  ·  checking…".into()
-                } else if self.status.starts_with("TypeSafe key not working") {
-                    // Say what is wrong where the user is looking, not only
-                    // in the status line they may have scrolled past.
-                    format!("set  ·  {}", &self.status["TypeSafe key not ".len()..])
-                } else {
-                    "set  ·  Enter to replace".into()
-                },
-            ),
-            (
-                "Trim spent tool results".into(),
-                format!(
-                    "{}  ·  keeps context small; the transcript is untouched",
-                    on_off(self.config.typesafe.gate_tool_results)
-                ),
-            ),
-            (
-                "Keep live turns through compaction".into(),
-                format!(
-                    "{}  ·  folds what is finished rather than what is old",
-                    on_off(self.config.typesafe.rank_compaction)
-                ),
-            ),
-        ];
-        // Say plainly whether anything has actually happened this session.
-        // A feature that removes text from the model's context and shows
-        // nothing for it cannot be told apart from one that is broken.
-        self.modal_items.push((
-            "This session".into(),
-            // What happened comes first: the count is a fact about this
-            // session, not a function of the key's current state.
-            if self.trimmed_count == 0 && !self.config.typesafe.active() {
-                "nothing trimmed — no key set".into()
-            } else if self.trimmed_count == 0 {
-                "nothing trimmed yet".into()
-            } else {
-                format!(
-                    "{} result(s) trimmed · {} characters saved",
-                    self.trimmed_count,
-                    crate::text::thousands(self.trimmed_saved as u64)
-                )
-            },
-        ));
-        self.modal_cursor = 0;
-        self.modal = Modal::TypeSafe;
-        if !self.config.typesafe.active() {
-            self.status = "TypeSafe is off until a key is set".into();
-        }
-    }
-
-    fn accept_typesafe_row(&mut self) -> Result<()> {
-        match self.modal_cursor {
-            0 => {
-                // Reuse the key form, which already masks input: its one
-                // field is the key.
-                self.settings.api_key.clear();
-                self.open_form(Modal::TypeSafeKey);
-            }
-            1 => {
-                let mut next = self.config.clone();
-                next.typesafe.gate_tool_results = !next.typesafe.gate_tool_results;
-                next.save()?;
-                self.adopt(next);
-                self.open_typesafe();
-            }
-            2 => {
-                let mut next = self.config.clone();
-                next.typesafe.rank_compaction = !next.typesafe.rank_compaction;
-                next.save()?;
-                self.adopt(next);
-                self.open_typesafe();
-            }
-            // Row 3 is the session report, not an action.
-            _ => {}
-        }
-        Ok(())
-    }
-
-    pub(crate) fn save_typesafe_key(&mut self) -> Result<()> {
-        let key = self.settings.api_key.trim().to_owned();
-        let mut next = self.config.clone();
-        next.typesafe.api_key = key.clone();
-        next.save()?;
-        self.adopt(next);
-        self.settings.api_key.clear();
-        if key.is_empty() {
-            self.status = "TypeSafe key cleared; its features are off".into();
-            self.typesafe_check = None;
-            self.open_typesafe();
-            return Ok(());
-        }
-        // A saved key that does not work is worse than no key: every feature
-        // it powers fails silently back to the old behaviour, so nothing
-        // looks wrong. Check it now and say so.
-        let config = self.config.typesafe.clone();
-        let (tx, rx) = tokio::sync::mpsc::channel(1);
-        // Saving the key must not depend on being able to check it. Outside a
-        // tokio runtime there is nothing to spawn onto, and a key that saved
-        // everywhere except there would be a worse bug than an unchecked one.
-        match tokio::runtime::Handle::try_current() {
-            Ok(handle) => {
-                self.status = "checking the TypeSafe key…".into();
-                self.typesafe_check = Some(rx);
-                handle.spawn(async move {
-                    let result = match enowx_core::systemone::SystemOne::new(&config) {
-                        Some(client) => client.check().await,
-                        None => Err("no key".into()),
-                    };
-                    let _ = tx.send(result).await;
-                });
-            }
-            Err(_) => {
-                self.typesafe_check = None;
-                self.status = "TypeSafe key saved".into();
-            }
-        }
-        self.open_typesafe();
-        Ok(())
-    }
-
-    /// Fold in the key check once it lands. Called from the frame loop.
-    pub(crate) fn drain_typesafe_check(&mut self) {
-        let Some(rx) = self.typesafe_check.as_mut() else {
-            return;
-        };
-        match rx.try_recv() {
-            Ok(Ok(())) => {
-                self.status = "TypeSafe key works".into();
-                self.typesafe_check = None;
-                if self.modal == Modal::TypeSafe {
-                    self.open_typesafe();
-                }
-            }
-            Ok(Err(reason)) => {
-                self.status = format!("TypeSafe key not working: {reason}");
-                self.typesafe_check = None;
-                if self.modal == Modal::TypeSafe {
-                    self.open_typesafe();
-                }
-            }
-            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
-                self.typesafe_check = None;
-            }
-            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {}
-        }
-    }
-
     pub(crate) fn open_palette(&mut self) {
         self.modal = Modal::Commands;
         self.palette_offset = 0;
@@ -412,7 +253,6 @@ impl App {
                 }
             }
             "attach" => self.open_attach()?,
-            "typesafe" => self.open_typesafe(),
             "theme" => self.open_themes(),
             "effort" if !args.trim().is_empty() => self.choose_effort(args)?,
             "effort" => self.open_effort()?,
@@ -658,8 +498,6 @@ impl App {
                 }
                 self.modal = Modal::None;
             }
-            Modal::TypeSafe => return self.accept_typesafe_row(),
-            Modal::TypeSafeKey => return self.save_typesafe_key(),
             Modal::Message => return self.accept_message_action(),
             Modal::MessageEdit => return self.submit_message_edit(),
             Modal::Commands => return self.accept_palette_row(),
@@ -727,13 +565,5 @@ impl App {
                 .await;
         });
         Ok(())
-    }
-}
-
-fn on_off(value: bool) -> &'static str {
-    if value {
-        "on"
-    } else {
-        "off"
     }
 }

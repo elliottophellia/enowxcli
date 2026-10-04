@@ -22,6 +22,8 @@ use crate::{
 
 use crate::{discovery::Discovery, mcp::McpClient};
 
+mod acp_turn;
+
 /// The report a delegated sub-agent owes its caller. Carried in the sub-agent's
 /// system prompt — not appended to the task — so it holds a fixed position at
 /// the front of the context instead of trailing whatever the task happened to
@@ -2026,7 +2028,7 @@ impl Agent {
         if prompt.is_empty() && !continuing {
             anyhow::bail!("the message is empty");
         }
-        if !self.config.is_ready() {
+        if !self.config.is_ready() && !self.config.acp.any_assigned() {
             anyhow::bail!(if self.config.has_connected_provider() {
                 "Choose a model with /model."
             } else {
@@ -2077,6 +2079,7 @@ impl Agent {
         // round-trip. Cheap heuristic: peek at the last stored Usage-shaped
         // hint via the message count and trigger conservatively.
         if self.config.agent.auto_compact
+            && self.config.is_ready()
             && self.config.agent.auto_compact_at > 0.0
             && session.turns.len() > self.config.agent.compact_keep_last + 2
         {
@@ -2115,6 +2118,19 @@ impl Agent {
         // Resolve the agent before the provider: which model to build depends
         // on which agent is working, and on the tier that agent declares.
         let active = self.active_agent(&session);
+        // An agent put on an ACP engine runs its turn there.
+        if let Some(engine) = self.config.acp.engine_for(&active.name).map(str::to_owned) {
+            return self
+                .run_acp_turn(&engine, &active, session, events, cancel)
+                .await;
+        }
+        if !self.config.is_ready() {
+            anyhow::bail!(if self.config.has_connected_provider() {
+                "Choose a model with /model, or put this agent on an ACP agent."
+            } else {
+                "Connect a provider with /provider, or put this agent on an ACP agent."
+            });
+        }
         let model = self.config.model_for(&active.name, active.tier);
         let mut agent_config = self.config.clone();
         if !model.is_empty() && model != agent_config.model.active {

@@ -15,6 +15,7 @@ use ratatui::layout::Rect;
 use std::{collections::HashMap, sync::Arc, time::Instant};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+mod acp_ui;
 mod actions;
 mod connection;
 mod decision_ui;
@@ -201,6 +202,8 @@ pub(crate) struct App {
     pub(crate) started: Instant,
     /// The answer to Settings > Decision model's connection test.
     pub(crate) decision_test: Option<mpsc::Receiver<std::result::Result<String, String>>>,
+    /// Detection and installs for Settings > ACP agents.
+    pub(crate) acp_news: Option<std::sync::mpsc::Receiver<acp_ui::AcpNews>>,
     pub(crate) cancel: Option<CancellationToken>,
     pub(crate) events: Option<mpsc::Receiver<Event>>,
     pub(crate) task: Option<tokio::task::JoinHandle<()>>,
@@ -460,6 +463,7 @@ impl App {
             log_detail: false,
             started: Instant::now(),
             decision_test: None,
+            acp_news: None,
             cancel: None,
             events: None,
             task: None,
@@ -815,6 +819,8 @@ impl App {
             crate::modal::team_fields(self.settings.team_enabled == "on")
         } else if self.modal == crate::modal::Modal::Decision {
             self.decision_fields()
+        } else if self.modal == crate::modal::Modal::Acp {
+            &crate::modal::ACP_FIELDS
         } else if matches!(
             self.modal,
             crate::modal::Modal::General | crate::modal::Modal::Display

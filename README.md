@@ -386,6 +386,53 @@ then be turned off on its own:
 The same settings live in `config.toml` under `[agent.comms]`: `enabled`,
 `messages`, `board`, `review`, `review_rounds`, `reviewer`.
 
+## Claude Code, Codex and other ACP agents
+
+Any enowx agent, the lead or a specialist, can run on another coding agent
+instead of the configured model: Claude Code, Codex, Gemini CLI, or any
+program that speaks the [Agent Client Protocol](https://agentclientprotocol.com)
+on stdio. The agent runs with your own sign-in and subscription; enowx is its
+client, the way an editor is, and gives it enowx's prompt for that role, its
+skills, delegation to enowx's specialists and questions to you, over a local
+MCP server. So the lead can be Claude Code while `fe` is Codex and the rest
+stay on your model.
+
+Set it up in Settings > ACP agents (or `/acp`):
+
+- **Claude Code** (`@agentclientprotocol/claude-agent-acp`), **Codex**
+  (`@agentclientprotocol/codex-acp`) and **Gemini CLI** (`gemini --acp`).
+  Each row says whether its adapter is installed and whether you are signed
+  in; Enter on it installs the adapter into `~/.enx/acp` with npm (never
+  globally; Node.js 20 or newer is needed). Sign in with the vendor's own CLI:
+  `claude` then `/login`, `codex login`, or `gemini`.
+- **A custom ACP agent**: its command, arguments and environment.
+- For each: a model and a thinking effort (blank keeps the agent's default),
+  and how its permission prompts are answered:
+  - **ask me** (the default): each prompt comes to you as a question. A
+    delegated agent has no one to ask, so its prompts are refused there.
+  - **enowx's rules**: allowed as enowx's own tools are; with the decision
+    model on, a risky shell command goes through its shell gate.
+  - **bypass**: the agent's own bypass mode, nothing is asked. Only when you
+    choose it, and saving says so.
+
+Then put an agent on one: `/agent`, select it, and press `e` to step through
+the engines and back to the configured model. The roster shows `runs on
+Claude Code (ACP)` under it.
+
+From a shell, `enowx acp status` shows what is installed and signed in, and
+`enowx acp install claude` (or `codex`, `gemini`) installs an adapter.
+
+How it runs: one process per engine stays warm for the session, and each
+enowx session gets its own agent session, so later turns are fast and the
+agent remembers the conversation. Claude Code is started with only enowx's
+MCP server (`strictMcpConfig`), so slow servers in your own Claude config do
+not hold back its first answer, and with summarised thinking, which enowx
+shows as reasoning. What the agent streams appears as enowx's own messages,
+tool calls, diffs and plan; Esc cancels its turn. Settings live in
+`config.toml` under `[acp]`: `[acp.agents]` (agent to engine),
+`[acp.engines.<id>]` (`model`, `effort`, `permission`) and
+`[acp.custom.<name>]` (`command`, `args`, `env`).
+
 ## Decision model
 
 A decision model answers small typed questions (yes or no, one of a set, a
@@ -456,7 +503,7 @@ The settings live in `config.toml` under `[decision]`: `enabled`,
 ## Terminal commands
 
 `/help` `/new` `/resume` `/agent` `/model` `/effort` `/provider` `/attach`
-`/theme` `/decision` `/skills` `/mcp` `/compact` `/handoff` `/sidebar` `/reasoning`
+`/theme` `/decision` `/acp` `/skills` `/mcp` `/compact` `/handoff` `/sidebar` `/reasoning`
 `/tools` `/preview` `/rag` `/team` `/update` `/status` `/clear` `/stop` `/retry` `/commands` `/quit`
 
 `/handoff` carries the conversation on in a fresh session: its history is
@@ -501,7 +548,7 @@ continues at once and `Esc` cancels the wait.
 
 Two tabs sit at the top right: Chat and Settings. Settings takes the main
 column in place of the chat, with its sections listed on the left (Models,
-General, Models, Providers, Agents, Team, MCP, RAG, Skills, Decision model,
+General, Models, Providers, Agents, ACP agents, Team, MCP, RAG, Skills, Decision model,
 Sessions, Display, Theme, Updates) and the chosen one beside
 them. `Ctrl+P` switches between Chat and Settings. Settings opens with the
 section list focused: `Up`/`Down` pick a section, shown beside the list, and

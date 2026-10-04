@@ -112,6 +112,7 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
         app.catch_up_with_catalog();
         app.drain_picker_events();
         app.drain_decision_test();
+        app.drain_acp();
         app.refresh_viewed_delegation();
         terminal.draw(|frame| draw(frame, &mut app))?;
         if event::poll(Duration::from_millis(40))? {

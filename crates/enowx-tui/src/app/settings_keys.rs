@@ -142,6 +142,7 @@ impl App {
                 Modal::Rag => self.save_rag()?,
                 Modal::Team => self.save_team()?,
                 Modal::Decision => self.save_decision()?,
+                Modal::Acp => self.save_acp()?,
                 Modal::Updates => self.save_updates()?,
                 Modal::General | Modal::Display => self.save_prefs()?,
                 _ => {}

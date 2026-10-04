@@ -32,14 +32,16 @@ pub(crate) enum Page {
     General,
     Display,
     Decision,
+    Acp,
 }
 
 /// The sections of Settings, in the order they are listed.
-pub(crate) const SECTIONS: [Page; 13] = [
+pub(crate) const SECTIONS: [Page; 14] = [
     Page::General,
     Page::Models,
     Page::Providers,
     Page::Agents,
+    Page::Acp,
     Page::Team,
     Page::Mcp,
     Page::Rag,
@@ -83,6 +85,7 @@ impl Page {
             Page::General => "General",
             Page::Display => "Display",
             Page::Decision => "Decision model",
+            Page::Acp => "ACP agents",
             Page::Skills => "Skills",
             Page::Sessions => "Sessions",
             Page::Theme => "Theme",
@@ -101,6 +104,7 @@ impl Page {
             Modal::Rag => Page::Rag,
             Modal::Team => Page::Team,
             Modal::Decision => Page::Decision,
+            Modal::Acp => Page::Acp,
             Modal::Updates => Page::Updates,
             Modal::General => Page::General,
             Modal::Display => Page::Display,
@@ -163,6 +167,7 @@ impl App {
             Page::General => self.open_prefs(Modal::General),
             Page::Display => self.open_prefs(Modal::Display),
             Page::Decision => self.open_decision(),
+            Page::Acp => self.open_acp(),
             Page::Skills => self.open_skills(),
             Page::Sessions => self.open_sessions()?,
             Page::Theme => self.open_themes(),
@@ -228,6 +233,7 @@ impl App {
             | Modal::Rag
             | Modal::Team
             | Modal::Decision
+            | Modal::Acp
             | Modal::Updates
             | Modal::General
             | Modal::Display

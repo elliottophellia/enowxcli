@@ -48,6 +48,8 @@ pub struct Config {
     pub update: UpdateConfig,
     /// A decision model for small typed judgements: `[decision]`.
     pub decision: crate::decision::DecisionConfig,
+    /// Other coding agents as the brain of enowx agents: `[acp]`.
+    pub acp: crate::acp::AcpConfig,
     /// Tables this version does not know, from an older or newer one. Kept
     /// as they were so saving never drops what the user wrote; never read,
     /// and never echoed by `get`.

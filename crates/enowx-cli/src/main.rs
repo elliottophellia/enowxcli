@@ -74,12 +74,25 @@ enum Command {
         #[arg(long, conflicts_with = "check")]
         force: bool,
     },
+    /// Claude Code, Codex and other ACP agents as engines for enowx's agents.
+    Acp {
+        #[command(subcommand)]
+        command: AcpCommand,
+    },
     /// The decision model's last decisions, from ~/.enx/decisions.jsonl.
     Decisions {
         /// How many, newest last.
         #[arg(default_value_t = 20)]
         last: usize,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum AcpCommand {
+    /// What is installed and signed in, and which agents run on which engine.
+    Status,
+    /// Install an engine's adapter into ~/.enx/acp (never globally).
+    Install { engine: String },
 }
 
 #[derive(Debug, Subcommand)]
@@ -221,7 +234,10 @@ async fn main() -> Result<()> {
             if workspace.is_some() {
                 config.agent.workspace = workspace;
             }
-            enowx_tui::run(config, session).await
+            let outcome = enowx_tui::run(config, session).await;
+            // ACP engines are kept warm for the whole run; none outlives it.
+            enowx_core::acp::manager::manager().stop_all();
+            outcome
         }
         Command::Dev { workspace, session } => dev::run(workspace, session),
         Command::Config { command } => {
@@ -299,6 +315,35 @@ async fn main() -> Result<()> {
             VpsCommand::Remove { name } => mcp::vps_remove(&name),
         },
         Command::Update { check, force } => update(check, force).await,
+        Command::Acp { command } => {
+            let config = enowx_core::Config::load()?;
+            match command {
+                AcpCommand::Status => {
+                    for found in enowx_core::acp::detect(&config.acp).await {
+                        println!("{:<12} {}", found.title, found.line());
+                    }
+                    if config.acp.agents.is_empty() {
+                        println!("\nEvery agent runs on the configured model. In the interface: /agent, then e.");
+                    }
+                    for (agent, engine) in &config.acp.agents {
+                        println!("{agent} runs on {}", enowx_core::acp::title(engine));
+                    }
+                }
+                AcpCommand::Install { engine } => {
+                    let kind = enowx_core::acp::kind(&engine).ok_or_else(|| {
+                        anyhow::anyhow!("no built-in engine `{engine}`: claude, codex or gemini")
+                    })?;
+                    enowx_core::acp::install(kind, |line| println!("{line}"))
+                        .map_err(|e| anyhow::anyhow!(e))?;
+                    println!(
+                        "Installed {} into {}",
+                        kind.title,
+                        enowx_core::acp::install_dir().display()
+                    );
+                }
+            }
+            Ok(())
+        }
         Command::Decisions { last } => {
             let records = enowx_core::decision::log::read_last(last);
             if records.is_empty() {

@@ -1,6 +1,7 @@
 //! Agent core: configuration, model streaming, the tool-calling loop, the
 //! built-in tool surface, session persistence, and the three shipped roles.
 
+pub mod acp;
 pub mod agent;
 pub mod agent_def;
 pub mod ask;

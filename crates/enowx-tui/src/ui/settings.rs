@@ -58,6 +58,13 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &mut App, area: Rect) {
                 .into(),
             "DECISION MODEL · SMALL TYPED JUDGEMENTS".into(),
         ),
+        Modal::Acp => (
+            "Tab field · ←→ choose · Enter save (on a name: install or check) · Esc back",
+            "Put an agent on one with /agent, then e. Each uses your own sign-in; nothing \
+             is installed globally."
+                .into(),
+            "ACP AGENTS · CLAUDE CODE, CODEX AND OTHERS".into(),
+        ),
         Modal::Rag => (
             "Tab field · ←→ choose · Enter save · Esc chat",
             "Keys and the database go to ~/.enx/auth.json; blank keeps what is stored.".into(),
@@ -102,7 +109,7 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &mut App, area: Rect) {
         let choice = field.is_choice();
         let shown = if field.is_secret() {
             "•".repeat(raw.chars().count())
-        } else if field == SettingsField::Dec(crate::modal::DecField::Test) {
+        } else if field.is_action() {
             // A button, not a value to step through.
             app.settings.choice_shown(field)
         } else if choice {
@@ -276,6 +283,17 @@ fn placeholder(app: &App, field: SettingsField) -> &'static str {
                     "provider/model (blank: the one in use)"
                 }
                 DecField::ModelText => "the model the endpoint expects (blank: none sent)",
+                _ => "←→ to choose",
+            }
+        }
+        SettingsField::Acp(field) => {
+            use crate::modal::AcpField;
+            match field {
+                AcpField::Model(_) => "e.g. opus, sonnet, gpt-5 (blank: its default)",
+                AcpField::CustomName => "e.g. opencode",
+                AcpField::CustomCommand => "a program that speaks ACP on stdio, e.g. opencode",
+                AcpField::CustomArgs => "e.g. acp",
+                AcpField::CustomEnv => "KEY=value; KEY2=value",
                 _ => "←→ to choose",
             }
         }

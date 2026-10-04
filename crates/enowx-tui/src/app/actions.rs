@@ -254,6 +254,7 @@ impl App {
             }
             "attach" => self.open_attach()?,
             "decision" => self.open_decision(),
+            "acp" => self.open_acp(),
             "theme" => self.open_themes(),
             "effort" if !args.trim().is_empty() => self.choose_effort(args)?,
             "effort" => self.open_effort()?,
@@ -508,6 +509,7 @@ impl App {
             Modal::Rag => return self.save_rag(),
             Modal::Team => return self.save_team(),
             Modal::Decision => return self.save_decision(),
+            Modal::Acp => return self.save_acp(),
             Modal::Updates => return self.save_updates(),
             Modal::General | Modal::Display => return self.save_prefs(),
             Modal::QuitConfirm => {

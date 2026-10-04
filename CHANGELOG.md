@@ -18,6 +18,23 @@ All notable changes to enowx. Dates are YYYY-MM-DD.
   documents are written only when you ask for them, and inside a brainstorm
   the stack is decided, not asked. The maestro follows the same rules.
 
+### ACP agents
+
+- **Claude Code, Codex, Gemini CLI or any ACP agent as the brain of an enowx
+  agent.** Settings > ACP agents (or `/acp`) installs the official adapters
+  into `~/.enx/acp` (never globally), shows whether you are signed in, and
+  sets each engine's model, thinking effort and permissions: ask me (the
+  default), enowx's rules, or bypass (only when chosen, with a warning). A
+  custom ACP agent takes its own command, arguments and environment. In the
+  roster, `e` moves an agent between the engines and the configured model,
+  so the lead can be Claude Code while a specialist is Codex. The engine
+  gets the role's prompt, and enowx's skills, delegation to its specialists
+  and questions to you over a local MCP server (127.0.0.1, a random bearer
+  token per session); its messages, reasoning, tool calls, diffs and plan
+  show as enowx's own, and Esc cancels its turn. Engines stay warm between
+  turns. `enowx acp status` and `enowx acp install <engine>` do the same
+  from a shell.
+
 ### Install and update
 
 - **`enx` and `enowx` are both the command.** The installers put `enx` beside

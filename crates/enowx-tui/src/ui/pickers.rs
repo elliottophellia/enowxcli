@@ -47,7 +47,7 @@ pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
     let hint = if app.modal == Modal::Providers {
         "Enter connect · d disconnect · Esc close"
     } else if app.modal == Modal::Agents {
-        "Enter switch · m model · d default model · Esc"
+        "Enter switch · m model · d default model · e engine · Esc"
     } else {
         LIST_HINT
     };
@@ -128,6 +128,15 @@ fn model_line(app: &App, name: &str, width: usize) -> Line<'static> {
     let t = app.theme;
     let label = Span::styled("model  ", Style::default().fg(t.faint));
     let room = width.saturating_sub(7);
+    if let Some(engine) = app.config.acp.engine_for(name) {
+        return Line::from(vec![
+            Span::styled("runs on  ", Style::default().fg(t.faint)),
+            Span::styled(
+                trim(&format!("{} (ACP)", enowx_core::acp::title(engine)), room),
+                Style::default().fg(t.accent),
+            ),
+        ]);
+    }
     match own_model(app, name) {
         Some(model) => Line::from(vec![
             label,

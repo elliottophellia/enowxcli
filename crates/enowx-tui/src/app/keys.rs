@@ -325,6 +325,7 @@ impl App {
                 // The roster: the selected agent's own model, or none.
                 KeyCode::Char('m') if self.modal == Modal::Agents => self.pick_agent_model(),
                 KeyCode::Char('d') if self.modal == Modal::Agents => self.clear_agent_model()?,
+                KeyCode::Char('e') if self.modal == Modal::Agents => self.cycle_agent_engine()?,
                 _ => {}
             }
             return Ok(());

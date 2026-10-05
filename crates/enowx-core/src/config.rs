@@ -854,6 +854,27 @@ impl Config {
     }
 }
 
+/// Rename `from` over `to`. Windows refuses while another process (an
+/// antivirus scan, a search indexer, an editor) holds `to` open without
+/// sharing it for delete, which lasts milliseconds: a few short retries ride
+/// that out instead of failing the save, which failed the turn.
+fn rename_retrying(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut attempt = 0;
+    loop {
+        match std::fs::rename(from, to) {
+            Err(error)
+                if cfg!(windows)
+                    && attempt < 10
+                    && error.kind() == std::io::ErrorKind::PermissionDenied =>
+            {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            other => return other,
+        }
+    }
+}
+
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     use std::io::Write;
     let parent = path
@@ -875,7 +896,8 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
         }
         file.write_all(bytes)?;
         file.sync_all()?;
-        std::fs::rename(&temp, path)?;
+        drop(file);
+        rename_retrying(&temp, path)?;
         Ok(())
     })();
     if result.is_err() {

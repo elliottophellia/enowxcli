@@ -387,6 +387,15 @@ impl SessionStore {
         Ok(self.root.join(format!("{id}.jsonl")))
     }
 
+    /// When session `id` was last written: a running agent writes it after
+    /// every step, so a stale time means it has made no progress.
+    pub fn modified(&self, id: &str) -> Option<std::time::SystemTime> {
+        std::fs::metadata(self.path_for(id).ok()?)
+            .ok()?
+            .modified()
+            .ok()
+    }
+
     /// Whether session `id` is on disk.
     pub fn exists(&self, id: &str) -> bool {
         self.path_for(id).is_ok_and(|path| path.is_file())
@@ -430,12 +439,19 @@ impl SessionStore {
             .map(serde_json::from_str)
             .transpose()?
             .ok_or_else(|| anyhow::anyhow!("session {id} is empty"))?;
+        // A turn that does not read (a line cut off by a crash or a full
+        // disk, or written by a newer version) is skipped rather than
+        // refusing the whole session: one bad line made a session impossible
+        // to resume or to open from the sidebar. `replay` already pairs any
+        // tool call left without its result.
         let mut turns = Vec::new();
         for line in lines {
             if line.trim().is_empty() {
                 continue;
             }
-            turns.push(serde_json::from_str(line)?);
+            if let Ok(turn) = serde_json::from_str(line) {
+                turns.push(turn);
+            }
         }
         // Names recorded before an agent was renamed read as its name now,
         // so an old session's handovers and holder match the roster.

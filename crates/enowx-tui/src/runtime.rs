@@ -107,6 +107,7 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
         app.tick_queue();
         app.tick_handoff();
         app.tick_resources();
+        app.tick_delegation_watch();
         app.tick_mcp_reload();
         app.tick_update();
         app.catch_up_with_catalog();

@@ -260,6 +260,12 @@ pub(crate) struct App {
     /// Which sent prompt Up/Down is showing in the composer, and the draft
     /// it replaced, restored when stepping past the newest.
     pub(crate) prompt_recall: Option<usize>,
+    /// Seconds since each running delegation last wrote its session, by
+    /// branch id, refreshed every few seconds. A long silence is shown in
+    /// the sidebar: an agent that has made no progress is visible, and can
+    /// be stopped, instead of only looking busy.
+    pub(crate) delegation_quiet: HashMap<String, u64>,
+    pub(crate) quiet_checked: Option<Instant>,
     pub(crate) recall_draft: String,
     /// First line of the Ctrl+P palette on screen, kept between frames so
     /// the list scrolls rather than jumping to put the selection at an edge.
@@ -502,6 +508,8 @@ impl App {
             modal_items: Vec::new(),
             palette_cursor: 0,
             prompt_recall: None,
+            delegation_quiet: HashMap::new(),
+            quiet_checked: None,
             recall_draft: String::new(),
             palette_offset: 0,
             modal_offset: 0,

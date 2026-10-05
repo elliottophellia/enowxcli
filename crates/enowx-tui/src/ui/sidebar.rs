@@ -529,6 +529,14 @@ fn detail_lines(app: &App, width: usize) -> Detail {
                         crate::app::DelegationState::Finished => t.green,
                         crate::app::DelegationState::Failed => t.red,
                     };
+                    // Silent long enough to look stuck: said beside the name.
+                    let quiet = app
+                        .delegation_quiet
+                        .get(&delegation.session_id)
+                        .copied()
+                        .filter(|secs| *secs >= 300)
+                        .map(|secs| format!("  quiet {}m", secs / 60))
+                        .unwrap_or_default();
                     lines.push(Line::from(vec![
                         Span::styled(
                             format!("{} ", delegation.state.marker()),
@@ -537,10 +545,11 @@ fn detail_lines(app: &App, width: usize) -> Detail {
                         Span::styled(
                             trim(
                                 &enowx_core::agent_def::display_name(&delegation.agent),
-                                width.saturating_sub(4).max(1),
+                                width.saturating_sub(4 + quiet.len()).max(1),
                             ),
                             Style::default().fg(t.text).add_modifier(Modifier::BOLD),
                         ),
+                        Span::styled(quiet, Style::default().fg(t.red)),
                     ]));
                     // The model this sub-agent runs on, so a glance at the
                     // list shows what is answering each one. Shown short

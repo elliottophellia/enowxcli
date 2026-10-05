@@ -76,11 +76,16 @@ pub async fn format_file(fmt: &Formatter, path: &Path) -> Result<bool, String> {
     let mut cmd = Command::new(fmt.bin);
     cmd.args(fmt.args)
         .arg(path)
+        .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-    match cmd.output().await {
-        Ok(out) if out.status.success() => Ok(true),
-        Ok(out) => Err(String::from_utf8_lossy(&out.stderr).into_owned()),
-        Err(e) => Err(e.to_string()),
+        .stderr(Stdio::piped())
+        // Dropped on timeout, the formatter is killed with it.
+        .kill_on_drop(true);
+    // A formatter that never exits must not hold the edit that called it.
+    match tokio::time::timeout(std::time::Duration::from_secs(60), cmd.output()).await {
+        Ok(Ok(out)) if out.status.success() => Ok(true),
+        Ok(Ok(out)) => Err(String::from_utf8_lossy(&out.stderr).into_owned()),
+        Ok(Err(e)) => Err(e.to_string()),
+        Err(_) => Err(format!("{} did not finish within 60 seconds", fmt.bin)),
     }
 }

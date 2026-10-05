@@ -460,7 +460,24 @@ impl Provider {
         fn started(result: &Completion, calls: &BTreeMap<usize, PartialCall>) -> bool {
             !result.text.is_empty() || !result.reasoning.is_empty() || !calls.is_empty()
         }
-        while let Some(chunk) = stream.next().await {
+        // A stream that stops sending without closing would hold the turn
+        // for good (the request timeout is generous, for long answers). No
+        // bytes for this long ends it as a network error, which is retried.
+        const IDLE: Duration = Duration::from_secs(180);
+        loop {
+            let chunk = match tokio::time::timeout(IDLE, stream.next()).await {
+                Ok(Some(chunk)) => chunk,
+                Ok(None) => break,
+                Err(_) => {
+                    return Err(mark_mid_stream(
+                        anyhow::anyhow!(
+                            "reading provider stream: timeout, nothing arrived for {} seconds",
+                            IDLE.as_secs()
+                        ),
+                        started(&result, &calls),
+                    ))
+                }
+            };
             let bytes = match chunk {
                 Ok(bytes) => bytes,
                 Err(e) => {

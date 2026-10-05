@@ -58,17 +58,7 @@ impl Tool for BashTool {
         #[cfg(unix)]
         spawner.process_group(0);
         let mut child = spawner.spawn().context("starting shell")?;
-        #[cfg(unix)]
-        let group = child.id().map(|pid| pid as i32);
-        let kill_group = move || {
-            #[cfg(unix)]
-            if let Some(pid) = group {
-                let _ = nix::sys::signal::killpg(
-                    nix::unistd::Pid::from_raw(pid),
-                    nix::sys::signal::Signal::SIGKILL,
-                );
-            }
-        };
+        let pid = child.id();
 
         let stdout = child.stdout.take().expect("piped stdout");
         let stderr = child.stderr.take().expect("piped stderr");
@@ -78,14 +68,12 @@ impl Tool for BashTool {
             result = tokio::time::timeout(ctx.shell_timeout, wait) => match result {
                 Ok(output) => output.context("collecting command output")?,
                 Err(_) => {
-                    kill_group();
-                    let _ = child.wait().await;
+                    stop_tree(&mut child, pid).await;
                     anyhow::bail!("command timed out after {} seconds", ctx.shell_timeout.as_secs());
                 }
             },
             _ = ctx.cancel.cancelled() => {
-                kill_group();
-                let _ = child.wait().await;
+                stop_tree(&mut child, pid).await;
                 anyhow::bail!("command cancelled");
             }
         };
@@ -109,6 +97,43 @@ impl Tool for BashTool {
             ToolOutput::error(content)
         })
     }
+}
+
+/// End a command and everything it started, then reap it, without ever
+/// waiting long: a stop or a timeout must end the tool call even when
+/// something in the tree will not die.
+///
+/// Unix: the shell leads its own process group, so the whole group gets
+/// SIGKILL. Windows has no groups to signal, and killing `sh` alone left its
+/// children (a dev server, a watcher, a prompt waiting for input) running
+/// with the output pipes open, and the wait for the shell never returned: the
+/// agent sat on the call for good and Stop did nothing. `taskkill /T /F`
+/// ends the tree there.
+async fn stop_tree(child: &mut tokio::process::Child, pid: Option<u32>) {
+    #[cfg(unix)]
+    if let Some(pid) = pid {
+        let _ = nix::sys::signal::killpg(
+            nix::unistd::Pid::from_raw(pid as i32),
+            nix::sys::signal::Signal::SIGKILL,
+        );
+    }
+    #[cfg(windows)]
+    if let Some(pid) = pid {
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status(),
+        )
+        .await;
+    }
+    #[cfg(not(any(unix, windows)))]
+    let _ = pid;
+    let _ = child.start_kill();
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), child.wait()).await;
 }
 
 async fn capture_pipe(mut pipe: impl tokio::io::AsyncRead + Unpin) -> std::io::Result<Vec<u8>> {

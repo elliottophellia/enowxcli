@@ -121,6 +121,46 @@ impl App {
     }
 
     /// Each frame: memory, CPU and disk, every few seconds.
+    /// How long each running delegation has been silent. Reads file times
+    /// only, every few seconds, so it never holds up a frame.
+    pub(crate) fn tick_delegation_watch(&mut self) {
+        /// Silence worth pointing out.
+        const QUIET: u64 = 300;
+        if self
+            .quiet_checked
+            .is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(5))
+        {
+            return;
+        }
+        self.quiet_checked = Some(Instant::now());
+        let store = self.agent.store().clone();
+        let now = std::time::SystemTime::now();
+        let mut quiet = HashMap::new();
+        for delegation in &self.delegations {
+            if delegation.state != crate::app::DelegationState::Running {
+                continue;
+            }
+            let Some(written) = store.modified(&delegation.session_id) else {
+                continue;
+            };
+            let secs = now.duration_since(written).map_or(0, |d| d.as_secs());
+            let was = self
+                .delegation_quiet
+                .get(&delegation.session_id)
+                .copied()
+                .unwrap_or(0);
+            if secs >= QUIET && was < QUIET {
+                self.status = format!(
+                    "{} has made no progress for {} min; right-click it in the sidebar to stop it",
+                    enowx_core::agent_def::display_name(&delegation.agent),
+                    secs / 60
+                );
+            }
+            quiet.insert(delegation.session_id.clone(), secs);
+        }
+        self.delegation_quiet = quiet;
+    }
+
     pub(crate) fn tick_resources(&mut self) {
         let store = self.agent.store().clone();
         let session = self.session_id.clone();

@@ -2,6 +2,31 @@
 
 All notable changes to enowx. Dates are YYYY-MM-DD.
 
+## Unreleased
+
+### Fixes
+
+- **Agents no longer sit forever on a command that never ends, on Windows
+  especially.** When a shell command timed out or was stopped, only Unix
+  killed the whole process tree; on Windows the shell's children (a dev
+  server, a watcher, a prompt waiting for input) kept running and enowx
+  waited on them for good, so the agent looked stuck and Stop did nothing.
+  The tree is now ended with `taskkill /T /F`, and the wait after a kill is
+  bounded everywhere.
+- **A model stream that goes silent is retried** after 3 minutes without a
+  byte, instead of holding the turn until the request's 10-minute limit.
+- **A formatter that never exits** no longer holds the edit that ran it; it
+  is stopped after 60 seconds.
+- **A sub-agent that has made no progress for 5 minutes says so** in the
+  sidebar (`quiet 7m`), with a hint to right-click it to stop it.
+- **Stopping a sub-agent that is no longer running** (stopped already, or
+  left from an earlier run) marks it stopped instead of leaving it shown as
+  at work.
+- **A session with a damaged line still opens and resumes**: the line is
+  skipped instead of refusing the whole session, and opening a sub-agent's
+  transcript that cannot be read says why. On Windows, saving retries
+  briefly when another program holds the file for a moment.
+
 ## v0.2.4 (2026-10-05)
 
 ### Fixes

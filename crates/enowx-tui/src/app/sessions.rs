@@ -343,7 +343,18 @@ impl App {
         self.status = if self.agent.kill_delegation(&session_id) {
             format!("stopping {name}; its caller is told, with what it did")
         } else {
-            format!("{name} already finished")
+            // Nothing in this enowx is running it (stopped already, or left
+            // from an earlier run): say so, and stop showing it as at work,
+            // or it reads as stuck and cannot be stopped.
+            for delegation in &mut self.delegations {
+                if delegation.session_id == session_id
+                    && delegation.state == crate::app::DelegationState::Running
+                {
+                    delegation.state = crate::app::DelegationState::Failed;
+                }
+            }
+            self.delegation_quiet.remove(&session_id);
+            format!("{name} is not running in this enowx any more; marked as stopped")
         };
     }
 
@@ -358,12 +369,23 @@ impl App {
         }
         // A delegation that finished with its report has had its transcript
         // cleared; its report is in the conversation.
-        let Ok(branch) = self.store.load(&delegation.session_id) else {
-            self.status = format!(
-                "{}'s transcript was cleared when it finished; its report is in the conversation",
-                enowx_core::agent_def::display_name(&delegation.agent)
-            );
-            return Ok(());
+        let branch = match self.store.load(&delegation.session_id) {
+            Ok(branch) => branch,
+            // There, but unreadable: say why, rather than claim it was cleared.
+            Err(error) if self.store.exists(&delegation.session_id) => {
+                self.status = format!(
+                    "could not open {}'s transcript: {error:#}",
+                    enowx_core::agent_def::display_name(&delegation.agent)
+                );
+                return Ok(());
+            }
+            Err(_) => {
+                self.status = format!(
+                    "{}'s transcript was cleared when it finished; its report is in the conversation",
+                    enowx_core::agent_def::display_name(&delegation.agent)
+                );
+                return Ok(());
+            }
         };
         let blocks_at_open = self.blocks.len();
         let reports_at_open = crate::app::reports_in(&self.blocks);

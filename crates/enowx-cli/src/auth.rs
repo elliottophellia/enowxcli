@@ -77,7 +77,7 @@ fn cf_template_url(scope: &CfScope) -> String {
     };
     format!(
         "https://dash.cloudflare.com/profile/api-tokens?name={}&permissionGroupKeys={}&accountId=*&zoneId=all",
-        encode("enx security assessment"),
+        encode("enowx security assessment"),
         encode(scope.groups),
     )
 }
@@ -110,7 +110,7 @@ fn open_url(url: &str) -> bool {
 /// prove control of a domain before a security assessment, not a model
 /// provider, so it is stored under its own id.
 fn login_cloudflare(config: &mut Config) -> Result<()> {
-    eprintln!("Connect a Cloudflare account so enx can prove you control a domain before");
+    eprintln!("Connect a Cloudflare account so enowx can prove you control a domain before");
     eprintln!("testing it. Pick the token scope (minimal and medium are read-only):\n");
     for (i, scope) in CF_SCOPES.iter().enumerate() {
         eprintln!("  {}. {} - {}", i + 1, scope.name, scope.summary);
@@ -131,7 +131,7 @@ fn login_cloudflare(config: &mut Config) -> Result<()> {
 
     if scope.dangerous {
         eprintln!("\n  WARNING: the full scope creates a token with EDIT access to every");
-        eprintln!("  Cloudflare service, full control of the account. enx only needs to READ");
+        eprintln!("  Cloudflare service, full control of the account. enowx only needs to READ");
         eprintln!("  zones to verify you control a domain; it never writes. A leaked full");
         eprintln!("  token lets anyone change DNS, WAF, Workers, Pages and more. Prefer");
         eprintln!("  minimal unless you have a reason, and give it no expiry only knowingly.");
@@ -209,8 +209,8 @@ pub fn login(config: &mut Config, provider: &str) -> Result<()> {
     let connection = config.connection(provider).ok_or_else(|| {
         let built_in: Vec<&str> = enowx_core::PROVIDER_PRESETS.iter().map(|p| p.id).collect();
         anyhow::anyhow!(
-            "enx knows no provider `{provider}`. Built in: {}. Add your own with \
-             `enx config set provider.{provider}.base_url <url>` first.",
+            "enowx knows no provider `{provider}`. Built in: {}. Add your own with \
+             `enowx config set provider.{provider}.base_url <url>` first.",
             built_in.join(", ")
         )
     })?;
@@ -311,7 +311,7 @@ mod tests {
     fn the_template_url_pre_fills_the_scope() {
         let url = cf_template_url(&CF_SCOPES[0]);
         assert!(url.starts_with("https://dash.cloudflare.com/profile/api-tokens?"));
-        assert!(url.contains("name=enx%20security%20assessment"));
+        assert!(url.contains("name=enowx%20security%20assessment"));
         // The minimal scope is Zone:Read, url-encoded.
         assert!(url.contains("permissionGroupKeys=%5B%7B%22key%22%3A%22zone%22"));
         assert!(url.contains("zoneId=all"));

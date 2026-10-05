@@ -35,10 +35,10 @@ impl App {
                 self.status = "an update is already under way".into();
             }
             UpdateState::Installed(tag) => {
-                self.status = format!("{tag} is installed; restart enx to use it");
+                self.status = format!("{tag} is installed; restart enowx to use it");
             }
             _ => {
-                self.status = "looking for a newer enx…".into();
+                self.status = "looking for a newer enowx…".into();
                 self.run_update(true, true);
             }
         }
@@ -84,19 +84,19 @@ impl App {
         self.update_shown = state.clone();
         match state {
             UpdateState::Available(tag) => {
-                self.status = format!("enx {tag} is out · /update installs it");
+                self.status = format!("enowx {tag} is out · /update installs it");
             }
             UpdateState::Installed(tag) => {
-                self.status = format!("enx {tag} installed · restart enx to use it");
+                self.status = format!("enowx {tag} installed · restart enowx to use it");
             }
             UpdateState::UpToDate if self.update_heard => {
-                self.status = format!("enx {} is the latest", enowx_core::update::current());
+                self.status = format!("enowx {} is the latest", enowx_core::update::current());
             }
             UpdateState::Failed(why) if self.update_heard => {
                 self.status = format!("update failed: {why}");
             }
             UpdateState::Installing(tag) if self.update_heard => {
-                self.status = format!("installing enx {tag}…");
+                self.status = format!("installing enowx {tag}…");
             }
             _ => {}
         }

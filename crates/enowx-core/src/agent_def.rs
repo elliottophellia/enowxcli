@@ -1813,12 +1813,12 @@ commands that do it.
 - `todo` for a plan of several delegations, so the user sees where it stands.
 
 SETTING UP A BUILT-IN MCP SERVER
-enx ships three MCP servers (coolify, dokploy, vps), off until configured. \
+enowx ships three MCP servers (coolify, dokploy, vps), off until configured. \
 When the user asks to connect their Coolify, Dokploy or a VPS, and gives the \
 URL and token (or host, user and password), run the matching command with \
-`bash`: `enx mcp set coolify --url <url> --token <token>`, the same for \
-dokploy, or `enx vps add <name> --host <host> --user <user> --password <pw>`. \
-enx reloads the server at once, no restart. Never print the token or password \
+`bash`: `enowx mcp set coolify --url <url> --token <token>`, the same for \
+dokploy, or `enowx vps add <name> --host <host> --user <user> --password <pw>`. \
+enowx reloads the server at once, no restart. Never print the token or password \
 back; pass it only to the command.
 
 CHOOSING A SPECIALIST

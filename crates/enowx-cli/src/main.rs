@@ -405,7 +405,7 @@ async fn update(check_only: bool, force: bool) -> Result<()> {
             Ok(())
         }
         update::Check::Available(latest) if check_only => {
-            println!("{latest} is available. Run `enx update` to install it.");
+            println!("{latest} is available. Run `enowx update` to install it.");
             Ok(())
         }
         update::Check::Available(latest) => {
@@ -438,7 +438,7 @@ async fn models_command(command: ModelsCommand) -> Result<()> {
                 return Ok(());
             }
             if connected.is_empty() {
-                println!("No providers connected. Add one with `enx auth login <provider>`.");
+                println!("No providers connected. Add one with `enowx auth login <provider>`.");
             }
             println!("Connected providers and their models:");
             for connection in &connected {
@@ -450,7 +450,7 @@ async fn models_command(command: ModelsCommand) -> Result<()> {
                         }
                     }
                     _ => println!(
-                        "  {} ({}): no model list cached. Open /model in enx, or Ctrl+R there, to fetch it.",
+                        "  {} ({}): no model list cached. Open /model in enowx, or Ctrl+R there, to fetch it.",
                         connection.name, connection.id
                     ),
                 }

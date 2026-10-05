@@ -848,7 +848,7 @@ dependencies = [
 
 [[package]]
 name = "enowx-cli"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "clap",
@@ -861,7 +861,7 @@ dependencies = [
 
 [[package]]
 name = "enowx-core"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -904,7 +904,7 @@ dependencies = [
 
 [[package]]
 name = "enowx-tui"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "crossterm",

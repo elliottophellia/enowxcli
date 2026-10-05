@@ -43,7 +43,7 @@ pub(super) fn draw_settings(frame: &mut Frame, app: &mut App, area: Rect) {
         ),
         Modal::Updates => (
             "Tab field · ←→ choose · Enter save · Esc back",
-            "/update installs the latest now; `enx update` does it from a shell.".into(),
+            "/update installs the latest now; `enowx update` does it from a shell.".into(),
             format!("UPDATES · ENOWX {}", enowx_core::update::current()),
         ),
         Modal::Team => (

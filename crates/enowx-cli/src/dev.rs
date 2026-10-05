@@ -27,7 +27,7 @@ pub fn run(workspace: Option<PathBuf>, session: Option<String>) -> Result<()> {
     let root = std::env::current_dir()?;
     anyhow::ensure!(
         root.join("Cargo.toml").exists() && root.join("crates").is_dir(),
-        "Run `enx dev` from the Enx source checkout; no Cargo workspace here"
+        "Run `enowx dev` from the enowx source checkout; no Cargo workspace here"
     );
 
     let store = SessionStore::default();
@@ -44,11 +44,11 @@ pub fn run(workspace: Option<PathBuf>, session: Option<String>) -> Result<()> {
     };
 
     let mut fingerprint = snapshot(&root)?;
-    println!("enx dev: watching crates/ and Cargo.toml; edits reload the interface.");
+    println!("enowx dev: watching crates/ and Cargo.toml; edits reload the interface.");
 
     loop {
         if !build()? {
-            println!("enx dev: build failed. Fix the error and save again.");
+            println!("enowx dev: build failed. Fix the error and save again.");
             fingerprint = wait_for_change(&root, fingerprint)?;
             continue;
         }
@@ -59,7 +59,7 @@ pub fn run(workspace: Option<PathBuf>, session: Option<String>) -> Result<()> {
         let changed = loop {
             if let Some(status) = child.try_wait().context("waiting for the interface")? {
                 if !status.success() {
-                    println!("enx dev: interface exited with {status}");
+                    println!("enowx dev: interface exited with {status}");
                 }
                 break false;
             }
@@ -81,7 +81,7 @@ pub fn run(workspace: Option<PathBuf>, session: Option<String>) -> Result<()> {
         // The killed child never ran its terminal restore, so undo its terminal
         // modes here before printing build output.
         restore_terminal();
-        println!("enx dev: change detected, rebuilding…");
+        println!("enowx dev: change detected, rebuilding…");
         resume = latest_session(&store)?.or(resume);
     }
 }
@@ -89,7 +89,7 @@ pub fn run(workspace: Option<PathBuf>, session: Option<String>) -> Result<()> {
 fn spawn(root: &Path, workspace: &Option<PathBuf>, session: Option<&str>) -> Result<Child> {
     // Launch the built binary, not `cargo run`: the supervisor must be able to
     // stop the interface process itself rather than a cargo wrapper.
-    let mut command = Command::new(root.join("target/debug/enx"));
+    let mut command = Command::new(root.join("target/debug/enowx"));
     command.arg("tui");
     if let Some(workspace) = workspace {
         command.arg("--workspace").arg(workspace);
@@ -117,7 +117,7 @@ fn restore_terminal() {
 }
 
 fn build() -> Result<bool> {
-    print!("enx dev: building… ");
+    print!("enowx dev: building… ");
     io::stdout().flush().ok();
     let started = Instant::now();
     let status = Command::new(env!("CARGO"))

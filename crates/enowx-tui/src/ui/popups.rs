@@ -34,7 +34,7 @@ pub(super) fn draw_popup(frame: &mut Frame, app: &mut App) -> bool {
             draw_confirm(
                 frame,
                 app,
-                "Quit Enx? Unsent input will be lost.",
+                "Quit enowx? Unsent input will be lost.",
                 "Y quit · N stay · Enter confirm",
                 ("Yes", "No"),
             );

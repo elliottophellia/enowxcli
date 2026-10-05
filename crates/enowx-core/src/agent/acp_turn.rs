@@ -337,7 +337,13 @@ impl Agent {
                     }
                 },
                 Some(call) = calls.recv() => {
-                    let result = self.acp_call(&call.name, call.arguments, &mut session, active, holds_conversation, events, &cancel).await;
+                    // A delegation runs a whole specialist turn inside this
+                    // call; stopping the turn must not wait for it. The
+                    // specialist keeps its own token, as a native one does.
+                    let result = tokio::select! {
+                        result = self.acp_call(&call.name, call.arguments, &mut session, active, holds_conversation, events, &cancel) => result,
+                        _ = cancel.cancelled() => mcp_host::tool_error("The user stopped this turn."),
+                    };
                     let _ = call.reply.send(result);
                 }
                 _ = cancel.cancelled(), if cancel_sent.is_none() => {

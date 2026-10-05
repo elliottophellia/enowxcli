@@ -177,13 +177,13 @@ pub fn server(name: &str) -> Result<Box<dyn Server>> {
     let token = |server: &str| {
         auth.key(&secret_id(server), &[])
             .map(|(key, _)| key)
-            .with_context(|| format!("no {server} token stored; press c on {server} in /mcp, or run `enx mcp set {server}`"))
+            .with_context(|| format!("no {server} token stored; press c on {server} in /mcp, or run `enowx mcp set {server}`"))
     };
     Ok(match name {
         "coolify" => {
             let endpoint = config
                 .coolify
-                .context("coolify is not installed; run `enx mcp install coolify`")?;
+                .context("coolify is not installed; run `enowx mcp install coolify`")?;
             Box::new(coolify::Coolify::new(
                 &endpoint.base_url,
                 &token("coolify")?,
@@ -192,7 +192,7 @@ pub fn server(name: &str) -> Result<Box<dyn Server>> {
         "dokploy" => {
             let endpoint = config
                 .dokploy
-                .context("dokploy is not installed; run `enx mcp install dokploy`")?;
+                .context("dokploy is not installed; run `enowx mcp install dokploy`")?;
             Box::new(dokploy::Dokploy::new(
                 &endpoint.base_url,
                 &token("dokploy")?,
@@ -200,14 +200,14 @@ pub fn server(name: &str) -> Result<Box<dyn Server>> {
         }
         "vps" => {
             if config.vps.is_empty() {
-                bail!("no VPS is set up; add one with `enx vps add`");
+                bail!("no VPS is set up; add one with `enowx vps add`");
             }
             Box::new(vps::Vps::new(config.vps, auth))
         }
         "rag" => {
             let setup = config
                 .rag
-                .context("rag is not set up; open Settings > RAG, or run `enx mcp set rag`")?;
+                .context("rag is not set up; open Settings > RAG, or run `enowx mcp set rag`")?;
             let dsn = auth
                 .key(&rag_dsn_id(), &[])
                 .map(|(key, _)| key)
@@ -223,7 +223,7 @@ pub fn server(name: &str) -> Result<Box<dyn Server>> {
             Box::new(rag::Rag::new(&dsn, &key, &setup)?)
         }
         other => bail!(
-            "enx has no built-in MCP server `{other}` (built in: {})",
+            "enowx has no built-in MCP server `{other}` (built in: {})",
             NAMES.join(", ")
         ),
     })

@@ -302,7 +302,7 @@ impl Catalog {
         let mut cat = Catalog::parse(&text);
         anyhow::ensure!(
             !cat.providers.is_empty(),
-            "models.dev sent nothing enx could read"
+            "models.dev sent nothing enowx could read"
         );
         cat.schema = Some(CATALOG_SCHEMA);
         cat.fetched_at = Some(

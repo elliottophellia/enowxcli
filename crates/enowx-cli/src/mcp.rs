@@ -53,7 +53,11 @@ pub fn list() -> Result<()> {
                     "configured, off"
                 }
             ),
-            None => println!("{name:8} {:<13} (enx {})", "not set up", install_hint(name)),
+            None => println!(
+                "{name:8} {:<13} (enowx {})",
+                "not set up",
+                install_hint(name)
+            ),
         }
     }
     Ok(())
@@ -80,10 +84,10 @@ pub fn install(name: &str, url: Option<String>, token: Option<String>) -> Result
             "Create one in Dokploy under Settings > Profile > API/CLI.",
         ),
         "vps" => bail!(
-            "VPSes are added one at a time: enx vps add <name> --host <address> --user <user>"
+            "VPSes are added one at a time: enowx vps add <name> --host <address> --user <user>"
         ),
         other => bail!(
-            "enx has no built-in MCP server `{other}` (built in: {})",
+            "enowx has no built-in MCP server `{other}` (built in: {})",
             builtin_mcp::NAMES.join(", ")
         ),
     };
@@ -242,7 +246,7 @@ pub fn uninstall(name: &str) -> Result<()> {
             }
             config.vps.clear();
         }
-        other => bail!("enx has no built-in MCP server `{other}`"),
+        other => bail!("enowx has no built-in MCP server `{other}`"),
     }
     auth.forget(&secret_id(name))?;
     config.save()?;
@@ -384,7 +388,7 @@ pub fn vps_list() -> Result<()> {
     let config = BuiltinConfig::load()?;
     let auth = Auth::load()?;
     if config.vps.is_empty() {
-        println!("No VPS set up. Add one: enx vps add <name> --host <address or ~/.ssh/config alias> [--user <user>] [--key <file>]");
+        println!("No VPS set up. Add one: enowx vps add <name> --host <address or ~/.ssh/config alias> [--user <user>] [--key <file>]");
     }
     for (name, host) in &config.vps {
         let who = if host.user.is_empty() {

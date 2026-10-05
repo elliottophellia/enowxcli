@@ -485,7 +485,7 @@ impl Config {
     pub fn model_unusable(&self, model: &str) -> Option<String> {
         let Some(parsed) = self.parse_model(model) else {
             return Some(format!(
-                "`{model}` names no provider enx knows; staying on {}",
+                "`{model}` names no provider enowx knows; staying on {}",
                 self.model.active
             ));
         };
@@ -757,7 +757,7 @@ impl Config {
             return Ok(());
         }
         let model = self.parse_model(raw).ok_or_else(|| {
-            anyhow::anyhow!("`{raw}` names no provider enx knows; write it as provider/model")
+            anyhow::anyhow!("`{raw}` names no provider enowx knows; write it as provider/model")
         })?;
         self.model.default = model.to_string();
         self.use_model(&model.to_string());
@@ -776,7 +776,9 @@ impl Config {
             "provider id `{id}` must be lowercase letters, digits, `-` or `_`"
         );
         if field == "api_key" {
-            anyhow::bail!("keys are kept in auth.json, not config.toml: run `enx auth login {id}`");
+            anyhow::bail!(
+                "keys are kept in auth.json, not config.toml: run `enowx auth login {id}`"
+            );
         }
         let mut entry = self.provider.get(id).cloned().unwrap_or_default();
         match field {

@@ -108,7 +108,7 @@ impl client::Handler for Verifier {
             Some(known) if *known == fingerprint => Ok(true),
             Some(known) => {
                 *self.mismatch.lock().unwrap() = Some(format!(
-                    "{} presented host key {fingerprint}, not the {known} enx recorded. \
+                    "{} presented host key {fingerprint}, not the {known} enowx recorded. \
                      If the server was rebuilt, remove its line from {} and connect again.",
                     self.address,
                     known_hosts_path().display()
@@ -432,7 +432,7 @@ async fn sign_in(
                 KeyboardInteractiveAuthResponse::InfoRequest { prompts, .. } => {
                     if let Some(other) = prompts.iter().find(|p| !asks_for_password(p)) {
                         tried.push(format!(
-                            "keyboard-interactive asked {:?}, which enx cannot answer; sign in with a key instead",
+                            "keyboard-interactive asked {:?}, which enowx cannot answer; sign in with a key instead",
                             other.prompt.trim()
                         ));
                         break;
@@ -457,13 +457,13 @@ async fn sign_in(
     if tried.is_empty() {
         bail!(
             "{name}: nothing to sign in to {}@{} with: no key file, no ssh-agent key, no ~/.ssh key and no password. \
-             Run `enx vps add {name} --key <file>` or `--password <password>`.",
+             Run `enowx vps add {name} --key <file>` or `--password <password>`.",
             user,
             target.host
         );
     }
     bail!(
-        "{name}: {}@{}:{} refused every way enx tried: {}",
+        "{name}: {}@{}:{} refused every way enowx tried: {}",
         user,
         target.host,
         target.port,
@@ -496,7 +496,7 @@ fn load_key(
             Some(passphrase) => load_secret_key(path, Some(passphrase))
                 .map_err(|_| "the stored passphrase does not open it".to_owned()),
             None => {
-                Err("encrypted, and no passphrase stored (enx vps add ... --passphrase)".into())
+                Err("encrypted, and no passphrase stored (enowx vps add ... --passphrase)".into())
             }
         },
         Err(error) => Err(error.to_string()),
@@ -617,7 +617,7 @@ impl Server for Vps {
         vec![
             ToolSpec {
                 name: "list",
-                description: "The VPSes set up in enx: name, address, user, and how each signs in. No secrets.",
+                description: "The VPSes set up in enowx: name, address, user, and how each signs in. No secrets.",
                 input_schema: schema(&[], &[]),
             },
             ToolSpec {

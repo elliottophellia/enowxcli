@@ -71,7 +71,7 @@ impl Dokploy {
             .unwrap_or_else(|| body.to_string());
         match status {
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => bail!(
-                "Dokploy refused the API key ({status}): {message}. Store a new one with `enx mcp install dokploy`."
+                "Dokploy refused the API key ({status}): {message}. Store a new one with `enowx mcp install dokploy`."
             ),
             _ => bail!("Dokploy answered {status}: {message}"),
         }

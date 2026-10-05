@@ -2,6 +2,24 @@
 
 All notable changes to enowx. Dates are YYYY-MM-DD.
 
+## v0.2.4 (2026-10-05)
+
+### Fixes
+
+- **Quitting no longer freezes while a specialist is at work under an ACP
+  lead.** An ACP agent's delegation ran the specialist inside the lead's tool
+  call, and quitting waited for that turn to end. Stopping the lead's turn
+  now answers the call at once, quitting stops the specialists still at work,
+  and the exit never waits more than a few seconds for a turn.
+- **The sidebar names the engine a specialist runs on.** With `/acp` in use,
+  every specialist runs on that agent, but its row showed enowx's configured
+  model; it now reads `Claude Code (ACP)` and its model.
+- **enowx, not enx, everywhere you read it**: the quit dialog, `/update` and
+  its status lines, `enowx update`, and the messages that tell you which
+  command to run. `enx` still works as a second name for the command.
+- **`enowx dev` runs the rebuilt `enowx`** instead of a binary that no longer
+  exists.
+
 ## v0.2.3 (2026-10-05)
 
 ### Agents

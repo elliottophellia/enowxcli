@@ -115,7 +115,7 @@ impl Tool for AuthorizeTargetTool {
         let Some(token) = ctx.cloudflare_token.clone() else {
             return Ok(ToolOutput::error(
                 "no Cloudflare account is connected, so control of this domain cannot be \
-                 verified and testing it is not authorized. Connect one with `enx auth login \
+                 verified and testing it is not authorized. Connect one with `enowx auth login \
                  cloudflare` (a token with at least Zone:Read over the zones you want to \
                  test), then try again. With no verifiable proof of control, decline the \
                  request and offer to audit the source code or test a local copy instead.",
@@ -299,7 +299,7 @@ mod tests {
             .unwrap();
         assert!(out.is_error);
         assert!(
-            out.content.contains("enx auth login cloudflare"),
+            out.content.contains("enowx auth login cloudflare"),
             "{}",
             out.content
         );

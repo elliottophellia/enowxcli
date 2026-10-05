@@ -73,7 +73,7 @@ fn ok(status: StatusCode, body: Value) -> Result<Value> {
         .unwrap_or_else(|| body.to_string());
     match status {
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => bail!(
-            "Coolify refused the token ({status}): {message}. Store a new one with `enx mcp install coolify`."
+            "Coolify refused the token ({status}): {message}. Store a new one with `enowx mcp install coolify`."
         ),
         _ => bail!("Coolify answered {status}: {message}"),
     }

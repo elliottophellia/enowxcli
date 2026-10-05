@@ -737,6 +737,16 @@ impl Agent {
         let _ = tokio::time::timeout(left, notified).await;
     }
 
+    /// Stop every delegation at work: enowx is exiting. How many were.
+    pub fn stop_all_delegations(&self) -> usize {
+        let ids: Vec<String> = self
+            .cancels
+            .lock()
+            .map(|cancels| cancels.keys().cloned().collect())
+            .unwrap_or_default();
+        ids.iter().filter(|id| self.stop_branch(id, None)).count()
+    }
+
     /// Stop a delegation at work, as the user asked from the sidebar. Its
     /// turn ends at its next step; its caller gets a report saying it was
     /// stopped, with what it had changed and where its transcript is, and
@@ -1016,6 +1026,20 @@ impl Agent {
                     .map(|a| a.tier)
             })
             .unwrap_or_default();
+        // An agent on an ACP engine runs on that engine's model, not the
+        // configured one: say so, or the sidebar names a model not in use.
+        if let Some(engine) = self.config.acp.engine_for(name) {
+            let model = self.config.acp.engine(engine).model;
+            return format!(
+                "{} (ACP){}",
+                crate::acp::title(engine),
+                if model.is_empty() {
+                    String::new()
+                } else {
+                    format!(" · {model}")
+                }
+            );
+        }
         self.config.running_model(name, tier)
     }
 

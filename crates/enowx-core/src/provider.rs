@@ -290,7 +290,7 @@ pub struct Probe {
 pub async fn probe_model(config: &Config, model: &str, prompt: &str) -> Result<Probe> {
     let mut probe_config = config.clone();
     if !probe_config.use_model(model) {
-        bail!("`{model}` names no provider enx knows; write it as provider/model");
+        bail!("`{model}` names no provider enowx knows; write it as provider/model");
     }
     if let Some(reason) = config.model_unusable(model) {
         bail!("{reason}");

@@ -135,7 +135,7 @@ fn a_provider_is_set_field_by_field() {
         .set("provider.enowx.api_key", "sk-x")
         .unwrap_err()
         .to_string();
-    assert!(error.contains("enx auth login enowx"), "{error}");
+    assert!(error.contains("enowx auth login enowx"), "{error}");
     assert!(config.set("provider.Bad Id.base_url", "https://x").is_err());
     assert!(config.set("provider.enowx.base_url", "ftp://x").is_err());
 

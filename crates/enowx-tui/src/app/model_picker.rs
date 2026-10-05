@@ -384,12 +384,12 @@ impl App {
     /// Use `raw` from now on, and put it first in the recent list.
     pub(crate) fn choose_model(&mut self, raw: &str) -> Result<()> {
         let model = self.config.parse_model(raw).ok_or_else(|| {
-            anyhow::anyhow!("`{raw}` names no provider enx knows; write it as provider/model")
+            anyhow::anyhow!("`{raw}` names no provider enowx knows; write it as provider/model")
         })?;
         let connection = self
             .config
             .connection(&model.provider)
-            .ok_or_else(|| anyhow::anyhow!("enx knows no provider `{}`", model.provider))?;
+            .ok_or_else(|| anyhow::anyhow!("enowx knows no provider `{}`", model.provider))?;
         anyhow::ensure!(
             connection.is_connected(),
             "{} is not connected: add its key in /provider",

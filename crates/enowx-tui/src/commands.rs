@@ -38,7 +38,7 @@ pub(crate) const COMMANDS: [(&str, &str); 29] = [
     ("clear", "Clear the visible transcript"),
     ("stop", "Interrupt the current turn"),
     ("retry", "Continue from where a failed turn stopped"),
-    ("update", "Install the latest enx release"),
+    ("update", "Install the latest enowx release"),
     ("quit", "Leave enowxcli"),
 ];
 
@@ -105,7 +105,7 @@ const PALETTE: [(&str, &[(&str, &str)]); 5] = [
         "App",
         &[
             ("commands", "All commands"),
-            ("update", "Update enx"),
+            ("update", "Update enowx"),
             ("help", "Help"),
             ("quit", "Quit"),
         ],

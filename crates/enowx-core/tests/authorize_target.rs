@@ -26,7 +26,7 @@ async fn no_token_refuses_and_points_at_the_connect_command() {
         .await
         .unwrap();
     assert!(out.is_error);
-    assert!(out.content.contains("enx auth login cloudflare"));
+    assert!(out.content.contains("enowx auth login cloudflare"));
     assert!(out.content.contains("not authorized"));
 }
 

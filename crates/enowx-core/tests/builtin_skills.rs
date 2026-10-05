@@ -82,7 +82,7 @@ fn every_workspace_has_the_builtin_skills() {
             .skills
             .iter()
             .find(|skill| skill.name == name)
-            .unwrap_or_else(|| panic!("`{name}` ships with enx"));
+            .unwrap_or_else(|| panic!("`{name}` ships with enowx"));
         assert_eq!(skill.scope, SkillScope::Builtin);
         assert!(
             skill.description.len() > 40,

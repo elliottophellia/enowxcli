@@ -180,16 +180,28 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
             }
         }
     }
+    // Specialists still at work stop with enowx, as the turn does: one held
+    // inside a call (an ACP lead's delegation) would otherwise keep the exit
+    // waiting until it finished.
+    app.agent.stop_all_delegations();
     app.interrupt();
     // No headless Chrome outlives enx.
     enowx_core::preview::shutdown().await;
     // Drain while joining: a producer awaiting a full UI channel must be able
     // to publish its final events and persist the cancelled turn before exit.
+    // Bounded: quitting never hangs on a turn that does not stop in time.
     if let Some(mut task) = app.task.take() {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         loop {
             tokio::select! {
                 result = &mut task => { result?; break; }
-                _ = tokio::time::sleep(Duration::from_millis(10)) => app.drain_events(),
+                _ = tokio::time::sleep(Duration::from_millis(10)) => {
+                    app.drain_events();
+                    if tokio::time::Instant::now() >= deadline {
+                        task.abort();
+                        break;
+                    }
+                }
             }
         }
     }

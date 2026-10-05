@@ -59,7 +59,7 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
 
 fn client() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
-        .user_agent(concat!("enx/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("enowx/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(300))
         .build()?)

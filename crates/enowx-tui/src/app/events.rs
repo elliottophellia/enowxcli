@@ -575,7 +575,7 @@ impl App {
             self.push(
                 TranscriptKind::Notice,
                 format!(
-                    "The provider is still down. enx continues from here in {}s by itself \
+                    "The provider is still down. enowx continues from here in {}s by itself \
                      ({} of {AUTO_RETRIES}); /retry continues now, Esc cancels.",
                     AUTO_RETRY_AFTER.as_secs(),
                     self.auto_retries

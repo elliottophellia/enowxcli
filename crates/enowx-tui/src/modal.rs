@@ -92,7 +92,7 @@ impl Modal {
             Modal::Skills => " SKILLS ",
             Modal::Mcp => " MCP SERVERS ",
             Modal::McpForm => " ADD MCP SERVER ",
-            Modal::QuitConfirm => " QUIT ENX ",
+            Modal::QuitConfirm => " QUIT ENOWX ",
             Modal::StopConfirm => " STOP SUB-AGENT ",
             Modal::Handoff => " HAND OFF TO A NEW SESSION ",
             // Forms draw their own heading, so the generic title is empty.

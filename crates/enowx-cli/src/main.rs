@@ -393,7 +393,7 @@ async fn main() -> Result<()> {
 async fn update(check_only: bool, force: bool) -> Result<()> {
     use enowx_core::update;
     let current = update::current();
-    println!("enx {current}");
+    println!("enowx {current}");
     let found = if force {
         update::Check::Available(update::latest().await?)
     } else {
@@ -412,7 +412,7 @@ async fn update(check_only: bool, force: bool) -> Result<()> {
             println!("Installing {latest}...");
             let path = update::install(&latest).await?;
             println!(
-                "Installed {latest} at {}. Restart any enx that is running to use it.",
+                "Installed {latest} at {}. Restart any enowx that is running to use it.",
                 path.display()
             );
             Ok(())

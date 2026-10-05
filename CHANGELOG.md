@@ -2,7 +2,7 @@
 
 All notable changes to enowx. Dates are YYYY-MM-DD.
 
-## Unreleased
+## v0.2.5 (2026-10-06)
 
 ### Fixes
 

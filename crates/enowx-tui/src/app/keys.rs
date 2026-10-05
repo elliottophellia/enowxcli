@@ -357,7 +357,10 @@ impl App {
                 // mid-draft does not throw the session away.
                 KeyCode::Char('d') if self.input.is_empty() => self.should_quit = true,
                 KeyCode::Char('d') => self.delete_forward(),
-                KeyCode::Backspace => self.delete_word_back(),
+                // Ctrl+W erases a word as in a shell, and is what Windows
+                // Terminal sends for Ctrl+Backspace. (^H is plain Backspace
+                // on many terminals: `keymap::normalize` keeps it so.)
+                KeyCode::Backspace | KeyCode::Char('w') => self.delete_word_back(),
                 // Ctrl+S sends now on every terminal: Ctrl+Enter only reaches
                 // us where the terminal can tell it from Enter.
                 KeyCode::Char('s') if self.busy && self.viewing.is_none() => self.send_now(),
@@ -508,6 +511,7 @@ impl App {
                 self.cursor += 1;
             }
             KeyCode::Enter => {
+                self.prompt_recall = None;
                 let text = self.input.trim().to_string();
                 if self.busy && !text.starts_with('/') {
                     // Typed while the turn runs: it waits its turn.
@@ -566,13 +570,25 @@ impl App {
             }
             KeyCode::Home => self.cursor = line_start(&self.input, self.cursor),
             KeyCode::End => self.cursor = line_end(&self.input, self.cursor),
+            // Up on the first line and Down on the last step through the
+            // prompts already sent, as a shell's history does.
             KeyCode::Up => {
                 if !self.unqueue_last() {
-                    self.cursor = move_line(&self.input, self.cursor, -1);
+                    if line_start(&self.input, self.cursor) == 0 {
+                        self.recall_prompt(-1);
+                    } else {
+                        self.cursor = move_line(&self.input, self.cursor, -1);
+                    }
                 }
             }
             KeyCode::Down => {
-                self.cursor = move_line(&self.input, self.cursor, 1);
+                if line_end(&self.input, self.cursor) == self.input.len()
+                    && self.prompt_recall.is_some()
+                {
+                    self.recall_prompt(1);
+                } else {
+                    self.cursor = move_line(&self.input, self.cursor, 1);
+                }
             }
             KeyCode::PageUp => {
                 self.auto_scroll = false;
@@ -686,6 +702,40 @@ impl App {
             .map(|(index, _)| self.cursor + index)
             .unwrap_or(self.input.len());
         self.input.drain(self.cursor..next);
+    }
+
+    /// Step through the prompts sent in this session: `-1` to an older one,
+    /// `1` to a newer one, and past the newest back to the draft that was
+    /// being written.
+    pub(crate) fn recall_prompt(&mut self, step: i32) {
+        let mut prompts: Vec<&str> = self
+            .blocks
+            .iter()
+            .filter(|b| matches!(b.kind, TranscriptKind::User))
+            .map(|b| b.text.as_str())
+            .filter(|t| !t.trim().is_empty())
+            .collect();
+        prompts.dedup();
+        if prompts.is_empty() {
+            return;
+        }
+        let next = match (self.prompt_recall, step) {
+            (None, s) if s < 0 => {
+                self.recall_draft = std::mem::take(&mut self.input);
+                Some(prompts.len() - 1)
+            }
+            (None, _) => return,
+            (Some(0), s) if s < 0 => Some(0),
+            (Some(i), s) if s < 0 => Some(i - 1),
+            (Some(i), _) if i + 1 < prompts.len() => Some(i + 1),
+            (Some(_), _) => None,
+        };
+        self.input = match next {
+            Some(i) => prompts[i].to_owned(),
+            None => std::mem::take(&mut self.recall_draft),
+        };
+        self.prompt_recall = next;
+        self.cursor = self.input.len();
     }
 
     /// Ctrl+Backspace or Alt+Backspace: erase the word before the caret,

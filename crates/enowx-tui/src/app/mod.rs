@@ -257,6 +257,10 @@ pub(crate) struct App {
     pub(crate) modal_cursor: usize,
     pub(crate) modal_items: Vec<(String, String)>,
     pub(crate) palette_cursor: usize,
+    /// Which sent prompt Up/Down is showing in the composer, and the draft
+    /// it replaced, restored when stepping past the newest.
+    pub(crate) prompt_recall: Option<usize>,
+    pub(crate) recall_draft: String,
     /// First line of the Ctrl+P palette on screen, kept between frames so
     /// the list scrolls rather than jumping to put the selection at an edge.
     pub(crate) palette_offset: usize,
@@ -497,6 +501,8 @@ impl App {
             modal_cursor: 0,
             modal_items: Vec::new(),
             palette_cursor: 0,
+            prompt_recall: None,
+            recall_draft: String::new(),
             palette_offset: 0,
             modal_offset: 0,
             modal_scrolled: false,

@@ -2,7 +2,7 @@
 
 All notable changes to enowx. Dates are YYYY-MM-DD.
 
-## Unreleased
+## v0.2.3 (2026-10-05)
 
 ### Agents
 
@@ -46,6 +46,16 @@ All notable changes to enowx. Dates are YYYY-MM-DD.
   user wrote), so it loads only enowx's MCP server instead of the ones in the
   user's Kiro config and their OAuth prompts. An agent's error now carries its reason (the
   model not available on the plan, say) instead of "Internal error".
+
+### Composer
+
+- **Earlier prompts with Up and Down, and Ctrl+W to erase a word.** Up on
+  the composer's first line brings back the prompts sent in this session,
+  newest first, and Down on its last line steps forward again, back to what
+  you were typing. Ctrl+W erases the word before the caret, as in a shell; it
+  is also what Windows Terminal sends for Ctrl+Backspace, which other
+  terminals report either as itself (already handled) or as a plain
+  Backspace. Reported in #37.
 
 ### Install and update
 

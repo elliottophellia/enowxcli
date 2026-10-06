@@ -121,7 +121,7 @@ fn draw_skills(frame: &mut Frame, app: &mut App) {
         92,
         height,
         app.modal.title(),
-        "Enter read · Tab enable/disable · Esc close",
+        "Enter read · Space enable/disable · Esc close",
     );
     let (search, list_area) = search_layout(content);
     search_row(app, search, frame);
@@ -214,7 +214,7 @@ fn draw_mcp(frame: &mut Frame, app: &mut App) {
         100,
         height,
         app.modal.title(),
-        "Tab on/off · c configure · t tools · Enter edit · Esc",
+        "Space on/off · c configure · t tools · Enter edit/tools · Esc",
     );
     let (search, list_area) = search_layout(content);
     search_row(app, search, frame);

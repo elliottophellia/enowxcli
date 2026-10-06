@@ -1,4 +1,4 @@
-pub(crate) const COMMANDS: [(&str, &str); 27] = [
+pub(crate) const COMMANDS: [(&str, &str); 28] = [
     ("help", "Show every command"),
     ("commands", "Browse and search every command"),
     ("new", "Start a fresh session"),
@@ -25,6 +25,7 @@ pub(crate) const COMMANDS: [(&str, &str); 27] = [
         "handoff",
         "Carry on in a fresh, light session; keep or delete this one",
     ),
+    ("settings", "Open searchable settings"),
     ("sidebar", "Toggle telemetry right sidebar"),
     ("reasoning", "Open or close every thinking row"),
     ("tools", "Expand or collapse tool output"),
@@ -99,6 +100,7 @@ const PALETTE: [(&str, &[(&str, &str)]); 5] = [
         "App",
         &[
             ("commands", "All commands"),
+            ("settings", "Settings"),
             ("update", "Update enx"),
             ("help", "Help"),
             ("quit", "Quit"),

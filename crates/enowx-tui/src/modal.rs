@@ -67,6 +67,9 @@ pub enum Modal {
     /// `/handoff`: carry on in a fresh session, keeping or deleting this
     /// one's history.
     Handoff,
+    SettingValue,
+    /// Previewing a finite Settings choice without persisting until Enter.
+    SettingsChoice,
 }
 
 impl Modal {
@@ -101,7 +104,9 @@ impl Modal {
             | Modal::Updates
             | Modal::General
             | Modal::Display
-            | Modal::ProviderKey => "",
+            | Modal::ProviderKey
+            | Modal::SettingValue
+            | Modal::SettingsChoice => "",
         }
     }
 
@@ -121,6 +126,8 @@ impl Modal {
                 | Modal::Updates
                 | Modal::General
                 | Modal::Display
+                | Modal::SettingValue
+                | Modal::SettingsChoice
         )
     }
 }

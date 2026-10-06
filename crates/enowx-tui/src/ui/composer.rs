@@ -455,7 +455,12 @@ pub(super) fn draw_composer_box(
             .collect()
     };
     frame.render_widget(Paragraph::new(painted), field);
-    if app.modal == Modal::None && app.question.is_none() && field.height > 0 && field.width > 0 {
+    if app.tab() == crate::app::pages::Tab::Chat
+        && app.modal == Modal::None
+        && app.question.is_none()
+        && field.height > 0
+        && field.width > 0
+    {
         frame.set_cursor_position((
             field.x + (col as u16).min(field.width - 1),
             field.y + ((row - offset) as u16).min(field.height - 1),

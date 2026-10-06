@@ -387,18 +387,18 @@ impl App {
                     "\n  Esc                Close page / stop turn / clear input",
                     "\n  Ctrl+C             Stop turn / clear input / quit",
                     "\n  Ctrl+D             Quit when the composer is empty",
-                    "\n  Ctrl+P             Chat / Settings (Left: section list)",
+                    "\n  Ctrl+P             Chat / Settings directly",
+                    "\n  Settings            ↑↓ rows · Tab categories · type to search · Esc clear/Chat",
                     "\n  Ctrl+T             Next sidebar tab (Alt+1-4 picks one)",
                     "\n  Ctrl+G / Ctrl+X    Filter logs / show detail",
                     "\n  Alt+Left/Right     Sidebar pages (Alt+B / Alt+F too)",
                     "\n  Ctrl+B             Toggle sidebar",
-                    "\n  Ctrl+Up, Alt+Up    Edit, resend or copy your last message",
-                    "\n  Ctrl+V, Alt+V      Attach an image from the clipboard",
-                    "\n  /commands          Search every command",
+                    "\n  /settings           Open searchable Settings",
                 ));
                 self.push(TranscriptKind::System, text);
             }
             "new" => self.new_session(),
+            "settings" => self.open_settings()?,
             "resume" => self.open_sessions()?,
             "agent" if !args.trim().is_empty() => self.force_agent(args.trim())?,
             "agent" => self.open_agents(),
@@ -634,6 +634,9 @@ impl App {
             Modal::Themes => {
                 self.select_theme(self.modal_cursor)?;
                 self.modal = Modal::None;
+                if self.settings_return.is_some() {
+                    self.restore_settings_return();
+                }
             }
             Modal::Effort => {
                 if let Some((level, _)) = self.modal_items.get(self.modal_cursor).cloned() {
@@ -689,7 +692,7 @@ impl App {
                     _ => {}
                 }
             }
-            Modal::None => {}
+            Modal::None | Modal::SettingValue | Modal::SettingsChoice => {}
         }
         Ok(())
     }

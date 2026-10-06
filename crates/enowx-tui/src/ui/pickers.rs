@@ -8,6 +8,10 @@ const LIST_HINT: &str = "↑↓ move · Enter select · Esc close";
 pub(super) fn draw_modal(frame: &mut Frame, app: &mut App) {
     app.modal_rows.clear();
     let area = frame.area();
+    if app.modal == Modal::SettingsChoice {
+        super::settings::draw_settings_choice(frame, app);
+        return;
+    }
     if app.modal.is_form() {
         draw_settings(frame, app, area);
         return;

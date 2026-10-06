@@ -105,24 +105,45 @@ impl App {
                     self.open_tab(page)?;
                 }
             }
-            // A section in the Settings list opens it, with the keys in it.
             MouseEventKind::Down(MouseButton::Left)
-                if self.settings_sections.iter().any(|(rect, _)| {
-                    rect.contains(ratatui::layout::Position::new(event.column, event.row))
-                }) =>
+                if self.active_tab == crate::app::pages::Tab::Settings
+                    && self
+                        .settings_sections
+                        .iter()
+                        .any(|(rect, _)| rect.contains(position)) =>
             {
-                let position = ratatui::layout::Position::new(event.column, event.row);
                 if let Some((_, page)) = self
                     .settings_sections
                     .iter()
                     .find(|(rect, _)| rect.contains(position))
                     .copied()
                 {
-                    if page != self.page() {
-                        self.open_page(page)?;
+                    self.select_settings_category(page);
+                }
+            }
+            MouseEventKind::Down(MouseButton::Left)
+                if self.active_tab == crate::app::pages::Tab::Settings
+                    && self
+                        .settings_row_rects
+                        .iter()
+                        .any(|(rect, _)| rect.contains(position)) =>
+            {
+                if let Some(id) = self
+                    .settings_row_rects
+                    .iter()
+                    .find(|(rect, _)| rect.contains(position))
+                    .map(|(_, id)| id.clone())
+                {
+                    let already = id == self.settings_row_id;
+                    self.settings_row_id = id.clone();
+                    self.ensure_settings_selection();
+                    let toggled = self
+                        .settings_toggle_rects
+                        .iter()
+                        .any(|(rect, row)| row == &id && rect.contains(position));
+                    if toggled || already {
+                        return self.activate_settings_row(&id);
                     }
-                    // Picking a section shows it; a click in it goes in.
-                    self.settings_nav = true;
                 }
             }
             MouseEventKind::Down(MouseButton::Left)
@@ -338,6 +359,19 @@ impl App {
                     if up { KeyCode::Up } else { KeyCode::Down },
                     KeyModifiers::NONE,
                 );
+                if self.active_tab == crate::app::pages::Tab::Settings && self.modal == Modal::None
+                {
+                    if self
+                        .settings_sections
+                        .iter()
+                        .any(|(rect, _)| rect.contains(position))
+                    {
+                        self.settings_nav = true;
+                    } else {
+                        self.settings_nav = false;
+                    }
+                    return self.key(arrow);
+                }
                 // An open window has the wheel, wherever the pointer is: it
                 // scrolls the window's list a row a step, and leaves the
                 // selection where it is (the keys move that). In Settings it

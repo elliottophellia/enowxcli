@@ -25,6 +25,12 @@ impl App {
     /// tested: the branch that used to decide this listed the form modals by
     /// hand, and a form missing from that list silently dropped every paste.
     pub(crate) fn paste(&mut self, text: &str) {
+        if self.modal == Modal::SettingValue && self.settings_paste(text) {
+            return;
+        }
+        if self.modal == Modal::None && self.tab() == crate::app::pages::Tab::Settings {
+            return;
+        }
         if self.modal == Modal::None && self.paste_into_question(text) {
             return;
         }
@@ -36,11 +42,9 @@ impl App {
             self.input.insert_str(cursor, &clean);
             self.cursor = cursor + clean.len();
         } else if self.modal == Modal::Models {
-            // The model list filters by what is typed, pasted or not.
             let clean: String = text.chars().filter(|c| !c.is_control()).collect();
             self.search_models(|search| search.push_str(clean.trim()));
         }
-        // Any other modal is a list, with nothing to paste into.
     }
 
     /// Insert pasted text into whichever form field is being edited.
@@ -77,7 +81,25 @@ impl App {
         self.field_cursor = cursor + text.len();
     }
 
-    pub(crate) fn settings_key(&mut self, key: KeyEvent) -> Result<()> {
+    pub(crate) fn settings_form_key_with_return(&mut self, key: KeyEvent) -> Result<()> {
+        let before = self.modal;
+        let result = self.settings_form_key(key);
+        if result.is_ok() && self.settings_return.is_some() {
+            if key.code == KeyCode::Enter && self.modal_error.is_empty() {
+                match before {
+                    Modal::Rag | Modal::TypeSafeKey | Modal::BuiltinMcp => self.modal = Modal::None,
+                    Modal::ProviderForm if self.modal != Modal::Models => self.modal = Modal::None,
+                    _ => {}
+                }
+            }
+            if self.modal == Modal::None {
+                self.restore_settings_return();
+            }
+        }
+        result
+    }
+
+    pub(crate) fn settings_form_key(&mut self, key: KeyEvent) -> Result<()> {
         let Some(field) = self.form_field() else {
             self.modal = Modal::None;
             return Ok(());
@@ -97,25 +119,28 @@ impl App {
         }
         match key.code {
             KeyCode::Esc => {
-                // Back to the list the form was opened from.
-                match self.modal {
-                    Modal::ProviderKey | Modal::ProviderForm => {
-                        let id = self.settings.provider_id.clone();
-                        self.refresh_providers();
-                        // On the provider the form was for, or on the row
-                        // that adds one.
-                        self.modal_cursor = self
-                            .provider_ids
-                            .iter()
-                            .position(|p| *p == id)
-                            .unwrap_or(self.provider_ids.len());
+                // A Settings row is the launch point for provider setup; cancel
+                // the whole nested flow instead of returning to the legacy list.
+                if self.settings_return.is_some() {
+                    self.modal = Modal::None;
+                } else {
+                    match self.modal {
+                        Modal::ProviderKey | Modal::ProviderForm => {
+                            let id = self.settings.provider_id.clone();
+                            self.refresh_providers();
+                            self.modal_cursor = self
+                                .provider_ids
+                                .iter()
+                                .position(|p| *p == id)
+                                .unwrap_or(self.provider_ids.len());
+                        }
+                        Modal::ModelManual | Modal::ModelEdit => {
+                            self.modal = Modal::Models;
+                            self.modal_cursor = 0;
+                            self.move_picker(0);
+                        }
+                        _ => self.modal = Modal::None,
                     }
-                    Modal::ModelManual | Modal::ModelEdit => {
-                        self.modal = Modal::Models;
-                        self.modal_cursor = 0;
-                        self.move_picker(0);
-                    }
-                    _ => self.modal = Modal::None,
                 }
                 self.settings.api_key.clear();
             }

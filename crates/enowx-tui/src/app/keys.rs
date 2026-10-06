@@ -3,6 +3,18 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 impl App {
     pub(crate) fn key(&mut self, key: KeyEvent) -> Result<()> {
+        let result = self.key_inner(key);
+        if result.is_ok()
+            && self.active_tab == crate::app::pages::Tab::Settings
+            && self.modal == Modal::None
+            && self.settings_return.is_some()
+        {
+            self.restore_settings_return();
+        }
+        result
+    }
+
+    fn key_inner(&mut self, key: KeyEvent) -> Result<()> {
         // A key moves the selection, and the list follows it again.
         self.modal_scrolled = false;
         // Stopping the model outranks whatever window happens to be in front
@@ -24,22 +36,42 @@ impl App {
             self.interrupt();
             return Ok(());
         }
-        // Ctrl+P switches between Chat and Settings from anywhere, a section
-        // included: a section is a modal, and its own handler would otherwise
-        // take the key.
+        if self.question.is_some()
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+            && key.code == KeyCode::Char('p')
+        {
+            return Ok(());
+        }
         if key.modifiers.contains(KeyModifiers::CONTROL)
             && key.code == KeyCode::Char('p')
             && self.modal != Modal::QuitConfirm
             && self.modal != Modal::StopConfirm
         {
+            if self.modal == Modal::Themes {
+                self.theme = Theme::find(&self.config.ui.theme);
+            }
+            if self.tab() == crate::app::pages::Tab::Settings && self.modal != Modal::None {
+                self.modal = Modal::None;
+                self.setting_edit = None;
+                self.settings_choice = None;
+                self.settings_return = None;
+            }
             return self.switch_tab();
         }
         if self.settings_page_key(&key)? {
             return Ok(());
         }
+        if self.tab() == crate::app::pages::Tab::Settings
+            && (self.modal == Modal::None
+                || self.modal == Modal::SettingValue
+                || self.modal == Modal::SettingsChoice)
+        {
+            self.settings_key(&key)?;
+            return Ok(());
+        }
         if self.modal != Modal::None {
             if self.modal.is_form() && self.modal != Modal::McpForm {
-                return self.settings_key(key);
+                return self.settings_form_key_with_return(key);
             }
             if self.modal == Modal::StopConfirm {
                 match key.code {
@@ -125,9 +157,12 @@ impl App {
                         if self.modal_search.is_empty() {
                             self.modal = Modal::None;
                             self.picker.events = None;
-                            // Choosing for an agent: back to the roster.
+                            // Choosing for an agent: back to the roster unless
+                            // the Settings row is the stable return destination.
                             if let Some(agent) = self.picking_for_agent.take() {
-                                self.return_to_agents(&agent);
+                                if self.settings_return.is_none() {
+                                    self.return_to_agents(&agent);
+                                }
                             }
                         } else {
                             self.search_models(String::clear);
@@ -233,7 +268,7 @@ impl App {
                         }
                         return Ok(());
                     }
-                    KeyCode::Tab => {
+                    KeyCode::Char(' ') => {
                         if self.modal == Modal::Skills {
                             self.toggle_selected_skill()?;
                         } else {

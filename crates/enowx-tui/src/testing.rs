@@ -768,8 +768,10 @@ impl TestApp {
 
     /// The form for a new custom provider, as its row in `/provider` opens.
     pub fn open_custom_provider_form(&mut self) {
-        self.inner.settings = crate::modal::SettingsDraft::default();
-        self.inner.open_form(Modal::ProviderForm);
+        self.inner.open_settings().expect("Settings");
+        self.inner
+            .activate_settings_row("provider:add")
+            .expect("provider row");
     }
 
     pub fn set_settings_field(&mut self, field: &str, value: &str) {
@@ -811,10 +813,11 @@ impl TestApp {
 
     /// Enter in the open form.
     pub fn submit_form(&mut self) -> anyhow::Result<()> {
-        self.inner.settings_key(crossterm::event::KeyEvent::new(
-            crossterm::event::KeyCode::Enter,
-            crossterm::event::KeyModifiers::NONE,
-        ))
+        self.inner
+            .settings_form_key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Enter,
+                crossterm::event::KeyModifiers::NONE,
+            ))
     }
 
     /// The key `auth.json` holds for `provider`.
@@ -1063,10 +1066,7 @@ impl TestApp {
     }
 
     pub fn settings_modal_open(&self) -> bool {
-        matches!(
-            self.inner.modal,
-            Modal::ProviderForm | Modal::ProviderKey | Modal::ModelManual
-        )
+        self.inner.tab() == crate::app::pages::Tab::Settings && self.inner.modal != Modal::None
     }
 
     pub fn set_busy(&mut self, busy: bool) {
@@ -1186,6 +1186,24 @@ impl TestApp {
 
     pub fn any_modal_open(&self) -> bool {
         self.inner.modal != Modal::None
+    }
+    pub fn active_tab(&self) -> &'static str {
+        match self.inner.tab() {
+            crate::app::pages::Tab::Chat => "Chat",
+            crate::app::pages::Tab::Settings => "Settings",
+        }
+    }
+
+    pub fn settings_row_id(&self) -> Option<String> {
+        (!self.inner.settings_row_id.is_empty()).then(|| self.inner.settings_row_id.clone())
+    }
+
+    pub fn settings_query(&self) -> String {
+        self.inner.settings_query.clone()
+    }
+
+    pub fn config_value(&self, key: &str) -> Option<String> {
+        self.inner.config.get(key)
     }
 
     /// Move the palette's highlight onto a named command.
@@ -1345,6 +1363,9 @@ impl TestApp {
 impl TestApp {
     /// The settings field the form is currently editing.
     pub fn settings_field_value(&self) -> String {
+        if let Some(edit) = &self.inner.setting_edit {
+            return edit.draft.clone();
+        }
         self.inner
             .settings
             .value(crate::modal::form_fields(self.inner.modal)[self.inner.modal_cursor])

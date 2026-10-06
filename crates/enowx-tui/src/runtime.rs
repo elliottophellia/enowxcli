@@ -150,6 +150,9 @@ pub async fn run(config: Config, session: Option<String>) -> Result<()> {
                     // A sub-agent's transcript is read only: nothing is typed
                     // into it, pasted text included.
                     TerminalEvent::Paste(_) if app.viewing.is_some() => {}
+                    TerminalEvent::Paste(_)
+                        if app.active_tab == crate::app::pages::Tab::Settings
+                            && app.modal == Modal::None => {}
                     TerminalEvent::Paste(text) if app.modal == Modal::None => {
                         // A drag-and-drop reaches us as one or more file paths.
                         let paths = crate::attachments::dropped_paths(&text);

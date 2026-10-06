@@ -400,7 +400,11 @@ impl App {
         if let Some(agent) = self.picking_for_agent.take() {
             self.modal_search.clear();
             self.set_agent_model(&agent, Some(&model.to_string()))?;
-            self.return_to_agents(&agent);
+            if self.settings_return.is_some() {
+                self.restore_settings_return();
+            } else {
+                self.return_to_agents(&agent);
+            }
             return Ok(());
         }
         // The active agent has a model of its own, which would win over the

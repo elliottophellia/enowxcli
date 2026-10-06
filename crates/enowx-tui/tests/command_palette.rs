@@ -27,14 +27,59 @@ fn it_opens_a_modal() {
 }
 
 #[test]
-fn every_command_is_listed() {
+fn settings_is_listed_once_in_the_app_group() {
     let mut app = TestApp::new();
     open(&mut app);
-    assert_eq!(app.palette_row_count(), TestApp::command_names().len());
     let text = app.render_to_text(110, 40).join("\n");
-    for label in ["New session", "Agents", "Model", "Provider", "Theme"] {
-        assert!(text.contains(label), "`{label}` should be listed: {text}");
+    assert_eq!(text.matches("Settings").count(), 1, "{text}");
+    assert!(
+        text.contains("APP"),
+        "Settings should be in the App group: {text}"
+    );
+    assert_eq!(
+        TestApp::command_names()
+            .iter()
+            .filter(|(name, _)| *name == "settings")
+            .count(),
+        1,
+        "/settings must be registered exactly once"
+    );
+}
+
+#[test]
+fn settings_command_opens_last_settings_row_from_chat() {
+    let mut app = TestApp::new();
+    assert_eq!(app.active_tab(), "Chat");
+    app.run_command("/settings").expect("/settings");
+    assert_eq!(app.active_tab(), "Settings");
+    assert_eq!(app.settings_row_id().as_deref(), Some("agent.preview"));
+}
+
+#[test]
+fn rag_and_team_commands_select_their_settings_rows_without_opening_forms() {
+    for (command, expected_row) in [("/rag", "rag:configure"), ("/team", "agent.comms.enabled")] {
+        let mut app = TestApp::new();
+        app.run_command(command)
+            .unwrap_or_else(|error| panic!("{command}: {error}"));
+        assert_eq!(app.active_tab(), "Settings", "{command}");
+        assert_eq!(
+            app.settings_row_id().as_deref(),
+            Some(expected_row),
+            "{command}"
+        );
+        assert!(
+            !app.any_modal_open(),
+            "{command} should select a row, not open a form"
+        );
     }
+}
+
+#[test]
+fn typesafe_command_from_chat_keeps_legacy_popup_route() {
+    let mut app = TestApp::new();
+    app.run_command("/typesafe").expect("/typesafe");
+    assert_eq!(app.active_tab(), "Chat");
+    assert_eq!(app.modal_title(), " TYPESAFE ");
 }
 
 /// The palette is for looking, not typing: rows read as actions, without
@@ -258,7 +303,7 @@ fn ctrl_p_leaves_an_open_form() {
     app.open_custom_provider_form();
     assert!(app.settings_modal_open(), "settings should be open first");
     app.press(KeyCode::Char('p'), true).expect("ctrl+p");
-    assert!(!app.settings_modal_open());
+    assert_eq!(app.active_tab(), "Chat");
     assert!(!app.palette_open(), "one key, one effect");
 }
 
@@ -267,10 +312,16 @@ fn ctrl_p_leaves_an_open_form() {
 fn leaving_the_theme_page_restores_the_saved_theme() {
     let mut app = TestApp::new();
     let before = app.theme_name();
-    app.open_themes();
+    app.run_command("/settings").unwrap();
+    for _ in 0..12 {
+        app.press_key(KeyCode::PageDown).unwrap();
+    }
+    app.press_key(KeyCode::PageUp).unwrap();
+    assert_eq!(app.settings_row_id().as_deref(), Some("theme:choose"));
+    app.press_key(KeyCode::Enter).expect("Theme chooser");
     app.preview_theme(2);
     assert_ne!(app.theme_name(), before);
-    app.press(KeyCode::Char('p'), true).expect("ctrl+p");
+    app.press(KeyCode::Char('p'), true).expect("Ctrl+P Chat");
     assert_eq!(app.theme_name(), before);
 }
 

@@ -207,3 +207,36 @@ fn saving_a_provider_leaves_unrelated_settings_alone() {
     app.submit_form().expect("save");
     assert_eq!(app.config_agent_max_steps(), before);
 }
+#[test]
+fn settings_provider_cancel_restores_origin_query_and_row() {
+    use crossterm::event::KeyCode;
+
+    let mut app = seeded();
+    app.run_command("/settings").expect("settings");
+    app.type_keys("provider:enowx");
+    assert_eq!(app.settings_row_id().as_deref(), Some("provider:enowx"));
+    assert_eq!(app.settings_query(), "provider:enowx");
+    app.press_key(KeyCode::Enter).expect("open provider");
+    app.press_key(KeyCode::Esc).expect("cancel provider");
+    assert_eq!(app.active_tab(), "Settings");
+    assert_eq!(app.settings_row_id().as_deref(), Some("provider:enowx"));
+    assert_eq!(app.settings_query(), "provider:enowx");
+}
+
+#[test]
+fn settings_provider_save_chains_to_model_picker_then_restores_origin() {
+    use crossterm::event::KeyCode;
+
+    let mut app = seeded();
+    app.run_command("/settings").expect("settings");
+    app.type_keys("provider:enowx");
+    assert_eq!(app.settings_row_id().as_deref(), Some("provider:enowx"));
+    assert_eq!(app.settings_query(), "provider:enowx");
+    app.press_key(KeyCode::Enter).expect("open provider form");
+    app.press_key(KeyCode::Enter).expect("save provider form");
+    assert_eq!(app.modal_title(), " MODELS ");
+    app.press_key(KeyCode::Esc).expect("close model picker");
+    assert_eq!(app.active_tab(), "Settings");
+    assert_eq!(app.settings_row_id().as_deref(), Some("provider:enowx"));
+    assert_eq!(app.settings_query(), "provider:enowx");
+}

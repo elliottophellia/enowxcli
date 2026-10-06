@@ -6,6 +6,86 @@ use ratatui::layout::Rect;
 
 use enowx_tui::testing::TestApp;
 
+fn settings_click(col: u16, row: u16) -> MouseEvent {
+    click(col, row)
+}
+
+fn column_of(line: &str, needle: &str) -> u16 {
+    line[..line.find(needle).expect("visible text")]
+        .chars()
+        .count() as u16
+}
+
+#[test]
+fn settings_clicks_select_rows_categories_and_toggle_controls() {
+    let mut app = TestApp::new();
+    app.press_chord(
+        crossterm::event::KeyCode::Char('p'),
+        crossterm::event::KeyModifiers::CONTROL,
+    )
+    .unwrap();
+
+    let screen = app.render_to_text(160, 40);
+    let (category_y, category_line) = screen
+        .iter()
+        .enumerate()
+        .find(|(_, line)| line.contains("Agents"))
+        .expect("Agents category in rail");
+    app.mouse(settings_click(
+        column_of(category_line, "Agents"),
+        category_y as u16,
+    ))
+    .unwrap();
+    let agent_row = app.settings_row_id().expect("first Agents row selected");
+    assert!(agent_row.starts_with("agent:"));
+
+    let screen = app.render_to_text(160, 40);
+    let (general_y, general_line) = screen
+        .iter()
+        .enumerate()
+        .find(|(_, line)| line.contains("General"))
+        .expect("General category in rail");
+    app.mouse(settings_click(
+        column_of(general_line, "General"),
+        general_y as u16,
+    ))
+    .unwrap();
+    let screen = app.render_to_text(160, 40);
+    // Select the General row, then click its visible toggle control to apply.
+    let (row_y, row_line) = screen
+        .iter()
+        .enumerate()
+        .find(|(_, line)| line.contains("Look at pages in a browser"))
+        .expect("preview row");
+    app.mouse(settings_click(
+        column_of(row_line, "Look at pages"),
+        row_y as u16,
+    ))
+    .unwrap();
+    assert_eq!(app.settings_row_id().as_deref(), Some("agent.preview"));
+    let before = app.config_value("agent.preview").unwrap();
+    let screen = app.render_to_text(160, 40);
+    let (row_y, row_line) = screen
+        .iter()
+        .enumerate()
+        .find(|(_, line)| line.contains("Look at pages in a browser"))
+        .expect("selected preview row");
+    let control = column_of(row_line, "Look at pages") - 4;
+    app.mouse(settings_click(control, row_y as u16)).unwrap();
+    assert_ne!(
+        app.config_value("agent.preview").as_deref(),
+        Some(before.as_str())
+    );
+
+    let prior = app.settings_row_id();
+    app.mouse(wheel(true, 100, row_y as u16)).unwrap();
+    assert_ne!(
+        app.settings_row_id(),
+        prior,
+        "Settings wheel navigates rows, not transcript"
+    );
+}
+
 fn click(col: u16, row: u16) -> MouseEvent {
     MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),

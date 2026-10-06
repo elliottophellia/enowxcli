@@ -1,7 +1,4 @@
-//! The tabs at the top right: Chat and Settings. Settings takes the main
-//! column in place of the chat, with its sections listed on the left; Ctrl+P
-//! switches tabs, a click opens a tab or a section, the arrows move between
-//! the list and the section, and Esc comes back to the chat.
+//! The Chat and Settings workspaces, grouped row navigation, and global shortcut.
 
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use enowx_tui::testing::TestApp;
@@ -10,6 +7,24 @@ fn chat() -> TestApp {
     let mut app = TestApp::in_conversation();
     app.push_user("HISTORY-LINE-ONE");
     app
+}
+
+fn click(app: &mut TestApp, column: u16, row: u16) {
+    app.mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    })
+    .expect("click");
+}
+
+fn column_of(row: &str, needle: &str) -> u16 {
+    row[..row
+        .find(needle)
+        .unwrap_or_else(|| panic!("`{needle}` missing from {row}"))]
+        .chars()
+        .count() as u16
 }
 
 #[test]
@@ -24,32 +39,25 @@ fn two_tabs_sit_at_the_top_right() {
 }
 
 #[test]
-fn settings_replaces_the_chat_with_sections_beside_the_section() {
+fn settings_workspace_shows_grouped_rows_and_hides_chat_transcript() {
     let mut app = chat();
-    app.run_command("/mcp").expect("mcp");
+    app.run_command("/settings").expect("settings");
+    assert_eq!(app.active_tab(), "Settings");
+    assert_eq!(app.settings_row_id().as_deref(), Some("agent.preview"));
     let screen = app.render_to_text(160, 40).join("\n");
     assert!(screen.contains("SETTINGS"), "{screen}");
-    for section in [
-        "Models",
-        "Providers",
-        "Agents",
-        "MCP",
-        "Skills",
-        "Sessions",
-        "Theme",
-    ] {
-        assert!(screen.contains(section), "`{section}` listed: {screen}");
-    }
+    assert!(screen.contains("General"), "{screen}");
+    assert!(screen.contains("Models"), "{screen}");
     assert!(
-        screen.contains("coolify"),
-        "the section beside it: {screen}"
+        screen.contains("Look at pages in a browser"),
+        "selected help: {screen}"
     );
-    assert!(!screen.contains("HISTORY-LINE-ONE"), "{screen}");
-    // Esc twice: out of the section, then out of Settings.
-    app.press_key(KeyCode::Esc).expect("esc");
-    assert!(app.is_modal_open(), "first Esc: back to the section list");
-    app.press_key(KeyCode::Esc).expect("esc");
-    assert!(!app.is_modal_open());
+    assert!(
+        !screen.contains("HISTORY-LINE-ONE"),
+        "hidden Chat transcript: {screen}"
+    );
+    app.press_key(KeyCode::Esc).expect("back to Chat");
+    assert_eq!(app.active_tab(), "Chat");
     assert!(app
         .render_to_text(160, 40)
         .join("\n")
@@ -57,186 +65,196 @@ fn settings_replaces_the_chat_with_sections_beside_the_section() {
 }
 
 #[test]
-fn ctrl_p_switches_between_chat_and_settings() {
+fn shortcut_and_command_open_settings_on_last_row() {
     let mut app = chat();
     app.press(KeyCode::Char('p'), true).expect("ctrl+p");
-    assert!(app.is_modal_open(), "settings open");
-    let first = app.modal_title();
-    app.press(KeyCode::Char('p'), true).expect("ctrl+p");
-    assert!(!app.is_modal_open(), "back on the chat");
-    // Settings opens again on the section used last.
-    app.run_command("/skills").unwrap();
-    app.press(KeyCode::Char('p'), true).unwrap();
-    app.press(KeyCode::Char('p'), true).unwrap();
+    assert_eq!(app.active_tab(), "Settings");
+    assert_eq!(app.settings_row_id().as_deref(), Some("agent.preview"));
+    app.press(KeyCode::Char('p'), true).expect("ctrl+p to Chat");
+    assert_eq!(app.active_tab(), "Chat");
+    app.run_command("/settings").expect("settings command");
+    assert_eq!(app.active_tab(), "Settings");
+    assert_eq!(app.settings_row_id().as_deref(), Some("agent.preview"));
+}
+
+#[test]
+fn global_search_value_editor_persistence_cancel_and_chat_isolation() {
+    let mut app = chat();
+    app.press(KeyCode::Char('p'), true).expect("open Settings");
+    assert_eq!(app.settings_row_id().as_deref(), Some("agent.preview"));
+    assert!(app
+        .render_to_text(150, 44)
+        .join("\n")
+        .contains("Allow agents to inspect web pages"));
+
+    app.type_keys("agent.max_steps");
+    assert_eq!(app.settings_query(), "agent.max_steps");
+    assert_eq!(app.settings_row_id().as_deref(), Some("agent.max_steps"));
+    app.press_key(KeyCode::Enter).expect("edit row");
+    app.press(KeyCode::Char('u'), true).expect("clear draft");
+    app.type_keys("12");
+    app.press_key(KeyCode::Enter).expect("save one key");
+    assert_eq!(app.active_tab(), "Settings");
+    assert_eq!(app.settings_row_id().as_deref(), Some("agent.max_steps"));
+    assert_eq!(app.config_value("agent.max_steps").as_deref(), Some("12"));
+    let rendered = app.render_to_text(150, 44).join("\n");
     assert!(
-        app.modal_title().contains("SKILLS"),
-        "{first} then {}",
-        app.modal_title()
+        app.status_line().contains("changed"),
+        "{}",
+        app.status_line()
+    );
+
+    app.press_key(KeyCode::Enter).expect("edit again");
+    app.press(KeyCode::Char('u'), true).expect("clear draft");
+    app.type_keys("13");
+    app.press_key(KeyCode::Esc).expect("discard draft");
+    assert_eq!(app.config_value("agent.max_steps").as_deref(), Some("12"));
+    assert_eq!(app.settings_row_id().as_deref(), Some("agent.max_steps"));
+
+    app.press(KeyCode::Char('p'), true).expect("back to Chat");
+    app.type_keys("chat-only");
+    app.paste(" paste");
+    assert_eq!(app.composer_text(), "chat-only paste");
+    app.press(KeyCode::Char('p'), true)
+        .expect("reopen Settings");
+    assert_eq!(app.settings_row_id().as_deref(), Some("agent.max_steps"));
+    assert!(app.settings_query().is_empty());
+}
+
+#[test]
+fn filtering_toggle_and_empty_search_escape() {
+    let mut app = chat();
+    app.press(KeyCode::Char('p'), true).expect("Settings");
+    app.type_keys("agent.preview");
+    let before = app.config_value("agent.preview").expect("config value");
+    app.press_key(KeyCode::Char(' '))
+        .expect("toggle selected row");
+    assert_ne!(
+        app.config_value("agent.preview").as_deref(),
+        Some(before.as_str())
+    );
+    let text = app.render_to_text(140, 36).join("\n");
+    assert!(text.contains(
+        if app.config_value("agent.preview").as_deref() == Some("true") {
+            "on"
+        } else {
+            "off"
+        }
+    ));
+
+    app.press_key(KeyCode::Esc).expect("clear query first");
+    assert!(app.settings_query().is_empty());
+    app.type_keys("no-such-setting");
+    let text = app.render_to_text(140, 36).join("\n");
+    assert!(text.contains("No settings match this query"), "{text}");
+    app.press_key(KeyCode::Esc).expect("clear empty query");
+    assert_eq!(app.active_tab(), "Settings");
+    assert!(app.settings_query().is_empty());
+}
+
+#[test]
+fn workspace_layout_has_split_and_flat_responsive_modes() {
+    let mut app = chat();
+    app.press(KeyCode::Char('p'), true).expect("Settings");
+    let wide = app.render_to_text(120, 36).join("\n");
+    assert!(wide.contains("Categories"), "split layout: {wide}");
+    assert!(
+        wide.contains("Allow agents to inspect web pages"),
+        "selected help: {wide}"
+    );
+    let narrow = app.render_to_text(70, 20).join("\n");
+    assert!(narrow.contains("General"), "flat layout: {narrow}");
+    for _ in 0..100 {
+        if app.settings_row_id().as_deref() == Some("update.auto_install") {
+            break;
+        }
+        app.press_key(KeyCode::Down).unwrap();
+    }
+    assert_eq!(
+        app.settings_row_id().as_deref(),
+        Some("update.auto_install")
+    );
+    let narrow = app.render_to_text(70, 20).join("\n");
+    assert!(
+        narrow.contains("Install updates automatically"),
+        "selected row is kept in the viewport: {narrow}"
     );
 }
 
 #[test]
-fn the_arrows_walk_the_section_list() {
+fn category_click_and_row_click_select_or_activate() {
     let mut app = chat();
-    app.run_command("/agent").unwrap();
-    assert!(app.modal_title().contains("AGENT"), "{}", app.modal_title());
-    app.press_key(KeyCode::Left).unwrap();
-    // Agents, then Team, then MCP.
-    app.press_key(KeyCode::Down).unwrap();
-    app.press_key(KeyCode::Down).unwrap();
-    assert!(app.modal_title().contains("MCP"), "{}", app.modal_title());
-    app.press_key(KeyCode::Up).unwrap();
-    app.press_key(KeyCode::Up).unwrap();
-    app.press_key(KeyCode::Up).unwrap();
-    assert!(
-        app.modal_title().contains("PROVIDER"),
-        "{}",
-        app.modal_title()
-    );
-    // Right goes back into the section: Down moves its list, not the sections.
-    app.press_key(KeyCode::Right).unwrap();
-    app.press_key(KeyCode::Down).unwrap();
-    assert!(
-        app.modal_title().contains("PROVIDER"),
-        "{}",
-        app.modal_title()
-    );
-    // Esc from the list goes back to the chat.
-    app.press_key(KeyCode::Left).unwrap();
-    app.press_key(KeyCode::Esc).unwrap();
-    assert!(!app.is_modal_open());
-}
-
-/// The screen column of `text` in `row`: characters, not bytes, since the
-/// box edges are multi-byte.
-fn column_of(row: &str, text: &str) -> u16 {
-    let byte = row
-        .find(text)
-        .unwrap_or_else(|| panic!("`{text}` in {row}"));
-    row[..byte].chars().count() as u16
-}
-
-fn click(app: &mut TestApp, column: u16, row: u16) {
-    app.mouse(MouseEvent {
-        kind: MouseEventKind::Down(MouseButton::Left),
-        column,
-        row,
-        modifiers: KeyModifiers::NONE,
-    })
-    .expect("click");
-}
-
-#[test]
-fn clicks_open_a_tab_and_a_section() {
-    let mut app = chat();
+    app.press(KeyCode::Char('p'), true).expect("Settings");
     let rows = app.render_to_text(160, 40);
-    click(&mut app, column_of(&rows[0], " Settings ") + 2, 0);
-    assert!(app.is_modal_open(), "settings open");
-    let rows = app.render_to_text(160, 40);
-    let (y, row) = rows
+    let (y, line) = rows
         .iter()
         .enumerate()
-        .find(|(_, r)| r.contains(" Skills "))
-        .expect("Skills listed");
-    click(&mut app, column_of(row, "Skills"), y as u16);
-    assert!(
-        app.modal_title().contains("SKILLS"),
-        "{}",
-        app.modal_title()
-    );
-    let rows = app.render_to_text(160, 40);
-    click(&mut app, column_of(&rows[0], " Chat ") + 2, 0);
-    assert!(!app.is_modal_open());
+        .find(|(_, line)| line.contains("Agents"))
+        .expect("Agents category");
+    click(&mut app, column_of(line, "Agents"), y as u16);
+    assert!(app
+        .settings_row_id()
+        .as_deref()
+        .unwrap()
+        .starts_with("agent:"));
+    assert_eq!(app.active_tab(), "Settings");
 }
 
 #[test]
-fn settings_reopens_on_the_section_left_with_esc() {
+fn theme_preview_is_temporary_until_saved_and_escape_restores_it() {
     let mut app = chat();
-    app.run_command("/theme").unwrap();
-    app.press_key(KeyCode::Esc).unwrap();
-    app.press_key(KeyCode::Esc).unwrap();
-    assert!(!app.is_modal_open());
-    app.press(KeyCode::Char('p'), true).unwrap();
-    assert!(app.modal_title().contains("THEME"), "{}", app.modal_title());
+    app.press(KeyCode::Char('p'), true).expect("Settings");
+    app.type_keys("theme:choose");
+    assert_eq!(app.settings_row_id().as_deref(), Some("theme:choose"));
+    let original = app.config_value("ui.theme").expect("configured theme");
+    let original_live = app.theme_name();
+
+    app.press_key(KeyCode::Enter).expect("open theme chooser");
+    app.press_key(KeyCode::Down).expect("preview next theme");
+    assert_ne!(app.theme_name(), original_live);
+    assert_eq!(
+        app.config_value("ui.theme").as_deref(),
+        Some(original.as_str())
+    );
+    app.press_key(KeyCode::Esc).expect("cancel preview");
+    assert_eq!(app.active_tab(), "Settings");
+    assert_eq!(app.settings_row_id().as_deref(), Some("theme:choose"));
+    assert_eq!(app.theme_name(), original_live);
+    assert_eq!(
+        app.config_value("ui.theme").as_deref(),
+        Some(original.as_str())
+    );
+
+    app.press_key(KeyCode::Enter).expect("reopen theme chooser");
+    app.press_key(KeyCode::Down).expect("preview theme to save");
+    let chosen_live = app.theme_name();
+    app.press_key(KeyCode::Enter).expect("save theme");
+    assert_eq!(app.theme_name(), chosen_live);
+    assert_eq!(
+        app.config_value("ui.theme").as_deref(),
+        Some(chosen_live.as_str())
+    );
+    assert_eq!(app.settings_row_id().as_deref(), Some("theme:choose"));
 }
 
-/// Settings opens on the section list, not in a section: the arrows pick a
-/// section, Enter goes in, Esc comes back out, and Esc again leaves.
 #[test]
-fn settings_opens_on_the_section_list_and_esc_steps_back_one_level() {
+fn typesafe_key_form_returns_to_filtered_origin_without_exposing_credentials() {
     let mut app = chat();
-    app.press(KeyCode::Char('p'), true).unwrap();
-    // General first, then Models.
-    app.press_key(KeyCode::Down).unwrap();
+    app.press(KeyCode::Char('p'), true).expect("Settings");
+    app.type_keys("typesafe:key");
+    let origin_query = app.settings_query();
+    assert_eq!(app.settings_row_id().as_deref(), Some("typesafe:key"));
+    app.press_key(KeyCode::Enter).expect("open masked key form");
+    assert!(app.any_modal_open());
+    let secret = "sk-secret-never-render-this";
+    app.paste(secret);
+    let screen = app.render_to_text(150, 44).join("\n");
     assert!(
-        app.modal_title().contains("MODELS"),
-        "{}",
-        app.modal_title()
+        !screen.contains(secret),
+        "credentials must stay masked: {screen}"
     );
-    // On the list: Down picks the next section rather than a model.
-    app.press_key(KeyCode::Down).unwrap();
-    assert!(
-        app.modal_title().contains("PROVIDER"),
-        "{}",
-        app.modal_title()
-    );
-    // Enter goes in; now Down moves within the section.
-    app.press_key(KeyCode::Enter).unwrap();
-    app.press_key(KeyCode::Down).unwrap();
-    assert!(
-        app.modal_title().contains("PROVIDER"),
-        "{}",
-        app.modal_title()
-    );
-    // Esc: back on the list, the section still shown.
-    app.press_key(KeyCode::Esc).unwrap();
-    assert!(app.modal_title().contains("PROVIDER"));
-    app.press_key(KeyCode::Down).unwrap();
-    assert!(app.modal_title().contains("AGENT"), "{}", app.modal_title());
-    // Esc on the list: out of Settings.
-    app.press_key(KeyCode::Esc).unwrap();
-    assert!(!app.is_modal_open());
-}
-
-/// A form opened from a section goes back to that section's list first.
-#[test]
-fn esc_in_a_server_setup_goes_back_to_the_mcp_list() {
-    let mut app = chat();
-    app.run_command("/mcp").unwrap();
-    app.press_key(KeyCode::Char('c')).unwrap();
-    assert!(app.render_to_text(160, 40).join("\n").contains("SET UP"));
-    app.press_key(KeyCode::Esc).unwrap();
-    assert!(app.modal_title().contains("MCP"), "{}", app.modal_title());
-    app.press_key(KeyCode::Esc).unwrap();
-    app.press_key(KeyCode::Esc).unwrap();
-    assert!(!app.is_modal_open());
-}
-
-/// The wheel needs no Enter: over a section it scrolls it and goes in, so
-/// the keys that follow move within the section, not between sections.
-#[test]
-fn the_wheel_over_a_section_goes_into_it() {
-    let mut app = chat();
-    app.run_command("/model").unwrap();
-    app.press_key(KeyCode::Esc).unwrap(); // to the section list
-    let rows = app.render_to_text(160, 40);
-    let (y, row) = rows
-        .iter()
-        .enumerate()
-        .find(|(_, r)| r.contains("MODELS"))
-        .expect("the section");
-    app.mouse(MouseEvent {
-        kind: MouseEventKind::ScrollDown,
-        column: column_of(row, "MODELS") + 10,
-        row: y as u16 + 5,
-        modifiers: KeyModifiers::NONE,
-    })
-    .unwrap();
-    // Down now moves within Models, not to Providers.
-    app.press_key(KeyCode::Down).unwrap();
-    assert!(
-        app.modal_title().contains("MODELS"),
-        "{}",
-        app.modal_title()
-    );
+    app.press_key(KeyCode::Esc).expect("cancel key form");
+    assert_eq!(app.active_tab(), "Settings");
+    assert_eq!(app.settings_query(), origin_query);
+    assert_eq!(app.settings_row_id().as_deref(), Some("typesafe:key"));
 }

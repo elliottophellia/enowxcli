@@ -94,10 +94,8 @@ fn the_search_narrows_the_list_and_esc_clears_it() {
     app.press_key(KeyCode::Esc).expect("clear the search");
     assert!(!app.modal_closed(), "the first Esc clears the search");
     assert!(app.picker_rows().len() > 3);
-    // In Settings: the next Esc steps out to the section list, the one
-    // after leaves Settings.
-    app.press_key(KeyCode::Esc).expect("to the section list");
-    app.press_key(KeyCode::Esc).expect("close");
+    // Chat-launched pickers close directly after their search is cleared.
+    app.press_key(KeyCode::Esc).expect("close the picker");
     assert!(app.modal_closed());
 }
 
@@ -220,4 +218,40 @@ fn leaving_an_agents_model_list_changes_nothing() {
     assert_eq!(app.selected_agent_row(), Some(agent.clone()));
     assert_eq!(app.agent_own_model(&agent), None);
     assert_eq!(app.active_model(), "enowx/cbc/glm-5");
+}
+
+#[test]
+fn settings_model_picker_cancel_restores_origin_query_and_row() {
+    let mut app = two_providers();
+    app.run_command("/settings").expect("settings");
+    app.type_keys("model:choose");
+    assert_eq!(app.settings_row_id().as_deref(), Some("model:choose"));
+    assert_eq!(app.settings_query(), "model:choose");
+    app.press_key(KeyCode::Enter).expect("open model picker");
+    app.press_key(KeyCode::Esc).expect("cancel model picker");
+    assert_eq!(app.active_tab(), "Settings");
+    assert_eq!(app.settings_row_id().as_deref(), Some("model:choose"));
+    assert_eq!(app.settings_query(), "model:choose");
+}
+
+#[test]
+fn settings_agent_model_pick_restores_origin_query_and_row() {
+    let mut app = two_providers();
+    app.run_command("/settings").expect("settings");
+    app.type_keys("frontend");
+    assert_eq!(app.settings_row_id().as_deref(), Some("agent:fe"));
+    app.press_key(KeyCode::Esc)
+        .expect("clear filter, retain row");
+    assert_eq!(app.settings_query(), "");
+    app.press_key(KeyCode::Char('m'))
+        .expect("choose agent model");
+    app.type_keys("v4-pro");
+    app.press_key(KeyCode::Enter).expect("pick agent model");
+    assert_eq!(
+        app.agent_own_model("fe").as_deref(),
+        Some("deepseek/deepseek-v4-pro")
+    );
+    assert_eq!(app.active_tab(), "Settings");
+    assert_eq!(app.settings_row_id().as_deref(), Some("agent:fe"));
+    assert_eq!(app.settings_query(), "");
 }

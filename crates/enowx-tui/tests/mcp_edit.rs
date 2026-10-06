@@ -100,3 +100,42 @@ fn the_add_row_still_opens_a_blank_form() {
         "adding should start from a blank form, got {name:?}/{command:?}"
     );
 }
+
+#[test]
+fn settings_mcp_tools_action_returns_to_origin_query_and_row() {
+    use crossterm::event::KeyCode;
+
+    let mut app = seeded();
+    app.run_command("/settings").expect("settings");
+    app.type_keys("github");
+    assert_eq!(app.settings_row_id().as_deref(), Some("mcp:github"));
+    assert_eq!(app.settings_query(), "github");
+    app.press_key(KeyCode::Enter).expect("show tools");
+    assert_eq!(app.active_tab(), "Settings");
+    assert_eq!(app.settings_row_id().as_deref(), Some("mcp:github"));
+    assert_eq!(app.settings_query(), "github");
+}
+
+#[test]
+fn settings_mcp_space_toggle_returns_to_origin_query_and_row() {
+    use crossterm::event::KeyCode;
+
+    let mut app = seeded();
+    // The seeded row is synthetic discovery data. Persist the same server so
+    // the discovery refresh caused by toggling keeps it available for
+    // Settings return-context restoration.
+    let path = enowx_core::discovery::user_mcp_path();
+    std::fs::create_dir_all(path.parent().expect("MCP config parent")).expect("create config dir");
+    std::fs::write(
+        &path,
+        r#"{"mcpServers":{"github":{"command":"npx","args":["-y","@modelcontextprotocol/server-github"],"env":{}}}}"#,
+    )
+    .expect("persist MCP fixture");
+    app.run_command("/settings").expect("settings");
+    app.type_keys("mcp:github");
+    assert_eq!(app.settings_row_id().as_deref(), Some("mcp:github"));
+    app.press_key(KeyCode::Char(' ')).expect("toggle MCP");
+    assert_eq!(app.active_tab(), "Settings");
+    assert_eq!(app.settings_row_id().as_deref(), Some("mcp:github"));
+    assert_eq!(app.settings_query(), "mcp:github");
+}

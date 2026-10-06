@@ -241,7 +241,7 @@ you are authorized to test, such as your own project before release.
 
 enowx ships four MCP servers of its own, served by the `enowx` binary (no Node
 or Python needed). All four are always listed in `/mcp`, **off by default**.
-Turn one on with `Tab`; a server with no credentials opens its config form
+In the standalone picker, press `Space` to turn one on. A server with no credentials opens its config form
 instead, which you also reach with `c`. Changes take effect in the running
 session, no restart.
 
@@ -294,8 +294,7 @@ Other MCP clients can run them too: the command is `enowx mcp serve coolify`
 ### Code search (`rag`)
 
 `rag` indexes the workspace into Postgres with the pgvector extension and
-lets agents search it by meaning. It has a section of its own in Settings
-(`Ctrl+P`, then RAG, or `/rag`):
+lets agents search it by meaning. It has its own category in Settings (`Ctrl+P`, or `/settings` then navigate/search for RAG); `/rag` opens its Configure code search row without automatically opening the setup form:
 
 | Field | Choices |
 |---|---|
@@ -409,31 +408,34 @@ per step, long files in parts), and the turn carries on. A turn that still fails
 from where it stopped by itself, up to three times a minute apart; `/retry`
 continues at once and `Esc` cancels the wait.
 
-Two tabs sit at the top right: Chat and Settings. Settings takes the main
-column in place of the chat, with its sections listed on the left (Models,
-General, Models, Providers, Agents, Team, MCP, RAG, Skills, TypeSafe,
-Sessions, Display, Theme, Updates) and the chosen one beside
-them. `Ctrl+P` switches between Chat and Settings. Settings opens with the
-section list focused: `Up`/`Down` pick a section, shown beside the list, and
-`Enter` goes into it. `Esc` steps back one level: from a form to its list,
-from a section to the section list, and from the section list to the chat
-(`Left` also steps out of a section). With the mouse, a click on a section
-picks it and a click inside it goes in. `/commands` opens a searchable list of every command, and typing `/`
-lists them above the composer.
+Two tabs sit at the top right: Chat and Settings. `Ctrl+P` switches directly
+between them. `/settings` opens the grouped workspace at its last row (or
+`agent.preview` initially). A category rail and complete grouped row list are
+shown when there is room; short terminals show the grouped list flat and keep
+the selected row visible. `Up`/`Down` move actionable rows across categories;
+printable text filters labels, safe values, actions and help. `Tab`/
+`Shift+Tab` focus the category rail when at least two categories match, and
+`PgUp`/`PgDn` jump among matching categories. In the rail, `Up`/`Down`
+changes category and `Enter`/`Right` returns to rows. `Enter` opens or applies,
+`Space` toggles booleans and advances finite choices, and `Left`/`Right`
+changes finite choices. `Esc` clears a nonempty query, returns to rows, or
+closes Settings to Chat. `/rag` and `/team` open Settings on their primary rows.
+`/commands` remains a separate searchable command list; typing `/` still
+lists commands above the composer.
 
 Keys work the same on Linux, macOS and Windows. Where a terminal or the OS
 takes a shortcut for itself, a second form does the same thing:
 
 | Key | Does |
 |---|---|
-| `Enter` | Send (queues while a turn runs) |
+| `Enter` | Send (queues while a turn runs); in Settings open/apply row |
 | `Shift+Enter`, `Alt+Enter` | Newline (`Ctrl+J` too, when idle) |
 | `Ctrl+Enter`, `Ctrl+S` | Send now, while a turn runs |
 | `Ctrl+Backspace`, `Alt+Backspace` | Erase a word |
-| `Esc` | Back one level in Settings, stop a turn, or clear the composer |
+| `Esc` | Clear Settings search / return focus / close Settings; stop or clear Chat input |
 | `Ctrl+C` | Stop a turn, clear the composer, or ask to quit |
 | `Ctrl+D` | Quit, from an empty composer |
-| `Ctrl+P` | Switch between Chat and Settings |
+| `Ctrl+P` | Switch directly between Chat and Settings |
 | `Ctrl+R` / `Ctrl+O` | Show reasoning / tool output |
 | `Ctrl+T` | Next sidebar tab (`Alt+1` to `Alt+4` pick one) |
 | `Alt+Left`/`Alt+Right`, `Alt+B`/`Alt+F` | Sidebar pages |
@@ -441,7 +443,8 @@ takes a shortcut for itself, a second form does the same thing:
 | `Ctrl+B` | Show or hide the sidebar |
 | `Ctrl+Up`, `Alt+Up` | Edit, resend or copy your last message |
 | `Ctrl+V`, `Alt+V` | Attach an image from the clipboard |
-| `PgUp` / `PgDn` | Scroll the chat |
+| `PgUp` / `PgDn` | Jump Settings categories; scroll Chat otherwise |
+
 
 `Ctrl+Enter` and `Shift+Enter` are told apart from `Enter` only by terminals
 that speak the kitty keyboard protocol (kitty, WezTerm, foot, Ghostty,
@@ -552,10 +555,7 @@ written by the orchestrator with `plan_write`), each carried by the agents
 whose work needs it and read only when the work does. A project or user skill of the same
 name replaces one. A skill installed in the project or `~/` goes to every
 agent until the orchestrator binds it, with `skill_bind` (every binding in one
-call), to the agents whose work it serves; bindings are kept in `~/.enx/skill-bindings.json`, and the
-Skills tab shows who has each one. `/skills` and `/mcp` open their Settings sections to toggle
-or add entries; `/compact` folds older turns into a summary; auto-compact fires
-when the context window nears its cap.
+call), to the agents whose work it serves; bindings are kept in `~/.enx/skill-bindings.json`, and the Skills tab shows which agents carry each skill. `/skills` and `/mcp` remain standalone pickers: Space toggles a selected row; Enter reads a skill or opens an MCP entry. `/compact` folds older turns into a summary; auto-compact fires when the context window nears its cap.
 
 After `write`, `edit` and `multi_edit`, the file goes to its language server
 (rust-analyzer with clippy, typescript-language-server, pyright and ruff,

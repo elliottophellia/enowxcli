@@ -8,6 +8,14 @@
 use crossterm::event::KeyCode;
 use enowx_tui::testing::TestApp;
 
+fn open_typesafe_key_from_settings(app: &mut TestApp) {
+    app.press(KeyCode::Char('p'), true)
+        .expect("Ctrl+P to Settings");
+    app.type_keys("typesafe:key");
+    assert_eq!(app.settings_row_id().as_deref(), Some("typesafe:key"));
+    app.press(KeyCode::Enter, false).expect("open TypeSafe key");
+}
+
 #[test]
 fn the_command_opens_its_own_window() {
     let mut app = TestApp::new();
@@ -184,4 +192,44 @@ fn it_is_listed_in_the_command_palette() {
         app.select_palette("typesafe"),
         "the palette should offer /typesafe"
     );
+}
+
+#[test]
+fn settings_key_editor_cancels_to_its_stable_row_and_filter() {
+    let mut app = TestApp::new();
+    open_typesafe_key_from_settings(&mut app);
+    assert!(app.is_modal_open());
+    assert_eq!(app.key_draft(), "");
+    for c in "half-typed-secret".chars() {
+        app.press(KeyCode::Char(c), false).expect("type masked key");
+    }
+    assert!(!app
+        .render_to_text(120, 36)
+        .join("\n")
+        .contains("half-typed-secret"));
+    app.press(KeyCode::Esc, false).expect("cancel key editor");
+    assert_eq!(app.active_tab(), "Settings");
+    assert_eq!(app.settings_row_id().as_deref(), Some("typesafe:key"));
+    assert_eq!(app.settings_query(), "typesafe:key");
+    assert!(!app.typesafe_active());
+    assert_eq!(app.typesafe_key(), "");
+}
+
+#[test]
+fn settings_key_editor_commits_and_returns_to_its_stable_row() {
+    let mut app = TestApp::new();
+    open_typesafe_key_from_settings(&mut app);
+    for c in "a-real-looking-key".chars() {
+        app.press(KeyCode::Char(c), false).expect("type masked key");
+    }
+    assert!(!app
+        .render_to_text(120, 36)
+        .join("\n")
+        .contains("a-real-looking-key"));
+    app.press(KeyCode::Enter, false).expect("save key");
+    assert_eq!(app.typesafe_key(), "a-real-looking-key");
+    assert!(app.typesafe_active());
+    assert_eq!(app.active_tab(), "Settings");
+    assert_eq!(app.settings_row_id().as_deref(), Some("typesafe:key"));
+    assert_eq!(app.settings_query(), "typesafe:key");
 }

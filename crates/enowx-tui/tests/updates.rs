@@ -13,24 +13,33 @@ fn a_new_release_is_noted_in_the_status_bar() {
 }
 
 #[test]
-fn the_updates_section_saves_its_switches() {
+fn update_checks_commit_independently_and_explain_restart_timing() {
     let mut app = TestApp::new();
-    app.run_command("/commands").unwrap();
-    app.press_key(KeyCode::Esc).unwrap();
-    // Reached through Settings: Ctrl+P, then up from the top wraps to it.
-    app.press(KeyCode::Char('p'), true).unwrap();
-    app.press_key(KeyCode::Up).unwrap();
-    let screen = app.render_to_text(150, 44).join("\n");
-    assert!(screen.contains("UPDATES · ENOWX"), "{screen}");
-    assert!(
-        screen.contains("Check for a new release at start"),
-        "{screen}"
+    app.run_command("/settings").unwrap();
+    app.type_keys("update.check_on_start");
+    assert_eq!(
+        app.settings_row_id().as_deref(),
+        Some("update.check_on_start")
     );
-    app.press_key(KeyCode::Enter).unwrap(); // into the section
-    app.press_key(KeyCode::Down).unwrap(); // install by itself
-    app.press_key(KeyCode::Right).unwrap(); // on
-    app.press_key(KeyCode::Enter).unwrap();
-    let update = enowx_core::Config::load().unwrap().update;
-    assert!(update.check_on_start);
-    assert!(update.auto_install);
+    app.press_key(KeyCode::Char(' ')).unwrap();
+    assert_eq!(
+        app.config_value("update.check_on_start").as_deref(),
+        Some("false")
+    );
+    app.press_key(KeyCode::Esc).unwrap();
+    app.type_keys("update.auto_install");
+    assert_eq!(
+        app.settings_row_id().as_deref(),
+        Some("update.auto_install")
+    );
+    let screen = app.render_to_text(150, 44).join("\n");
+    assert!(
+        screen.contains("after restarting enx"),
+        "restart timing: {screen}"
+    );
+    app.press_key(KeyCode::Char(' ')).unwrap();
+    assert_eq!(
+        app.config_value("update.auto_install").as_deref(),
+        Some("true")
+    );
 }

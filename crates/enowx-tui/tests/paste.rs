@@ -61,14 +61,17 @@ fn a_paste_reaches_the_provider_form() {
 fn a_paste_follows_the_selected_field() {
     let mut app = TestApp::new();
     app.open_custom_provider_form();
-    app.press(KeyCode::Tab, false).expect("next field");
-    app.press(KeyCode::Tab, false).expect("and again");
+    app.press(KeyCode::Tab, false).expect("to URL");
+    app.press(KeyCode::Tab, false).expect("to key");
     app.paste("sk-the-key");
-    assert_eq!(
-        app.provider_key_draft(),
-        "sk-the-key",
-        "two Tabs from the top is the API key row"
-    );
+    assert_eq!(app.provider_key_draft(), "sk-the-key");
+    app.press(KeyCode::Left, false)
+        .expect("move within key field");
+    app.paste("X");
+    assert_eq!(app.provider_key_draft(), "sk-the-keXy");
+    app.press(KeyCode::Right, false).expect("move to end");
+    app.paste("!");
+    assert_eq!(app.provider_key_draft(), "sk-the-keXy!");
 }
 
 /// Pasting a terminal's own control sequences must not move the cursor or

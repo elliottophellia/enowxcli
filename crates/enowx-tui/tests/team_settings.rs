@@ -1,5 +1,4 @@
-//! Settings > Team: agents working together, off by default; on, each part
-//! and how cross-review runs can be set, and are saved to the config.
+//! Settings > Team: independently committed master, child, and cycle rows.
 
 use crossterm::event::KeyCode;
 use enowx_tui::testing::TestApp;
@@ -9,41 +8,103 @@ fn screen(app: &mut TestApp) -> String {
 }
 
 #[test]
-fn team_is_off_by_default_and_shows_only_its_switch() {
+fn team_master_hides_children_until_enabled() {
     let mut app = TestApp::new();
     app.run_command("/team").unwrap();
     let text = screen(&mut app);
-    assert!(text.contains("TEAM · AGENTS WORKING TOGETHER"), "{text}");
-    assert!(text.contains("Agents work together"), "{text}");
-    assert!(text.contains("◂ off ▸"), "{text}");
-    assert!(!text.contains("Reviewer"), "the rest only when on: {text}");
-}
-
-#[test]
-fn turning_it_on_shows_its_parts_and_saves_them() {
-    let mut app = TestApp::new();
-    app.run_command("/team").unwrap();
-    app.press_key(KeyCode::Right).unwrap(); // on
+    assert_eq!(
+        app.settings_row_id().as_deref(),
+        Some("agent.comms.enabled")
+    );
+    assert!(text.contains("Enable agent teamwork"), "{text}");
+    assert!(
+        !text.contains("Agent messages"),
+        "children should be hidden while off: {text}"
+    );
+    app.press_key(KeyCode::Char(' ')).unwrap();
+    assert_eq!(
+        app.config_value("agent.comms.enabled").as_deref(),
+        Some("true")
+    );
+    assert_eq!(
+        app.settings_row_id().as_deref(),
+        Some("agent.comms.enabled")
+    );
     let text = screen(&mut app);
     for label in [
-        "Messages between agents at work",
-        "Shared board for each run",
-        "Cross-review of delegated work",
-        "Correction rounds at most",
-        "Reviewer",
+        "Agent messages",
+        "Shared team board",
+        "Review delegated changes",
+        "Review rounds",
+        "Reviewer agent",
     ] {
         assert!(text.contains(label), "{label}: {text}");
     }
-    // Rounds: 2 by default, up to 3.
-    for _ in 0..4 {
-        app.press_key(KeyCode::Down).unwrap();
+}
+
+#[test]
+fn disabling_team_hides_children_and_keeps_the_master_selected() {
+    let mut app = TestApp::new();
+    app.run_command("/team").unwrap();
+    if app.config_value("agent.comms.enabled").as_deref() != Some("true") {
+        app.press_key(KeyCode::Char(' ')).unwrap();
     }
+    app.type_keys("agent.comms.enabled");
+    assert_eq!(
+        app.settings_row_id().as_deref(),
+        Some("agent.comms.enabled")
+    );
+    app.press_key(KeyCode::Char(' ')).unwrap();
+    assert_eq!(
+        app.config_value("agent.comms.enabled").as_deref(),
+        Some("false")
+    );
+    assert_eq!(
+        app.settings_row_id().as_deref(),
+        Some("agent.comms.enabled")
+    );
+    assert!(!screen(&mut app).contains("Reviewer agent"));
+}
+
+#[test]
+fn rounds_cycle_commits_without_saving_other_team_rows() {
+    let mut app = TestApp::new();
+    app.run_command("/team").unwrap();
+    app.press_key(KeyCode::Char(' ')).unwrap();
+    app.type_keys("review_rounds");
+    assert_eq!(
+        app.settings_row_id().as_deref(),
+        Some("agent.comms.review_rounds")
+    );
     app.press_key(KeyCode::Right).unwrap();
-    assert!(screen(&mut app).contains("◂ 3 ▸"), "{}", screen(&mut app));
-    app.press_key(KeyCode::Enter).unwrap();
-    let comms = enowx_core::Config::load().unwrap().agent.comms;
-    assert!(comms.enabled);
-    assert_eq!(comms.review_rounds, 3);
-    assert_eq!(comms.reviewer, "review");
-    assert!(app.is_modal_open(), "the section stays open");
+    assert_eq!(
+        app.config_value("agent.comms.review_rounds").as_deref(),
+        Some("3")
+    );
+    assert!(screen(&mut app).contains("3"));
+}
+
+#[test]
+fn team_description_search_and_empty_query_escape_keep_settings_open() {
+    let mut app = TestApp::new();
+    app.run_command("/team").unwrap();
+    if app.config_value("agent.comms.enabled").as_deref() != Some("true") {
+        app.press_key(KeyCode::Char(' ')).unwrap();
+    }
+    app.type_keys("working in parallel");
+    assert_eq!(
+        app.settings_row_id().as_deref(),
+        Some("agent.comms.messages"),
+        "{}",
+        screen(&mut app)
+    );
+    assert_eq!(app.settings_query(), "working in parallel");
+
+    app.press_key(KeyCode::Esc).unwrap();
+    assert!(app.settings_query().is_empty());
+    app.type_keys("definitely-no-setting-matches");
+    assert!(screen(&mut app).contains("No settings match this query"));
+    app.press_key(KeyCode::Esc).unwrap();
+    assert_eq!(app.active_tab(), "Settings");
+    assert!(app.settings_query().is_empty());
 }

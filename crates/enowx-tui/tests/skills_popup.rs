@@ -50,3 +50,44 @@ fn built_in_parts_are_listed_through_their_parent() {
     assert!(side.contains(&format!("ui +{parts} parts")), "{side}");
     assert!(side.contains("brainstorm"), "{side}");
 }
+
+#[test]
+fn settings_skill_read_action_returns_to_origin_query_and_row() {
+    use crossterm::event::KeyCode;
+
+    let mut app = TestApp::new_with_skills(&["release-notes"]);
+    app.run_command("/settings").expect("settings");
+    app.type_keys("release-notes");
+    assert_eq!(
+        app.settings_row_id().as_deref(),
+        Some("skill:project:release-notes")
+    );
+    assert_eq!(app.settings_query(), "release-notes");
+    app.press_key(KeyCode::Enter).expect("read skill");
+    assert_eq!(app.active_tab(), "Settings");
+    assert_eq!(
+        app.settings_row_id().as_deref(),
+        Some("skill:project:release-notes")
+    );
+    assert_eq!(app.settings_query(), "release-notes");
+}
+
+#[test]
+fn settings_skill_space_toggle_returns_to_origin_query_and_row() {
+    use crossterm::event::KeyCode;
+
+    let mut app = TestApp::new_with_skills(&["release-notes"]);
+    app.run_command("/settings").expect("settings");
+    app.type_keys("skill:project:release-notes");
+    assert_eq!(
+        app.settings_row_id().as_deref(),
+        Some("skill:project:release-notes")
+    );
+    app.press_key(KeyCode::Char(' ')).expect("toggle skill");
+    assert_eq!(app.active_tab(), "Settings");
+    assert_eq!(
+        app.settings_row_id().as_deref(),
+        Some("skill:project:release-notes")
+    );
+    assert_eq!(app.settings_query(), "skill:project:release-notes");
+}

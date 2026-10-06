@@ -214,7 +214,8 @@ pub(super) fn overlay(
     let area = frame.area();
     // A Settings section fills the main column beside the section list, in
     // place of the chat; anything else floats in the middle of the window.
-    let page = crate::app::pages::Page::of(app.modal) != crate::app::pages::Page::Chat;
+    let page = crate::app::pages::Page::of(app.modal) != crate::app::pages::Page::Chat
+        || app.tab() == crate::app::pages::Tab::Settings;
     let rect = match app.settings_content.or(app.main_area) {
         Some(main) if page && main.width >= 30 && main.height >= 8 => main,
         _ => {

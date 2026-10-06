@@ -30,7 +30,9 @@ pub(crate) mod question;
 mod queue;
 mod rag_ui;
 mod sessions;
+pub(crate) mod settings_catalog;
 mod settings_keys;
+mod settings_workspace;
 pub(crate) mod skills;
 mod team_ui;
 pub(crate) mod update_ui;
@@ -137,6 +139,40 @@ pub(crate) struct Viewing {
     pub(crate) blocks_at_open: usize,
     /// Delegation reports in it then; see `reports_in`.
     pub(crate) reports_at_open: usize,
+}
+
+/// One independent text-setting draft, including its character cursor.
+#[derive(Clone, Debug)]
+pub(crate) struct SettingEdit {
+    pub(crate) row_id: String,
+    pub(crate) category: pages::Page,
+    pub(crate) config_key: String,
+    pub(crate) label: String,
+    pub(crate) description: String,
+    pub(crate) placeholder: String,
+    pub(crate) draft: String,
+    pub(crate) cursor: usize,
+    pub(crate) error: String,
+}
+
+/// A finite choice which is previewed until the user commits with Enter.
+#[derive(Clone, Debug)]
+pub(crate) struct SettingsChoiceState {
+    pub(crate) row_id: String,
+    pub(crate) category: pages::Page,
+    pub(crate) config_key: String,
+    pub(crate) original_value: String,
+    pub(crate) preview_value: String,
+    pub(crate) selected_index: usize,
+    pub(crate) choices: Vec<(String, String)>,
+}
+
+/// Settings context to restore after a nested picker or form closes.
+#[derive(Clone, Debug)]
+pub(crate) struct SettingsReturnContext {
+    pub(crate) category: pages::Page,
+    pub(crate) row_id: String,
+    pub(crate) query: String,
 }
 
 pub(crate) struct App {
@@ -295,6 +331,9 @@ pub(crate) struct App {
     /// The provider id on each row of `/provider`, in order; the row after
     /// them adds a new one.
     pub(crate) provider_ids: Vec<String>,
+    pub(crate) setting_edit: Option<SettingEdit>,
+    pub(crate) settings_choice: Option<SettingsChoiceState>,
+    pub(crate) settings_return: Option<SettingsReturnContext>,
     pub(crate) modal_error: String,
     pub(crate) activity: Activity,
     pub(crate) activity_since: Instant,
@@ -322,14 +361,25 @@ pub(crate) struct App {
     pub(crate) main_area: Option<Rect>,
     /// The tabs at the top right, as drawn, for a click.
     pub(crate) page_tabs: Vec<(Rect, pages::Tab)>,
-    /// The tab last chosen, by its place in `pages::PAGES`.
+    /// The selected top-level workspace tab. Nested picker modals no longer
+    /// decide whether Chat or Settings is active.
+    pub(crate) active_tab: pages::Tab,
+    /// The last selected Settings category, by its place in `SECTIONS`.
     pub(crate) page_index: usize,
-    /// Settings has the section list focused rather than the section.
+    /// Focus is on the category rail rather than the Settings rows.
     pub(crate) settings_nav: bool,
+    /// Uncommitted global Settings search query; never persisted.
+    pub(crate) settings_query: String,
+    /// Selected row by stable catalog id, never by position.
+    pub(crate) settings_row_id: String,
     /// Where each section of the Settings list was drawn, for clicks.
     pub(crate) settings_sections: Vec<(Rect, pages::Page)>,
+    /// Click regions for catalog rows and their toggle controls.
+    pub(crate) settings_row_rects: Vec<(Rect, String)>,
+    pub(crate) settings_toggle_rects: Vec<(Rect, String)>,
     /// The area a Settings section draws in, beside the section list.
     pub(crate) settings_content: Option<Rect>,
+    pub(crate) chat_return: Option<SettingsReturnContext>,
     /// What this session costs the machine, sampled every few seconds.
     pub(crate) resources: crate::resources::Sampler,
     /// A handoff under way: the new session, or why it failed.
@@ -508,6 +558,9 @@ impl App {
             picker: model_picker::ModelPicker::default(),
             picking_for_agent: None,
             provider_ids: Vec::new(),
+            setting_edit: None,
+            settings_choice: None,
+            settings_return: None,
             modal_error: String::new(),
             activity: Activity::Idle,
             activity_since: Instant::now(),
@@ -526,10 +579,16 @@ impl App {
             queue_send_button: None,
             main_area: None,
             page_tabs: Vec::new(),
+            active_tab: pages::Tab::Chat,
             page_index: 0,
             settings_nav: false,
+            settings_query: String::new(),
+            settings_row_id: "agent.preview".into(),
             settings_sections: Vec::new(),
+            settings_row_rects: Vec::new(),
+            settings_toggle_rects: Vec::new(),
             settings_content: None,
+            chat_return: None,
             resources: crate::resources::Sampler::default(),
             handoff: None,
             mcp_config_stamp: mcp_config_mtime(),

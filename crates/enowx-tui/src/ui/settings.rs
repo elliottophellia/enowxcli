@@ -1,6 +1,115 @@
 use super::*;
 
+pub(super) fn draw_setting_value(frame: &mut Frame, app: &mut App) {
+    let Some(edit) = app.setting_edit.as_ref() else {
+        return;
+    };
+    let title = edit.label.clone();
+    let hint = "Enter save · Esc discard · Ctrl+U clear";
+    let (_, content) = overlay(frame, app, 72, 5, &title, hint);
+    if content.width == 0 || content.height == 0 {
+        return;
+    }
+    let edit = app.setting_edit.as_ref().unwrap();
+    let secret = edit.config_key.to_ascii_lowercase().contains("key")
+        || edit.config_key.to_ascii_lowercase().contains("secret")
+        || edit.config_key.to_ascii_lowercase().contains("password");
+    let shown = if secret {
+        "•".repeat(edit.draft.chars().count())
+    } else {
+        edit.draft.clone()
+    };
+    let text = if shown.is_empty() {
+        &edit.placeholder
+    } else {
+        &shown
+    };
+    frame.render_widget(
+        Paragraph::new(edit.description.as_str()).style(Style::default().fg(app.theme.muted)),
+        Rect::new(content.x, content.y, content.width, 1),
+    );
+    frame.render_widget(
+        Paragraph::new(text.as_str()).style(Style::default().fg(if shown.is_empty() {
+            app.theme.faint
+        } else {
+            app.theme.text
+        })),
+        Rect::new(content.x, content.y.saturating_add(2), content.width, 1),
+    );
+    if !edit.error.is_empty() {
+        frame.render_widget(
+            Paragraph::new(edit.error.as_str()).style(Style::default().fg(app.theme.red)),
+            Rect::new(content.x, content.y.saturating_add(3), content.width, 1),
+        );
+    }
+    let column = if secret {
+        edit.draft[..edit.cursor].chars().count()
+    } else {
+        unicode_width::UnicodeWidthStr::width(&edit.draft[..edit.cursor])
+    };
+    frame.set_cursor_position((
+        content.x + column.min(content.width.saturating_sub(1) as usize) as u16,
+        content.y.saturating_add(2),
+    ));
+}
+
+pub(super) fn draw_settings_choice(frame: &mut Frame, app: &mut App) {
+    let Some(choice) = app.settings_choice.as_ref() else {
+        return;
+    };
+    let rows = choice
+        .choices
+        .iter()
+        .map(|(value, label)| (label.clone(), value.clone()))
+        .collect::<Vec<_>>();
+    let body = rows.len() as u16;
+    let (rect, inner) = overlay(
+        frame,
+        app,
+        52,
+        body,
+        " CHOOSE REVIEWER ",
+        "↑↓ preview · Enter apply · Esc cancel",
+    );
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+    let items = rows
+        .iter()
+        .enumerate()
+        .map(|(index, (label, value))| {
+            let selected = index == choice.selected_index;
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    if selected { "› " } else { "  " },
+                    Style::default().fg(app.theme.accent),
+                ),
+                Span::styled(
+                    label.as_str(),
+                    Style::default().fg(if selected {
+                        app.theme.text
+                    } else {
+                        app.theme.muted
+                    }),
+                ),
+                Span::raw("  "),
+                Span::styled(value.as_str(), Style::default().fg(app.theme.faint)),
+            ]))
+        })
+        .collect::<Vec<_>>();
+    frame.render_widget(List::new(items), inner);
+    let _ = rect;
+}
+
 pub(super) fn draw_settings(frame: &mut Frame, app: &mut App, area: Rect) {
+    if app.modal == Modal::SettingValue {
+        draw_setting_value(frame, app);
+        return;
+    }
+    if app.modal == Modal::SettingsChoice {
+        draw_settings_choice(frame, app);
+        return;
+    }
     let fields = app.current_form_fields();
     let width = area.width.saturating_sub(2).min(72);
     // Content rows: each field is its label, its value and a gap; the note

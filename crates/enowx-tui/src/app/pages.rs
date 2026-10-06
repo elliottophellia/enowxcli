@@ -16,7 +16,7 @@
 use super::*;
 
 /// A section of Settings, or the chat.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub(crate) enum Page {
     Chat,
     Models,
@@ -115,57 +115,71 @@ impl Page {
 impl App {
     /// The section on screen, or `Chat`.
     pub(crate) fn page(&self) -> Page {
+        if self.active_tab == Tab::Settings {
+            if self.modal == Modal::None {
+                return SECTIONS[self.page_index.min(SECTIONS.len() - 1)];
+            }
+            if self.modal == Modal::SettingValue {
+                if let Some(edit) = &self.setting_edit {
+                    return edit.category;
+                }
+            }
+            if self.modal == Modal::SettingsChoice {
+                if let Some(choice) = &self.settings_choice {
+                    return choice.category;
+                }
+            }
+        }
         Page::of(self.modal)
     }
 
-    /// The tab on screen.
     pub(crate) fn tab(&self) -> Tab {
-        if self.page() == Page::Chat {
-            Tab::Chat
-        } else {
-            Tab::Settings
-        }
+        self.active_tab
     }
 
     /// Open `page`: a section of Settings, or the chat.
     pub(crate) fn open_page(&mut self, page: Page) -> Result<()> {
-        // Remembered for the next time Settings opens, however the section
-        // was reached (a tab, the list, or `/skills` typed in the chat).
-        if let Some(index) = SECTIONS.iter().position(|p| *p == self.page()) {
+        if let Some(index) = SECTIONS.iter().position(|candidate| *candidate == page) {
+            if self.modal == Modal::Themes {
+                self.theme = crate::theme::Theme::find(&self.config.ui.theme);
+            }
             self.page_index = index;
-        }
-        if let Some(index) = SECTIONS.iter().position(|p| *p == page) {
-            self.page_index = index;
-        }
-        // The theme section previews as you move; leaving it without
-        // choosing puts the saved theme back, or the preview sticks.
-        if self.modal == Modal::Themes {
-            self.theme = crate::theme::Theme::find(&self.config.ui.theme);
-        }
-        // Leaving a section closes its modal the way Esc does, so nothing it
-        // was holding (a model list being fetched, an agent being given a
-        // model) carries over to the next one.
-        self.modal = Modal::None;
-        self.picker.events = None;
-        self.picking_for_agent = None;
-        self.modal_search.clear();
-        self.modal_error.clear();
-        self.settings_nav = false;
-        match page {
-            Page::Chat => {}
-            Page::Models => self.open_model_picker(None),
-            Page::Providers => self.open_providers(),
-            Page::Agents => self.open_agents(),
-            Page::Mcp => self.open_mcp(),
-            Page::Rag => self.open_rag(),
-            Page::Team => self.open_team(),
-            Page::Updates => self.open_updates(),
-            Page::General => self.open_prefs(Modal::General),
-            Page::Display => self.open_prefs(Modal::Display),
-            Page::TypeSafe => self.open_typesafe(),
-            Page::Skills => self.open_skills(),
-            Page::Sessions => self.open_sessions()?,
-            Page::Theme => self.open_themes(),
+            self.active_tab = Tab::Settings;
+            self.modal = Modal::None;
+            self.picker.events = None;
+            self.picking_for_agent = None;
+            self.modal_search.clear();
+            self.modal_error.clear();
+            self.settings_nav = false;
+            self.settings_query.clear();
+            self.settings_row_id = self
+                .settings_rows()
+                .iter()
+                .find(|row| row.category == page)
+                .map(|row| row.id.clone())
+                .unwrap_or_default();
+            self.chat_return = None;
+        } else {
+            if self.active_tab == Tab::Settings {
+                let category = self.page();
+                self.chat_return = Some(SettingsReturnContext {
+                    category,
+                    row_id: self.settings_row_id.clone(),
+                    query: String::new(),
+                });
+            } else {
+                self.chat_return = None;
+            }
+            self.active_tab = Tab::Chat;
+            self.modal = Modal::None;
+            self.picker.events = None;
+            self.picking_for_agent = None;
+            self.modal_search.clear();
+            self.modal_error.clear();
+            self.setting_edit = None;
+            self.settings_choice = None;
+            self.settings_nav = false;
+            self.settings_query.clear();
         }
         Ok(())
     }
@@ -175,13 +189,22 @@ impl App {
     pub(crate) fn open_tab(&mut self, tab: Tab) -> Result<()> {
         match tab {
             Tab::Chat => self.open_page(Page::Chat),
-            Tab::Settings if self.tab() == Tab::Settings => {
-                self.settings_nav = true;
-                Ok(())
-            }
             Tab::Settings => {
-                self.open_page(SECTIONS[self.page_index.min(SECTIONS.len() - 1)])?;
-                self.settings_nav = true;
+                self.active_tab = Tab::Settings;
+                if let Some(context) = self.chat_return.take() {
+                    self.page_index = SECTIONS
+                        .iter()
+                        .position(|page| *page == context.category)
+                        .unwrap_or(self.page_index);
+                    self.settings_row_id = context.row_id;
+                }
+                self.settings_query.clear();
+                self.setting_edit = None;
+                self.settings_choice = None;
+                self.settings_return = None;
+                self.modal_error.clear();
+                self.settings_nav = false;
+                self.ensure_settings_selection();
                 Ok(())
             }
         }
@@ -195,116 +218,11 @@ impl App {
         }
     }
 
-    /// The section list's place in `SECTIONS`: the section on screen, which
-    /// may differ from the one chosen (Models with no provider connected
-    /// opens Providers).
     pub(crate) fn section_index(&self) -> usize {
-        SECTIONS
-            .iter()
-            .position(|p| *p == self.page())
-            .unwrap_or(self.page_index)
+        self.page_index.min(SECTIONS.len() - 1)
     }
 
-    /// Esc inside a section: one level back. A section's own list or form
-    /// gives the focus to the section list; a form opened from that list
-    /// (a provider's key, an MCP server's setup) goes back to the list; a
-    /// search being typed is cleared first.
-    fn settings_escape(&mut self) -> Result<bool> {
-        match self.modal {
-            Modal::Models if !self.modal_search.is_empty() || self.picking_for_agent.is_some() => {
-                Ok(false)
-            }
-            // A TypeSafe key's form goes back to the TypeSafe list.
-            Modal::TypeSafeKey => {
-                self.modal_error.clear();
-                self.open_typesafe();
-                Ok(true)
-            }
-            Modal::McpForm | Modal::BuiltinMcp => {
-                let at = self.modal_cursor;
-                self.modal_error.clear();
-                self.open_mcp();
-                self.modal_cursor = at.min(self.mcp_rows().len().saturating_sub(1));
-                Ok(true)
-            }
-            Modal::Models
-            | Modal::Providers
-            | Modal::Agents
-            | Modal::Mcp
-            | Modal::Rag
-            | Modal::Team
-            | Modal::Updates
-            | Modal::General
-            | Modal::Display
-            | Modal::TypeSafe
-            | Modal::Skills
-            | Modal::Sessions
-            | Modal::Themes
-            | Modal::Effort => {
-                // The theme section previews as you move: stepping out
-                // without choosing puts the saved theme back.
-                if self.modal == Modal::Themes {
-                    self.theme = crate::theme::Theme::find(&self.config.ui.theme);
-                }
-                self.settings_nav = true;
-                Ok(true)
-            }
-            _ => Ok(false),
-        }
-    }
-
-    /// Keys while Settings is on screen, before the section sees them.
-    /// Returns whether the key was taken.
-    pub(crate) fn settings_page_key(&mut self, key: &crossterm::event::KeyEvent) -> Result<bool> {
-        use crossterm::event::{KeyCode, KeyModifiers};
-        if self.tab() != Tab::Settings {
-            self.settings_nav = false;
-            return Ok(false);
-        }
-        // Esc from a section closes it in the section's own handler; the
-        // section is remembered here so Settings opens on it again.
-        self.page_index = self.section_index();
-        if self.settings_nav {
-            match key.code {
-                KeyCode::Up | KeyCode::Down => {
-                    let at = self.section_index();
-                    let next = if key.code == KeyCode::Up {
-                        at.checked_sub(1).unwrap_or(SECTIONS.len() - 1)
-                    } else {
-                        (at + 1) % SECTIONS.len()
-                    };
-                    self.open_page(SECTIONS[next])?;
-                    self.settings_nav = true;
-                }
-                KeyCode::Right | KeyCode::Enter | KeyCode::Tab => self.settings_nav = false,
-                KeyCode::Esc => self.open_page(Page::Chat)?,
-                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    self.open_page(Page::Chat)?
-                }
-                _ => {}
-            }
-            return Ok(true);
-        }
-        if key.code == KeyCode::Esc {
-            return self.settings_escape();
-        }
-        // Left steps out to the section list from a section's list. A form
-        // keeps it for its caret and its choices, unless the caret is
-        // already at the start of a text field.
-        let at_start = self.modal.is_form()
-            && self.modal != Modal::McpForm
-            && self.field_cursor == 0
-            && self
-                .current_form_fields()
-                .get(self.modal_cursor)
-                .is_some_and(|f| !f.is_choice());
-        if key.code == KeyCode::Left
-            && key.modifiers.is_empty()
-            && (!self.modal.is_form() || at_start)
-        {
-            self.settings_nav = true;
-            return Ok(true);
-        }
+    pub(crate) fn settings_page_key(&mut self, _key: &crossterm::event::KeyEvent) -> Result<bool> {
         Ok(false)
     }
 }

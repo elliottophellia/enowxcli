@@ -22,6 +22,7 @@ mod pickers;
 mod popups;
 mod question;
 mod settings;
+mod settings_workspace;
 mod sidebar;
 mod tool;
 mod transcript;
@@ -84,10 +85,15 @@ pub(crate) fn draw(frame: &mut Frame, app: &mut App) {
         return;
     }
     // No margin and no window frame: the boxes themselves are the layout,
-    // and a frame around them drew a second edge beside every first one.
     draw_main(frame, app, area);
-    draw_settings_nav(frame, app);
-    if app.modal != Modal::None && !draw_popup(frame, app) {
+    if app.tab() == crate::app::pages::Tab::Settings {
+        if let Some(main) = app.main_area {
+            settings_workspace::draw(frame, app, main);
+        }
+        if app.modal != Modal::None && !draw_popup(frame, app) {
+            draw_modal(frame, app);
+        }
+    } else if app.modal != Modal::None && !draw_popup(frame, app) {
         draw_modal(frame, app);
     }
     draw_page_tabs(frame, app);
@@ -265,7 +271,7 @@ fn draw_settings_nav(frame: &mut Frame, app: &mut App) {
         t.muted,
         t.panel,
     );
-    let current = app.section_index();
+    let current = app.page_index;
     let inner = Rect::new(nav.x + 1, nav.y + 2, nav.width - 2, nav.height - 3);
     for (i, page) in SECTIONS.iter().enumerate() {
         let y = inner.y + i as u16;
